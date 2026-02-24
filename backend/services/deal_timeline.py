@@ -15,15 +15,15 @@ in November. Closing date passed 5 days ago. This is the pattern of a
 zombie deal — recommend killing it or doing one final re-engagement."
 """
 
-from groq import Groq
+import anthropic
 import os
 import re
 import json
 from datetime import datetime, timezone, date
 from typing import List, Dict, Any, Optional
 
-client = Groq(api_key=os.getenv("GROQ_API_KEY", ""))
-MODEL = "llama-3.3-70b-versatile"
+client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+MODEL = "claude-haiku-4-5-20251001"
 
 
 def _parse_dt(s: Optional[str]) -> Optional[datetime]:
@@ -241,12 +241,12 @@ Write a 2-3 sentence narrative interpreting this timeline. What does the pattern
 Be specific and direct. Use the actual data. Do not use bullet points. Output only the narrative text, no JSON, no headers."""
 
     try:
-        resp = client.chat.completions.create(
+        resp = client.messages.create(
             model=MODEL,
+            max_tokens=200,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3,
-            max_tokens=200,
         )
-        return resp.choices[0].message.content.strip()
+        return resp.content[0].text.strip()
     except Exception as e:
         return f"Timeline analysis unavailable: {str(e)[:60]}"

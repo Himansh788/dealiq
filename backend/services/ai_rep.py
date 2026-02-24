@@ -10,14 +10,14 @@ This service makes the AI "become" the sales rep by:
 The rep approves or rejects before anything is sent.
 """
 
-from groq import Groq
+import anthropic
 import json
 import re
 import os
 from typing import Dict, Any, List, Optional
 
-client = Groq(api_key=os.getenv("GROQ_API_KEY", ""))
-MODEL = "llama-3.3-70b-versatile"
+client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+MODEL = "claude-haiku-4-5-20251001"
 
 
 def _extract_json(text: str) -> Dict[str, Any]:
@@ -184,13 +184,13 @@ async def generate_next_best_action(
             signals_text=signals_text,
         )
 
-        response = client.chat.completions.create(
+        response = client.messages.create(
             model=MODEL,
+            max_tokens=1500,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3,
-            max_tokens=1500,
         )
-        return _extract_json(response.choices[0].message.content)
+        return _extract_json(response.content[0].text)
 
     except Exception as e:
         return {
@@ -235,13 +235,13 @@ async def generate_email_draft(
             action_context=action_context or "Re-engage buyer and establish next step",
         )
 
-        response = client.chat.completions.create(
+        response = client.messages.create(
             model=MODEL,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.5,  # Slightly more creative for email writing
             max_tokens=1000,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.5,
         )
-        return _extract_json(response.choices[0].message.content)
+        return _extract_json(response.content[0].text)
 
     except Exception as e:
         return {
@@ -270,13 +270,13 @@ async def handle_objection(
             objection=objection,
         )
 
-        response = client.chat.completions.create(
+        response = client.messages.create(
             model=MODEL,
+            max_tokens=1000,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.2,
-            max_tokens=1000,
         )
-        return _extract_json(response.choices[0].message.content)
+        return _extract_json(response.content[0].text)
 
     except Exception as e:
         return {
