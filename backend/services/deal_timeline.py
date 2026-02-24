@@ -15,15 +15,28 @@ in November. Closing date passed 5 days ago. This is the pattern of a
 zombie deal — recommend killing it or doing one final re-engagement."
 """
 
-import anthropic
+import openai
 import os
 import re
 import json
 from datetime import datetime, timezone, date
 from typing import List, Dict, Any, Optional
 
-client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
-MODEL = "claude-haiku-4-5-20251001"
+# Lazy client — only created on first AI call, never at import time.
+_client: openai.OpenAI | None = None
+
+
+def _get_client() -> openai.OpenAI:
+    global _client
+    if _client is None:
+        _client = openai.OpenAI(
+            api_key=os.getenv("GROQ_API_KEY"),
+            base_url="https://api.groq.com/openai/v1",
+        )
+    return _client
+
+
+MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 
 
 def _parse_dt(s: Optional[str]) -> Optional[datetime]:
@@ -241,12 +254,12 @@ Write a 2-3 sentence narrative interpreting this timeline. What does the pattern
 Be specific and direct. Use the actual data. Do not use bullet points. Output only the narrative text, no JSON, no headers."""
 
     try:
-        resp = client.messages.create(
+        resp = _get_client().chat.completions.create(
             model=MODEL,
             max_tokens=200,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3,
         )
-        return resp.content[0].text.strip()
+        return resp.choices[0].message.content.strip()
     except Exception as e:
         return f"Timeline analysis unavailable: {str(e)[:60]}"

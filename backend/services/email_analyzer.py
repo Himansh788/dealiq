@@ -16,15 +16,28 @@ This feeds directly into the health score breakdown as a new signal
 AND enriches the existing signals with real data instead of approximations.
 """
 
-import anthropic
+import openai
 import os
 import json
 import re
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timezone
 
-client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
-MODEL = "claude-haiku-4-5-20251001"
+# Lazy client — only created on first AI call, never at import time.
+_client: openai.OpenAI | None = None
+
+
+def _get_client() -> openai.OpenAI:
+    global _client
+    if _client is None:
+        _client = openai.OpenAI(
+            api_key=os.getenv("GROQ_API_KEY"),
+            base_url="https://api.groq.com/openai/v1",
+        )
+    return _client
+
+
+MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 
 
 def _extract_json(text: str) -> Any:
@@ -136,13 +149,13 @@ Analyse this email thread and extract health signals. Respond ONLY with this JSO
 Be specific. Use actual content from the emails. Do not make things up."""
 
     try:
-        resp = client.messages.create(
+        resp = _get_client().chat.completions.create(
             model=MODEL,
             max_tokens=800,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.2,
         )
-        result = _extract_json(resp.content[0].text)
+        result = _extract_json(resp.choices[0].message.content)
         result["generated"] = True
         result["email_count"] = len(emails)
         return result

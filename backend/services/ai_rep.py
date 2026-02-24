@@ -10,14 +10,27 @@ This service makes the AI "become" the sales rep by:
 The rep approves or rejects before anything is sent.
 """
 
-import anthropic
+import openai
 import json
 import re
 import os
 from typing import Dict, Any, List, Optional
 
-client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
-MODEL = "claude-haiku-4-5-20251001"
+# Lazy client — only created on first AI call, never at import time.
+_client: openai.OpenAI | None = None
+
+
+def _get_client() -> openai.OpenAI:
+    global _client
+    if _client is None:
+        _client = openai.OpenAI(
+            api_key=os.getenv("GROQ_API_KEY"),
+            base_url="https://api.groq.com/openai/v1",
+        )
+    return _client
+
+
+MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 
 
 def _extract_json(text: str) -> Dict[str, Any]:
@@ -86,7 +99,7 @@ Return ONLY valid JSON:
       "trigger": "Do this if primary action results in X"
     }},
     {{
-      "action": "Third priority action", 
+      "action": "Third priority action",
       "timeline": "When to do this",
       "trigger": "Do this if primary action results in Y"
     }}
@@ -184,13 +197,13 @@ async def generate_next_best_action(
             signals_text=signals_text,
         )
 
-        response = client.messages.create(
+        response = _get_client().chat.completions.create(
             model=MODEL,
             max_tokens=1500,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3,
         )
-        return _extract_json(response.content[0].text)
+        return _extract_json(response.choices[0].message.content)
 
     except Exception as e:
         return {
@@ -235,13 +248,13 @@ async def generate_email_draft(
             action_context=action_context or "Re-engage buyer and establish next step",
         )
 
-        response = client.messages.create(
+        response = _get_client().chat.completions.create(
             model=MODEL,
             max_tokens=1000,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.5,
         )
-        return _extract_json(response.content[0].text)
+        return _extract_json(response.choices[0].message.content)
 
     except Exception as e:
         return {
@@ -270,13 +283,13 @@ async def handle_objection(
             objection=objection,
         )
 
-        response = client.messages.create(
+        response = _get_client().chat.completions.create(
             model=MODEL,
             max_tokens=1000,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.2,
         )
-        return _extract_json(response.content[0].text)
+        return _extract_json(response.choices[0].message.content)
 
     except Exception as e:
         return {

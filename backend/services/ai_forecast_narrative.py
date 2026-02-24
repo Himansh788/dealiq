@@ -16,15 +16,28 @@ All calls are async. Results are returned as structured dicts so the
 frontend can render them with full control over layout.
 """
 
-import anthropic
+import openai
 import json
 import re
 import os
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
 
-client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
-MODEL = "claude-haiku-4-5-20251001"
+# Lazy client — only created on first AI call, never at import time.
+_client: openai.OpenAI | None = None
+
+
+def _get_client() -> openai.OpenAI:
+    global _client
+    if _client is None:
+        _client = openai.OpenAI(
+            api_key=os.getenv("GROQ_API_KEY"),
+            base_url="https://api.groq.com/openai/v1",
+        )
+    return _client
+
+
+MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 
 # ── Shared JSON extractor ─────────────────────────────────────────────────────
 
@@ -114,13 +127,13 @@ Write a JSON response with this exact structure:
 Be direct. Use real numbers from the data. Do not use generic phrases like 'it is important to'. Write like a VP who has seen 500 pipeline reviews and has no patience for fluff."""
 
     try:
-        resp = client.messages.create(
+        resp = _get_client().chat.completions.create(
             model=MODEL,
             max_tokens=1200,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.4,
         )
-        result = _extract_json(resp.content[0].text)
+        result = _extract_json(resp.choices[0].message.content)
         result["generated"] = True
         return result
     except Exception as e:
@@ -186,13 +199,13 @@ Respond ONLY with this JSON structure:
 }}"""
 
     try:
-        resp = client.messages.create(
+        resp = _get_client().chat.completions.create(
             model=MODEL,
             max_tokens=600,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3,
         )
-        result = _extract_json(resp.content[0].text)
+        result = _extract_json(resp.choices[0].message.content)
         result["generated"] = True
         return result
     except Exception as e:
@@ -263,13 +276,13 @@ Respond ONLY with this JSON:
 Include all deals but rank them. Be specific in the action — not 'follow up' but 'send a one-question email asking if the legal review is complete.'"""
 
     try:
-        resp = client.messages.create(
+        resp = _get_client().chat.completions.create(
             model=MODEL,
             max_tokens=1400,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3,
         )
-        result = _extract_json(resp.content[0].text)
+        result = _extract_json(resp.choices[0].message.content)
         result["generated"] = True
         return result
     except Exception as e:
@@ -320,13 +333,13 @@ Respond ONLY with this JSON:
 }}"""
 
     try:
-        resp = client.messages.create(
+        resp = _get_client().chat.completions.create(
             model=MODEL,
             max_tokens=400,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3,
         )
-        result = _extract_json(resp.content[0].text)
+        result = _extract_json(resp.choices[0].message.content)
         result["generated"] = True
         return result
     except Exception as e:

@@ -1,11 +1,25 @@
-import anthropic
+import openai
 import json
 import os
 import re
 from typing import Dict, Any
 
-client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
-MODEL = "claude-haiku-4-5-20251001"
+# Lazy client — only created on first AI call, never at import time.
+# This keeps app startup (and Zoho login) independent of the API key.
+_client: openai.OpenAI | None = None
+
+
+def _get_client() -> openai.OpenAI:
+    global _client
+    if _client is None:
+        _client = openai.OpenAI(
+            api_key=os.getenv("GROQ_API_KEY"),
+            base_url="https://api.groq.com/openai/v1",
+        )
+    return _client
+
+
+MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 
 MISMATCH_PROMPT = """You are a deal intelligence assistant for B2B SaaS sales teams.
 Compare the transcript and email. Identify anything MISSING or INCONSISTENT:
@@ -36,16 +50,16 @@ def _extract_json(text: str) -> Dict[str, Any]:
 
 async def detect_narrative_mismatch(transcript: str, email_draft: str) -> Dict[str, Any]:
     try:
-        response = client.messages.create(
+        response = _get_client().chat.completions.create(
             model=MODEL,
             max_tokens=1024,
-            system=MISMATCH_PROMPT,
             messages=[
-                {"role": "user", "content": f"TRANSCRIPT:\n{transcript}\n\nEMAIL DRAFT:\n{email_draft}"}
+                {"role": "system", "content": MISMATCH_PROMPT},
+                {"role": "user", "content": f"TRANSCRIPT:\n{transcript}\n\nEMAIL DRAFT:\n{email_draft}"},
             ],
             temperature=0,
         )
-        return _extract_json(response.content[0].text)
+        return _extract_json(response.choices[0].message.content)
     except Exception as e:
         return {"mismatches": [], "deal_health_impact": 0, "summary": f"Analysis unavailable: {str(e)}"}
 
@@ -53,30 +67,30 @@ async def detect_narrative_mismatch(transcript: str, email_draft: str) -> Dict[s
 async def get_deal_ai_insights(deal_signals: Dict[str, Any]) -> Dict[str, Any]:
     try:
         signals_text = "\n".join([f"- {k}: {v}" for k, v in deal_signals.items()])
-        response = client.messages.create(
+        response = _get_client().chat.completions.create(
             model=MODEL,
             max_tokens=512,
             messages=[
-                {"role": "user", "content": f"Deal signals:\n{signals_text}\nReturn ONLY JSON: {{\"recommendation\": \"one sentence\", \"action_required\": true, \"risk_summary\": \"2-3 sentences\"}}"}
+                {"role": "user", "content": f"Deal signals:\n{signals_text}\nReturn ONLY JSON: {{\"recommendation\": \"one sentence\", \"action_required\": true, \"risk_summary\": \"2-3 sentences\"}}"},
             ],
             temperature=0,
         )
-        return _extract_json(response.content[0].text)
+        return _extract_json(response.choices[0].message.content)
     except Exception as e:
         return {"recommendation": "Review manually.", "action_required": True, "risk_summary": "AI unavailable."}
 
 
 async def analyse_discount_thread(email_thread: str) -> Dict[str, Any]:
     try:
-        response = client.messages.create(
+        response = _get_client().chat.completions.create(
             model=MODEL,
             max_tokens=1024,
-            system=DISCOUNT_PROMPT,
             messages=[
-                {"role": "user", "content": f"EMAIL THREAD:\n{email_thread}"}
+                {"role": "system", "content": DISCOUNT_PROMPT},
+                {"role": "user", "content": f"EMAIL THREAD:\n{email_thread}"},
             ],
             temperature=0,
         )
-        return _extract_json(response.content[0].text)
+        return _extract_json(response.choices[0].message.content)
     except Exception as e:
         return {"mentions": [], "pressure_level": "normal", "benchmark_comparison": "Unavailable.", "recommendation": "Review manually."}

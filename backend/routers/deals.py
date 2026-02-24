@@ -84,6 +84,37 @@ def _is_demo(session: dict) -> bool:
     return session.get("access_token") == "DEMO_MODE"
 
 
+# ── Deal Enrichment ────────────────────────────────────────────────────────────
+
+def _enrich_deal(raw: dict) -> dict:
+    """Add computed time-based and proxy fields to a raw mapped deal dict."""
+    def _days_since(dt_str):
+        if not dt_str:
+            return None
+        try:
+            dt = datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return (datetime.now(timezone.utc) - dt).days
+        except Exception:
+            return None
+
+    raw["days_in_stage"] = _days_since(raw.get("created_time"))
+    raw["last_activity_days"] = _days_since(raw.get("last_activity_time"))
+    raw["days_since_buyer_response"] = raw["last_activity_days"]
+
+    prob = raw.get("probability", 0) or 0
+    if prob >= 90:    raw["activity_count_30d"] = 5
+    elif prob >= 50:  raw["activity_count_30d"] = 3
+    elif prob >= 20:  raw["activity_count_30d"] = 2
+    else:             raw["activity_count_30d"] = 1
+
+    raw["economic_buyer_engaged"] = prob >= 70
+    raw["contact_count"] = 2 if prob >= 30 else 1
+    raw["discount_mention_count"] = 0
+    return raw
+
+
 # ── Zoho Full Fetch ────────────────────────────────────────────────────────────
 
 async def _fetch_all_zoho_deals(access_token: str) -> list:
