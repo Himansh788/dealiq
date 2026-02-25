@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import {
   BarChart3, AlertTriangle, LogOut, TrendingUp,
-  Activity, DollarSign, Users, Search, X, Filter
+  Activity, DollarSign, Users, Search, X, Filter, Radar
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -22,6 +22,7 @@ import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
 import DealDetailPanel from "@/components/DealDetailPanel";
 import AlertsDigestPanel, { AlertsBell } from "@/components/AlertsDigestPanel";
+import BuyingSignalPanel from "@/components/BuyingSignalPanel";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -103,6 +104,7 @@ export default function Dashboard() {
   const [selectedDealId, setSelectedDealId] = useState<string | null>(null);
   const [digestOpen, setDigestOpen] = useState(false);
   const [digestCriticalCount, setDigestCriticalCount] = useState<number | undefined>(undefined);
+  const [signalPanelOpen, setSignalPanelOpen] = useState(false);
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
@@ -222,6 +224,15 @@ export default function Dashboard() {
             )}
           </div>
           <div className="flex items-center gap-3">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setSignalPanelOpen(true)}
+              className="border-health-orange/40 text-health-orange hover:bg-health-orange/10 hover:border-health-orange/60 font-medium gap-1.5"
+            >
+              <Radar className="h-4 w-4" />
+              Signal Radar
+            </Button>
             <Link to="/forecast">
               <Button variant="outline" size="sm" className="border-primary/40 text-primary hover:bg-primary/10 hover:border-primary/60 font-medium gap-1.5">
                 <TrendingUp className="h-4 w-4" />
@@ -470,6 +481,10 @@ export default function Dashboard() {
       <AlertsDigestPanel
         open={digestOpen}
         onClose={() => setDigestOpen(false)}
+      />
+      <BuyingSignalPanel
+        open={signalPanelOpen}
+        onClose={() => setSignalPanelOpen(false)}
       />
     </div>
   );

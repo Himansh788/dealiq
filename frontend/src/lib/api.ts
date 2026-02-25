@@ -140,4 +140,19 @@ export const api = {
   // ── Forecast ─────────────────────────────────────────────────────────────
   getForecast: () =>
     fetch(`${API_URL}/forecast`, { headers: authHeaders() }).then(handleResponse),
+
+  // ── Buying Signal Detector ────────────────────────────────────────────────
+  detectSignals: (transcript: string, researcherName?: string, companyContext?: string) =>
+    fetch(`${API_URL}/signals/detect`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({
+        transcript,
+        researcher_name: researcherName || "the researcher",
+        company_context: companyContext || "",
+      }),
+    }).then(handleResponse),
+
+  getDemoSignals: () =>
+    fetch(`${API_URL}/signals/demo`).then(handleResponse),
 };
