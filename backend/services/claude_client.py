@@ -1,43 +1,64 @@
-import openai
+"""
+AI Client — Narrative Mismatch, Discount Analysis, Deal Insights
+================================================================
+Uses Groq (llama-3.3-70b-versatile) for fast, high-quality B2B sales intelligence.
+"""
+
+from groq import AsyncGroq
 import json
 import os
 import re
 from typing import Dict, Any
 
-# Lazy client — only created on first AI call, never at import time.
-# This keeps app startup (and Zoho login) independent of the API key.
-_client: openai.OpenAI | None = None
+_client: AsyncGroq | None = None
 
 
-def _get_client() -> openai.OpenAI:
+def _get_client() -> AsyncGroq:
     global _client
     if _client is None:
-        _client = openai.OpenAI(
-            api_key=os.getenv("GROQ_API_KEY"),
-            base_url="https://api.groq.com/openai/v1",
-        )
+        _client = AsyncGroq(api_key=os.getenv("GROQ_API_KEY"))
     return _client
 
 
-MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+MODEL = "llama-3.3-70b-versatile"
 
-MISMATCH_PROMPT = """You are a deal intelligence assistant for B2B SaaS sales teams.
-Compare the transcript and email. Identify anything MISSING or INCONSISTENT:
-1. Pricing commitments or discounts
-2. Timeline or delivery promises
-3. Agreed next steps with dates
-4. Feature or product promises
-5. Any explicit commitment made to the buyer
+MISMATCH_SYSTEM = """You are a senior deal intelligence analyst specialising in B2B SaaS sales integrity.
+Your role is to forensically compare what was said on a sales call versus what was written in the follow-up email.
 
-Return ONLY valid JSON, no markdown:
-{"mismatches": [{"category": "pricing|timeline|next_step|feature_promise|commitment","description": "Under 30 words directed at rep as You...","severity": "high|medium|low","suggested_fix": "Under 20 words"}],"deal_health_impact": -15,"summary": "One sentence"}
+You are looking for ANY gap between verbal commitments and written follow-up across these dimensions:
+1. PRICING — exact figures, tiers, discounts, payment terms
+2. TIMELINE — go-live dates, implementation schedules, contract deadlines
+3. NEXT STEPS — specific actions with owners and dates
+4. PRODUCT/FEATURE — capabilities promised, integrations mentioned, scope agreed
+5. SUPPORT/ONBOARDING — dedicated support, SLAs, training promised
+6. LEGAL/COMPLIANCE — SOC2, security docs, contract terms discussed
 
-If clean: {"mismatches": [], "deal_health_impact": 0, "summary": "Your email accurately reflects all commitments. Good to send."}
-"""
+SEVERITY GUIDE:
+- high: Directly threatens deal trust or creates legal exposure (wrong price, wrong date, missing commitment)
+- medium: Could cause friction or confusion if buyer notices (minor timeline shift, vague next step)
+- low: Cosmetic difference, easy to correct, minimal buyer impact
 
-DISCOUNT_PROMPT = """Analyse email thread for discount patterns. Return ONLY valid JSON:
-{"mentions": [{"mention_index": 1,"context": "10-word excerpt","raised_by": "rep|buyer|unknown","discount_value": "10% or null"}],"pressure_level": "normal|elevated|critical","benchmark_comparison": "One sentence","recommendation": "One sentence"}
-"""
+Return ONLY valid JSON — no markdown, no explanation outside JSON:
+{"mismatches": [{"category": "pricing|timeline|next_step|feature_promise|commitment|support","description": "Specific gap written as: 'You said X on the call but wrote Y in the email'","severity": "high|medium|low","suggested_fix": "Exact corrected language to use"}],"deal_health_impact": -15,"summary": "One direct sentence on overall integrity of this follow-up"}
+
+If the email accurately mirrors all call commitments, return:
+{"mismatches": [], "deal_health_impact": 0, "summary": "Email accurately reflects all call commitments — safe to send."}"""
+
+DISCOUNT_SYSTEM = """You are a pricing intelligence analyst for a B2B SaaS company.
+Analyse this email thread for every discount mention, negotiation signal, and pricing pressure indicator.
+
+For each discount mention extract:
+- Exact context (word-for-word excerpt, max 15 words)
+- Who raised it: rep (bad — rep volunteered discount), buyer (normal — buyer asked), unknown
+- The specific value if mentioned (e.g., "15%", "$5K off", "waived setup fee")
+
+Classify overall pressure:
+- normal: Buyer asked once, rep held firm or gave minor concession with justification
+- elevated: Multiple mentions, rep showing willingness to negotiate, discount creep visible
+- critical: Rep leading with discounts, giving without getting, deal economics at risk
+
+Return ONLY valid JSON:
+{"mentions": [{"mention_index": 1,"context": "exact 10-15 word excerpt","raised_by": "rep|buyer|unknown","discount_value": "15% or null"}],"pressure_level": "normal|elevated|critical","benchmark_comparison": "How this compares to healthy deal pricing behaviour (1 sentence)","recommendation": "One specific action the rep should take on pricing right now"}"""
 
 
 def _extract_json(text: str) -> Dict[str, Any]:
@@ -50,14 +71,14 @@ def _extract_json(text: str) -> Dict[str, Any]:
 
 async def detect_narrative_mismatch(transcript: str, email_draft: str) -> Dict[str, Any]:
     try:
-        response = _get_client().chat.completions.create(
+        response = await _get_client().chat.completions.create(
             model=MODEL,
-            max_tokens=1024,
+            max_tokens=1200,
+            temperature=0.1,
             messages=[
-                {"role": "system", "content": MISMATCH_PROMPT},
-                {"role": "user", "content": f"TRANSCRIPT:\n{transcript}\n\nEMAIL DRAFT:\n{email_draft}"},
+                {"role": "system", "content": MISMATCH_SYSTEM},
+                {"role": "user", "content": f"CALL TRANSCRIPT:\n{transcript}\n\nFOLLOW-UP EMAIL DRAFT:\n{email_draft}"},
             ],
-            temperature=0,
         )
         return _extract_json(response.choices[0].message.content)
     except Exception as e:
@@ -67,13 +88,14 @@ async def detect_narrative_mismatch(transcript: str, email_draft: str) -> Dict[s
 async def get_deal_ai_insights(deal_signals: Dict[str, Any]) -> Dict[str, Any]:
     try:
         signals_text = "\n".join([f"- {k}: {v}" for k, v in deal_signals.items()])
-        response = _get_client().chat.completions.create(
+        response = await _get_client().chat.completions.create(
             model=MODEL,
-            max_tokens=512,
+            max_tokens=600,
+            temperature=0.2,
             messages=[
-                {"role": "user", "content": f"Deal signals:\n{signals_text}\nReturn ONLY JSON: {{\"recommendation\": \"one sentence\", \"action_required\": true, \"risk_summary\": \"2-3 sentences\"}}"},
+                {"role": "system", "content": "You are a B2B SaaS deal intelligence analyst. Return ONLY valid JSON."},
+                {"role": "user", "content": f"Deal signals:\n{signals_text}\n\nReturn ONLY JSON: {{\"recommendation\": \"specific one-sentence action\", \"action_required\": true, \"risk_summary\": \"2-3 sentence risk assessment with specific signals\"}}"},
             ],
-            temperature=0,
         )
         return _extract_json(response.choices[0].message.content)
     except Exception as e:
@@ -82,14 +104,14 @@ async def get_deal_ai_insights(deal_signals: Dict[str, Any]) -> Dict[str, Any]:
 
 async def analyse_discount_thread(email_thread: str) -> Dict[str, Any]:
     try:
-        response = _get_client().chat.completions.create(
+        response = await _get_client().chat.completions.create(
             model=MODEL,
-            max_tokens=1024,
+            max_tokens=1200,
+            temperature=0.1,
             messages=[
-                {"role": "system", "content": DISCOUNT_PROMPT},
-                {"role": "user", "content": f"EMAIL THREAD:\n{email_thread}"},
+                {"role": "system", "content": DISCOUNT_SYSTEM},
+                {"role": "user", "content": f"EMAIL THREAD TO ANALYSE:\n{email_thread}"},
             ],
-            temperature=0,
         )
         return _extract_json(response.choices[0].message.content)
     except Exception as e:

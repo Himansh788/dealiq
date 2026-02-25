@@ -122,6 +122,195 @@ SIMULATED_DEALS = [
     },
 ]
 
+# ── Simulated Email Threads (per deal) ────────────────────────────────────────
+
+def _date_str(days_ago: int) -> str:
+    dt = datetime.now(timezone.utc) - timedelta(days=days_ago)
+    return dt.strftime("%Y-%m-%d")
+
+
+SIMULATED_EMAILS = {
+    "sim_001": [  # Acme Corp — late-stage, 3 days stalled
+        {
+            "direction": "received",
+            "from": "david.kim@acmecorp.com",
+            "subject": "Re: Revised Contract — Acme Enterprise",
+            "content": "Sarah, thanks for sending this over. I've shared it with our legal team. They have a few redlines around liability cap and auto-renewal terms. Should have their feedback to you by Friday. Also — procurement is asking whether you offer a multi-year lock-in discount. Is that something we can discuss?",
+            "sent_time": _date_str(3),
+        },
+        {
+            "direction": "sent",
+            "from": "sarah.chen@dealiq.com",
+            "subject": "Revised Contract — Acme Enterprise",
+            "content": "Hi David, please find the revised agreement attached reflecting the 12% early-commit discount we discussed. I've also included the implementation timeline doc for your IT team — 3 weeks from signature to full go-live, with dedicated onboarding support. Let me know if the March 7th review call still works? Looking forward to getting this across the line.",
+            "sent_time": _date_str(5),
+        },
+        {
+            "direction": "received",
+            "from": "david.kim@acmecorp.com",
+            "subject": "Re: Contract timeline",
+            "content": "We're still interested but legal review is taking longer than expected. Our procurement process requires a 2-week review minimum. Can you hold the March 31 pricing deadline? We don't want to lose the discount because of internal process.",
+            "sent_time": _date_str(10),
+        },
+        {
+            "direction": "sent",
+            "from": "sarah.chen@dealiq.com",
+            "subject": "Contract timeline",
+            "content": "David, totally understand. I've flagged this internally and can hold the pricing until April 7th — that gives your team a full two weeks. After that date I'll need to revert to standard pricing. Would it help if I joined a call with your legal team directly to answer any questions and speed up the review?",
+            "sent_time": _date_str(12),
+        },
+        {
+            "direction": "received",
+            "from": "david.kim@acmecorp.com",
+            "subject": "Quick question before we proceed",
+            "content": "One more thing — our CTO wants to understand the data residency model. We're in a regulated industry. Is data stored in India? Can we get a data processing agreement (DPA) as part of the contract package?",
+            "sent_time": _date_str(18),
+        },
+    ],
+
+    "sim_002": [  # TechStart — proposal sent, 19 days no response
+        {
+            "direction": "sent",
+            "from": "james.okafor@dealiq.com",
+            "subject": "Following up — TechStart Growth Tier Proposal",
+            "content": "Hi Priya, just checking in on the proposal I sent last week. Happy to answer any questions or walk you through the numbers on a quick call. Would Thursday work?",
+            "sent_time": _date_str(5),
+        },
+        {
+            "direction": "sent",
+            "from": "james.okafor@dealiq.com",
+            "subject": "Re: TechStart Growth Proposal",
+            "content": "Priya, hope all is well. I wanted to follow up on the Growth Tier proposal from last week. Is there anything I can clarify or adjust to make this easier for your team to evaluate?",
+            "sent_time": _date_str(11),
+        },
+        {
+            "direction": "sent",
+            "from": "james.okafor@dealiq.com",
+            "subject": "TechStart — Growth Tier Proposal",
+            "content": "Hi Priya, attaching the DealIQ Growth Tier proposal for 5 seats at $36K/year. This includes full API access, dedicated onboarding, and the reporting suite your team asked about. Happy to jump on a call to walk through it.",
+            "sent_time": _date_str(19),
+        },
+        {
+            "direction": "received",
+            "from": "priya.sharma@techstart.io",
+            "subject": "Re: DealIQ demo follow-up",
+            "content": "James, thanks for the great demo last week! The team was impressed. We're currently evaluating two other vendors as well. I'll review your proposal and get back to you by end of next week.",
+            "sent_time": _date_str(22),
+        },
+    ],
+
+    "sim_003": [  # GlobalRetail — early stage, active
+        {
+            "direction": "received",
+            "from": "rahul.mehta@globalretail.com",
+            "subject": "Re: Discovery call confirmed",
+            "content": "Maya, confirmed for March 5th at 2PM IST. I'll have our Head of Operations and the IT manager on the call as well. Could you send an agenda beforehand? We want to make sure we cover our specific reporting pain points.",
+            "sent_time": _date_str(1),
+        },
+        {
+            "direction": "sent",
+            "from": "maya.patel@dealiq.com",
+            "subject": "Discovery call confirmed — agenda inside",
+            "content": "Hi Rahul, great — looking forward to meeting the team! I've attached a brief agenda. We'll focus on your current reporting workflow, the manual bottlenecks your team mentioned, and how DealIQ's analytics layer could automate the weekly reports. See you Thursday at 2PM IST.",
+            "sent_time": _date_str(2),
+        },
+        {
+            "direction": "received",
+            "from": "rahul.mehta@globalretail.com",
+            "subject": "Initial inquiry — DealIQ",
+            "content": "Hi Maya, we're a 200-person retail chain looking to get better visibility into our sales pipeline. Currently we do everything manually in Excel — it takes our team 3 full days every week to produce the management report. A colleague recommended DealIQ. Can we set up a discovery call?",
+            "sent_time": _date_str(6),
+        },
+    ],
+
+    "sim_004": [  # FinanceFlow — zombie, 34 days silent
+        {
+            "direction": "sent",
+            "from": "sarah.chen@dealiq.com",
+            "subject": "FinanceFlow — checking in",
+            "content": "Hi Amir, hope you're doing well. I wanted to check in on the Platform License proposal we discussed last month. Has there been any movement on your end? Happy to jump on a quick call.",
+            "sent_time": _date_str(7),
+        },
+        {
+            "direction": "sent",
+            "from": "sarah.chen@dealiq.com",
+            "subject": "Re: FinanceFlow Platform — next steps?",
+            "content": "Amir, following up again on the proposal. We're coming up on the end of the quarter and I want to make sure we have the right conversation before then. Is there anything blocking progress internally? Happy to talk through any concerns.",
+            "sent_time": _date_str(14),
+        },
+        {
+            "direction": "sent",
+            "from": "sarah.chen@dealiq.com",
+            "subject": "FinanceFlow Platform License",
+            "content": "Amir, I know you're busy. I wanted to revisit the pricing structure — I can offer a 15% discount if we can finalise by end of month. Let me know your thoughts.",
+            "sent_time": _date_str(22),
+        },
+        {
+            "direction": "received",
+            "from": "amir.hassan@financeflow.com",
+            "subject": "Re: Platform License discussion",
+            "content": "Sarah, thanks for the revised numbers. We're still internally evaluating whether this is the right time to invest. Budget committee meets next month. I'll be in touch once we have more clarity.",
+            "sent_time": _date_str(34),
+        },
+        {
+            "direction": "sent",
+            "from": "sarah.chen@dealiq.com",
+            "subject": "FinanceFlow — Platform License discussion",
+            "content": "Hi Amir, following up on our last conversation about the Platform License. We've made some adjustments to the pricing based on your feedback. Would love to reconnect and walk you through the updated proposal when you have 20 minutes.",
+            "sent_time": _date_str(38),
+        },
+    ],
+
+    "sim_005": [  # HealthTech — active, strong signals
+        {
+            "direction": "received",
+            "from": "neha.joshi@healthtech.com",
+            "subject": "Re: ROI calculator — really helpful",
+            "content": "James, the ROI calculator you sent was exactly what our CFO needed. She was impressed — the payback period calculation really resonated. She's asked me to move forward with getting a formal proposal. Can you put together something for a 3-year enterprise agreement? We'd also want to explore the analytics add-on.",
+            "sent_time": _date_str(1),
+        },
+        {
+            "direction": "sent",
+            "from": "james.okafor@dealiq.com",
+            "subject": "ROI Calculator + Case Study — HealthTech",
+            "content": "Hi Neha, as promised — attaching the ROI calculator pre-filled with your numbers (based on 12 reps, current manual process = 8hrs/week each). Also including the MedDevice Co case study — similar use case, they reduced reporting time by 78% in the first quarter. Happy to walk your CFO through the numbers directly if that would help.",
+            "sent_time": _date_str(2),
+        },
+        {
+            "direction": "received",
+            "from": "neha.joshi@healthtech.com",
+            "subject": "Quick question before our call tomorrow",
+            "content": "James, quick one before tomorrow's call — does your platform integrate with Epic (our patient management system)? That's a potential blocker for our IT team. Also, are there any healthcare-specific compliance certifications (HIPAA)?",
+            "sent_time": _date_str(4),
+        },
+    ],
+
+    "sim_006": [  # LogiCo — stalled proposal, 11 days
+        {
+            "direction": "sent",
+            "from": "maya.patel@dealiq.com",
+            "subject": "Re: LogiCo Teams License",
+            "content": "Hi Vikram, following up on the proposal I sent last week. Just wanted to make sure you received it and see if you had any questions. Happy to jump on a call to discuss.",
+            "sent_time": _date_str(4),
+        },
+        {
+            "direction": "sent",
+            "from": "maya.patel@dealiq.com",
+            "subject": "LogiCo — Teams License Proposal",
+            "content": "Hi Vikram, attaching the updated Teams License proposal for 8 users at $18K/year. I've included the 10% volume discount we discussed. The proposal is valid for 30 days. Let me know if you want to schedule a review call.",
+            "sent_time": _date_str(11),
+        },
+        {
+            "direction": "received",
+            "from": "vikram.singh@logico.com",
+            "subject": "Re: DealIQ demo",
+            "content": "Maya, the demo was solid. My main concern is price — we're a 50-person company and $18K feels steep. Is there a startup plan or can you do better on the per-seat cost? Also, how does pricing compare to your competitor Salesforce Starter?",
+            "sent_time": _date_str(15),
+        },
+    ],
+}
+
+
 # Demo transcript and email for the mismatch feature
 DEMO_TRANSCRIPT = """
 [Call with Acme Corp - March 1, 2025 - 11:00 AM]

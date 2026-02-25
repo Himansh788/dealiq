@@ -286,6 +286,17 @@ export default function ForecastPage() {
           <div className="space-y-6">
 
             {/* ── AI PIPELINE NARRATIVE — Prime real estate ── */}
+            {ai?.narrative && !ai.narrative.generated && (
+              <div className="rounded-xl border border-health-orange/30 bg-health-orange/5 px-5 py-3 flex items-center gap-3">
+                <Brain className="h-4 w-4 text-health-orange shrink-0" />
+                <p className="text-sm text-health-orange">
+                  AI narrative unavailable — check that <code className="font-mono text-xs bg-health-orange/10 px-1 rounded">ANTHROPIC_API_KEY</code> is set in your backend <code className="font-mono text-xs bg-health-orange/10 px-1 rounded">.env</code>.
+                  {ai.narrative.paragraphs?.[0] && (
+                    <span className="ml-1 text-muted-foreground">({ai.narrative.paragraphs[0]})</span>
+                  )}
+                </p>
+              </div>
+            )}
             {ai?.narrative?.generated && (
               <div className={`rounded-xl border p-5 space-y-4 transition-all ${
                 ai.narrative.status === "critical" ? "border-health-red/30 bg-health-red/5" :

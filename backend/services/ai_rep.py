@@ -1,36 +1,32 @@
 """
 AI Sales Rep Clone
 ==================
-This service makes the AI "become" the sales rep by:
-1. Reading their deal history, stage, and signals
-2. Adopting their communication style (from past notes/emails if available)
-3. Generating a personalised Next Best Action plan
-4. Drafting a follow-up email AS the rep — not generic, but specific
+1. Reads deal history, stage, and signals
+2. Generates a personalised Next Best Action plan
+3. Drafts a follow-up email AS the rep
+4. Handles buyer objections with exact response words
+5. Generates a Pre-Call Intelligence Brief
 
 The rep approves or rejects before anything is sent.
 """
 
-import openai
+from groq import AsyncGroq
 import json
 import re
 import os
 from typing import Dict, Any, List, Optional
 
-# Lazy client — only created on first AI call, never at import time.
-_client: openai.OpenAI | None = None
+_client: AsyncGroq | None = None
 
 
-def _get_client() -> openai.OpenAI:
+def _get_client() -> AsyncGroq:
     global _client
     if _client is None:
-        _client = openai.OpenAI(
-            api_key=os.getenv("GROQ_API_KEY"),
-            base_url="https://api.groq.com/openai/v1",
-        )
+        _client = AsyncGroq(api_key=os.getenv("GROQ_API_KEY"))
     return _client
 
 
-MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+MODEL = "llama-3.3-70b-versatile"
 
 
 def _extract_json(text: str) -> Dict[str, Any]:
@@ -41,184 +37,253 @@ def _extract_json(text: str) -> Dict[str, Any]:
     raise ValueError(f"No JSON found in: {text[:300]}")
 
 
-def _build_rep_persona(rep_name: str, deal_history: List[Dict] = None) -> str:
-    """Build a persona prompt for the AI to become the sales rep."""
-    base = f"""You are {rep_name}, an experienced B2B SaaS sales representative.
-
-Your job is to:
-- Think and communicate exactly like {rep_name} would
-- Give specific, actionable advice based on THIS deal's actual data
-- Draft emails that sound human, warm, and specific — not templated
-- Always think about what moves money forward, not what sounds good
-- Be direct. Skip pleasantries in your reasoning. Be warm in your emails.
-
-Your philosophy:
-- Every interaction must have ONE clear ask
-- Never discount without getting something in return
-- Silence from a buyer is not rejection — it's a signal to try a different angle
-- The best follow-up is one that gives value before asking for anything
-"""
-    return base
+def _fmt(val: float) -> str:
+    if val >= 1_000_000:
+        return f"${val/1_000_000:.1f}M"
+    if val >= 1_000:
+        return f"${round(val/1_000)}K"
+    return f"${round(val)}"
 
 
-NBA_PROMPT_TEMPLATE = """
+def _build_rep_persona(rep_name: str) -> str:
+    return f"""You are {rep_name}, a high-performing B2B SaaS sales rep with a reputation for closing stuck deals.
+You think in specifics, not generalities. You never say "follow up" without saying exactly what to say.
+Your emails sound human — warm but purposeful, never corporate.
+Core principles:
+- Every touchpoint must have ONE clear ask with a specific date or deadline
+- Match your energy to deal health: zombie deals get pattern interrupts, healthy deals get momentum
+- You never discount without getting something in return (accelerated timeline, expanded scope, referral)
+- You acknowledge the elephant in the room — silence, delays, concerns — instead of pretending they don't exist
+- You think about what the BUYER needs to feel safe moving forward, not just what YOU need to close"""
+
+
+NBA_PROMPT = """
 {rep_persona}
 
-You are analysing one of your deals. Here is the full context:
+You are analysing one of your deals and need to generate the highest-leverage next action.
+You have access to the actual email thread — use it to understand what was said, what was promised, and where things broke down.
 
-DEAL NAME: {deal_name}
-COMPANY: {account_name}
-STAGE: {stage}
-DEAL VALUE: ${amount}
-CLOSING DATE: {closing_date}
-DAYS SINCE LAST ACTIVITY: {days_since_activity}
-HEALTH SCORE: {health_score}/100
-HEALTH STATUS: {health_label}
-PROBABILITY: {probability}%
-NEXT STEP ON FILE: {next_step}
+═══ DEAL DATA ═══
+Deal: {deal_name}
+Company: {account_name}
+Stage: {stage}
+Value: {amount}
+Closing date: {closing_date}
+Days since last buyer response: {days_since_buyer_response}
+Next step in CRM: {next_step}
+Contact count: {contact_count}
+Economic buyer engaged: {economic_buyer_engaged}
+Discount mentions: {discount_mention_count}
+Activity last 30 days: {activity_count_30d}
+Health score: {health_score}/100 ({health_label})
 
-HEALTH SIGNALS:
+═══ HEALTH SIGNAL BREAKDOWN ═══
 {signals_text}
 
-Based on this, generate your Next Best Action plan.
+═══ ACTUAL EMAIL THREAD (most recent first) ═══
+{email_context}
 
-Return ONLY valid JSON:
+Think step by step:
+1. What does the email thread reveal about the buyer's TRUE sentiment and where they are in their decision process?
+2. What was promised but not delivered? What open loop is causing the stall?
+3. What is the single highest-leverage action to take TODAY based on what you actually see in the emails?
+4. What specific language from the buyer's emails should you reference or respond to?
+
+Return ONLY this JSON:
 {{
-  "situation_read": "2-3 sentences on what is actually happening with this deal right now. Be honest and specific.",
+  "situation_read": "2-3 sentence honest assessment based on the ACTUAL email evidence — what the thread reveals about deal status",
   "urgency_level": "low|medium|high|critical",
+  "email_insight": "The single most important thing the email thread reveals that the CRM data doesn't show",
   "primary_action": {{
-    "what": "The single most important thing to do in the next 24 hours",
-    "why": "Why this specific action, not something else",
-    "how": "Exactly how to execute this — specific words, specific ask, specific channel",
-    "expected_outcome": "What you expect to happen if this works"
+    "what": "Specific action in 10 words or less — based on the email evidence",
+    "why": "The specific reason from the email thread why THIS action will move THIS deal",
+    "how": "Exact execution — what specific language to use, reference specific email content, channel, timing",
+    "expected_outcome": "What success looks like in the next 48-72 hours"
   }},
   "secondary_actions": [
     {{
-      "action": "Second priority action",
-      "timeline": "When to do this",
-      "trigger": "Do this if primary action results in X"
-    }},
-    {{
-      "action": "Third priority action",
-      "timeline": "When to do this",
-      "trigger": "Do this if primary action results in Y"
+      "action": "Backup action if primary doesn't get a response",
+      "timeline": "When to execute (e.g., 'If no reply in 3 business days')",
+      "trigger": "The specific signal that triggers this action"
     }}
   ],
-  "risk_if_no_action": "What happens to this deal if nothing is done in the next 7 days",
+  "risk_if_no_action": "What happens to this deal if nothing is done in the next 5 business days",
   "confidence_score": 75,
-  "rep_note": "One honest sentence from you as the rep about what you think is really going on"
-}}
-"""
+  "rep_note": "One thing {rep_name} should remember about this specific buyer based on what you read in their emails"
+}}"""
 
-EMAIL_DRAFT_PROMPT_TEMPLATE = """
+
+EMAIL_PROMPT = """
 {rep_persona}
 
-You need to write a follow-up email for this deal. Write it AS {rep_name} — in first person, warm but direct.
+Write a sales follow-up email for this deal. You are writing AS {rep_name} — not on behalf of AI.
 
-DEAL CONTEXT:
-- Deal: {deal_name} at {account_name}
-- Stage: {stage}
-- Value: ${amount}
-- Days silent: {days_since_activity}
-- Health: {health_label} ({health_score}/100)
-- Last known next step: {next_step}
-- Closing date: {closing_date}
+═══ DEAL CONTEXT ═══
+Deal: {deal_name}
+Company: {account_name}
+Stage: {stage}
+Value: {amount}
+Health: {health_score}/100 ({health_label})
+Days since last buyer response: {days_since_buyer_response}
+CRM next step: {next_step}
+Email objective: {email_objective}
+Action context: {action_context}
 
-ACTION PLAN CONTEXT:
-{action_context}
+═══ EMAIL REQUIREMENTS ═══
+- Subject line: specific, creates curiosity or references shared context — never generic
+- Opening: no "Hope you're well" — reference something real (their last message, a shared context, the current situation)
+- Body: max 4 short paragraphs — one clear message per paragraph
+- CTA: ONE specific ask with a date or binary choice (e.g., "Does Thursday 3pm work, or is next week better?")
+- Closing: warm but not sycophantic
+- Tone must match health: {health_label} deals need {tone_guidance}
+- Length: SHORT — under 150 words for zombie/critical, under 250 words for at_risk/healthy
 
-EMAIL OBJECTIVE: {email_objective}
-
-Rules for the email:
-- Subject line must be specific — never generic like "Following up"
-- First line must NOT be "I hope this email finds you well"
-- Reference something specific about their business or previous conversation
-- ONE clear call to action — not three options
-- Keep it under 150 words in the body
-- Sound like a human who cares about their success, not a salesperson hitting quota
-- Sign off as {rep_name}
-
-Return ONLY valid JSON:
+Return ONLY this JSON:
 {{
   "subject": "Email subject line",
   "body": "Full email body — use \\n for line breaks",
-  "tone": "warm|urgent|value-led|re-engagement",
-  "cta": "The specific ask in the email",
-  "why_this_approach": "One sentence on why you chose this angle"
-}}
-"""
+  "tone": "direct|warm|urgent|consultative",
+  "cta": "The exact call-to-action",
+  "why_this_approach": "One sentence explaining the strategic reasoning behind this email's approach"
+}}"""
 
-OBJECTION_HANDLER_PROMPT = """
+
+OBJECTION_PROMPT = """
 {rep_persona}
 
-A buyer has raised an objection. Help {rep_name} respond to it perfectly.
+A buyer just raised an objection on the deal: {deal_name} ({account_name}, {stage}, {amount}).
+Deal health: {health_score}/100 ({health_label}).
 
-DEAL: {deal_name} at {account_name} — ${amount} — Stage: {stage}
 OBJECTION: "{objection}"
 
-Return ONLY valid JSON:
+Think step by step:
+1. What is the REAL concern behind this objection? (people rarely say what they actually mean)
+2. Is this a genuine concern or a negotiating tactic?
+3. What is the most trust-building way to respond?
+4. What question should you ask to advance the conversation?
+
+Return ONLY this JSON:
 {{
-  "objection_type": "price|timing|competition|stakeholder|technical|trust|no_need",
-  "real_concern_behind_objection": "What they are actually worried about (not what they said)",
-  "response_strategy": "The approach to take",
-  "exact_response": "Word-for-word what {rep_name} should say/write back",
-  "follow_up_question": "The one question to ask after giving the response",
-  "danger_signs": "What would signal this objection is actually a deal-killer"
-}}
-"""
+  "objection_type": "price|timing|authority|competition|value|internal_process|trust|other",
+  "real_concern_behind_objection": "What the buyer actually means or fears (1-2 sentences — be insightful)",
+  "is_genuine": true,
+  "exact_response": "The exact words to say — conversational, not scripted-sounding. Under 50 words. Reference their specific concern.",
+  "follow_up_question": "The one question to ask immediately after your response to move the conversation forward",
+  "danger_signs": "Warning signs that this objection signals something deeper (or null if none)",
+  "what_not_to_say": "The tempting response that would make things worse"
+}}"""
+
+
+CALL_BRIEF_PROMPT = """
+{rep_persona}
+
+You have a call coming up on deal: {deal_name} ({account_name}).
+Prepare an elite pre-call intelligence brief so you walk in fully prepared.
+
+═══ DEAL STATE ═══
+Stage: {stage} | Value: {amount} | Health: {health_score}/100 ({health_label})
+Days since last activity: {days_since_buyer_response}
+Contact count: {contact_count} | Economic buyer engaged: {economic_buyer_engaged}
+CRM next step: {next_step}
+
+═══ HEALTH SIGNALS ═══
+{signals_text}
+
+Think like you're preparing for your most important call of the week.
+What does the buyer need to feel? What do YOU need to walk away with?
+
+Return ONLY this JSON:
+{{
+  "call_objective": "The single outcome you MUST achieve on this call (specific and measurable)",
+  "situation_summary": "2-sentence honest summary of where this deal stands right now",
+  "what_was_promised": "What commitments were made in the last interaction that you must reference or deliver on",
+  "stakeholder_intel": "What you know about the buyer's situation, pressures, and decision criteria",
+  "talking_points": [
+    "Talking point 1 — tied to their specific business context",
+    "Talking point 2 — addresses the likely objection or concern",
+    "Talking point 3 — creates urgency without pressure"
+  ],
+  "risk_questions": [
+    "Question to uncover if budget is real: ...",
+    "Question to uncover decision timeline: ...",
+    "Question to uncover internal blockers: ..."
+  ],
+  "red_flags_to_watch": [
+    "Signal that would tell you this deal is further gone than the CRM shows",
+    "Signal that would tell you there's a competitor involved",
+    "Signal that would tell you the champion has lost internal support"
+  ],
+  "opening_line": "Your exact suggested opening line for the call — specific, warm, not generic"
+}}"""
 
 
 async def generate_next_best_action(
     deal: Dict[str, Any],
     health_signals: List[Dict[str, Any]],
     rep_name: str,
+    email_thread: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
-    """Generate a personalised Next Best Action plan for a specific deal."""
+    signals_text = "\n".join([
+        f"  [{s.get('label', '?').upper()}] {s.get('name', '')}: {s.get('detail', '')} ({s.get('score', 0)}/{s.get('max_score', 20)})"
+        for s in health_signals
+    ]) or "No signals available"
+
+    # Build email context from thread
+    if email_thread:
+        formatted_emails = []
+        for e in email_thread[-8:]:  # last 8 emails for context
+            direction = "← BUYER" if e.get("direction") in ("received", "inbound") else "→ REP"
+            formatted_emails.append(
+                f"  [{direction}] {e.get('sent_time', 'Unknown date')} | Subject: {e.get('subject', 'No subject')}\n"
+                f"  {(e.get('content') or e.get('summary') or '')[:400]}"
+            )
+        email_context_text = "\n\n".join(formatted_emails) if formatted_emails else "No email content available"
+    else:
+        email_context_text = "No email thread available — analysis based on CRM data only"
+
+    prompt = NBA_PROMPT.format(
+        rep_persona=_build_rep_persona(rep_name),
+        rep_name=rep_name,
+        deal_name=deal.get("name", "Unknown"),
+        account_name=deal.get("account_name", "Unknown"),
+        stage=deal.get("stage", "Unknown"),
+        amount=_fmt(deal.get("amount", 0)),
+        closing_date=deal.get("closing_date", "Unknown"),
+        days_since_buyer_response=deal.get("days_since_buyer_response", deal.get("last_activity_days", "Unknown")),
+        next_step=deal.get("next_step") or "None set",
+        contact_count=deal.get("contact_count", 1),
+        economic_buyer_engaged=deal.get("economic_buyer_engaged", False),
+        discount_mention_count=deal.get("discount_mention_count", 0),
+        activity_count_30d=deal.get("activity_count_30d", 0),
+        health_score=deal.get("health_score", 0),
+        health_label=deal.get("health_label", "unknown"),
+        signals_text=signals_text,
+        email_context=email_context_text,
+    )
+
     try:
-        signals_text = "\n".join([
-            f"- {s.get('name', '')}: {s.get('detail', '')} [{s.get('label', '').upper()}]"
-            for s in health_signals
-        ])
-
-        days_since = deal.get("last_activity_days") or deal.get("days_since_buyer_response") or "Unknown"
-
-        prompt = NBA_PROMPT_TEMPLATE.format(
-            rep_persona=_build_rep_persona(rep_name),
-            deal_name=deal.get("name", "Unknown Deal"),
-            account_name=deal.get("account_name", "Unknown Company"),
-            stage=deal.get("stage", "Unknown"),
-            amount=deal.get("amount", 0),
-            closing_date=deal.get("closing_date", "Not set"),
-            days_since_activity=days_since,
-            health_score=deal.get("health_score", 0),
-            health_label=deal.get("health_label", "unknown"),
-            probability=deal.get("probability", 0),
-            next_step=deal.get("next_step") or "None defined",
-            signals_text=signals_text,
-        )
-
-        response = _get_client().chat.completions.create(
+        resp = await _get_client().chat.completions.create(
             model=MODEL,
-            max_tokens=1500,
-            messages=[{"role": "user", "content": prompt}],
+            max_tokens=1400,
             temperature=0.3,
+            messages=[
+                {"role": "system", "content": "You are an elite B2B SaaS sales strategist. Return ONLY valid JSON."},
+                {"role": "user", "content": prompt},
+            ],
         )
-        return _extract_json(response.choices[0].message.content)
-
+        result = _extract_json(resp.choices[0].message.content)
+        result["generated"] = True
+        return result
     except Exception as e:
         return {
-            "situation_read": f"Could not generate AI analysis: {str(e)}",
-            "urgency_level": "medium",
-            "primary_action": {
-                "what": "Review deal manually and define next step",
-                "why": "AI analysis unavailable",
-                "how": "Open deal in CRM and schedule a follow-up call",
-                "expected_outcome": "Re-establish contact with buyer"
-            },
+            "generated": False,
+            "situation_read": f"Could not generate action plan: {str(e)[:100]}",
+            "urgency_level": "high",
+            "primary_action": {"what": "Review deal manually", "why": "AI unavailable", "how": "Check CRM notes", "expected_outcome": "Clarity on deal status"},
             "secondary_actions": [],
-            "risk_if_no_action": "Deal may continue to stall",
+            "risk_if_no_action": "Deal may continue to stall without intervention.",
             "confidence_score": 0,
-            "rep_note": "Manual review required"
+            "rep_note": "",
         }
 
 
@@ -226,43 +291,49 @@ async def generate_email_draft(
     deal: Dict[str, Any],
     rep_name: str,
     email_objective: str,
-    action_context: str = "",
+    action_context: str,
 ) -> Dict[str, Any]:
-    """Draft a personalised follow-up email AS the sales rep."""
+    tone_guidance = {
+        "zombie": "a bold pattern interrupt — short, direct, unexpected",
+        "critical": "urgent acknowledgment of the silence with a very low-friction ask",
+        "at_risk": "consultative — reconnect on value and propose a specific next step",
+        "healthy": "confident and momentum-building",
+    }.get(deal.get("health_label", ""), "professional and purposeful")
+
+    prompt = EMAIL_PROMPT.format(
+        rep_persona=_build_rep_persona(rep_name),
+        rep_name=rep_name,
+        deal_name=deal.get("name", "Unknown"),
+        account_name=deal.get("account_name", "Unknown"),
+        stage=deal.get("stage", "Unknown"),
+        amount=_fmt(deal.get("amount", 0)),
+        health_score=deal.get("health_score", 0),
+        health_label=deal.get("health_label", "unknown"),
+        days_since_buyer_response=deal.get("days_since_buyer_response", deal.get("last_activity_days", "Unknown")),
+        next_step=deal.get("next_step") or "None set",
+        email_objective=email_objective,
+        action_context=action_context or "No specific context provided",
+        tone_guidance=tone_guidance,
+    )
+
     try:
-        days_since = deal.get("last_activity_days") or deal.get("days_since_buyer_response") or "Unknown"
-
-        prompt = EMAIL_DRAFT_PROMPT_TEMPLATE.format(
-            rep_persona=_build_rep_persona(rep_name),
-            rep_name=rep_name,
-            deal_name=deal.get("name", "Unknown Deal"),
-            account_name=deal.get("account_name", "Unknown Company"),
-            stage=deal.get("stage", "Unknown"),
-            amount=deal.get("amount", 0),
-            closing_date=deal.get("closing_date", "Not set"),
-            days_since_activity=days_since,
-            health_score=deal.get("health_score", 0),
-            health_label=deal.get("health_label", "unknown"),
-            next_step=deal.get("next_step") or "None defined",
-            email_objective=email_objective,
-            action_context=action_context or "Re-engage buyer and establish next step",
-        )
-
-        response = _get_client().chat.completions.create(
+        resp = await _get_client().chat.completions.create(
             model=MODEL,
             max_tokens=1000,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.5,
+            temperature=0.4,
+            messages=[
+                {"role": "system", "content": "You are an elite B2B sales email writer. Return ONLY valid JSON."},
+                {"role": "user", "content": prompt},
+            ],
         )
-        return _extract_json(response.choices[0].message.content)
-
+        return _extract_json(resp.choices[0].message.content)
     except Exception as e:
         return {
-            "subject": f"Following up on {deal.get('name', 'our discussion')}",
-            "body": f"Hi,\n\nI wanted to follow up on our recent conversation.\n\nWould you have 15 minutes this week to connect?\n\nBest,\n{rep_name}",
-            "tone": "warm",
-            "cta": "Schedule a 15-minute call",
-            "why_this_approach": f"Fallback template — AI error: {str(e)}"
+            "subject": "Following up",
+            "body": f"Could not generate email: {str(e)[:100]}",
+            "tone": "professional",
+            "cta": "Let me know your availability.",
+            "why_this_approach": "Fallback — AI unavailable.",
         }
 
 
@@ -271,32 +342,87 @@ async def handle_objection(
     objection: str,
     rep_name: str,
 ) -> Dict[str, Any]:
-    """Generate a specific objection handling response."""
+    prompt = OBJECTION_PROMPT.format(
+        rep_persona=_build_rep_persona(rep_name),
+        deal_name=deal.get("name", "Unknown"),
+        account_name=deal.get("account_name", "Unknown"),
+        stage=deal.get("stage", "Unknown"),
+        amount=_fmt(deal.get("amount", 0)),
+        health_score=deal.get("health_score", 0),
+        health_label=deal.get("health_label", "unknown"),
+        objection=objection,
+    )
+
     try:
-        prompt = OBJECTION_HANDLER_PROMPT.format(
-            rep_persona=_build_rep_persona(rep_name),
-            rep_name=rep_name,
-            deal_name=deal.get("name", "Unknown Deal"),
-            account_name=deal.get("account_name", "Unknown Company"),
-            amount=deal.get("amount", 0),
-            stage=deal.get("stage", "Unknown"),
-            objection=objection,
-        )
-
-        response = _get_client().chat.completions.create(
+        resp = await _get_client().chat.completions.create(
             model=MODEL,
-            max_tokens=1000,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.2,
+            max_tokens=800,
+            temperature=0.3,
+            messages=[
+                {"role": "system", "content": "You are an elite B2B sales coach. Return ONLY valid JSON."},
+                {"role": "user", "content": prompt},
+            ],
         )
-        return _extract_json(response.choices[0].message.content)
-
+        return _extract_json(resp.choices[0].message.content)
     except Exception as e:
         return {
-            "objection_type": "unknown",
-            "real_concern_behind_objection": "Could not analyse objection",
-            "response_strategy": "Acknowledge and ask clarifying question",
-            "exact_response": "I hear you. Can you help me understand what's driving that concern?",
-            "follow_up_question": "What would need to be true for this to move forward?",
-            "danger_signs": f"AI error: {str(e)}"
+            "objection_type": "other",
+            "real_concern_behind_objection": "Could not analyse objection.",
+            "is_genuine": True,
+            "exact_response": "I understand your concern. Can you tell me more about what's driving that?",
+            "follow_up_question": "What would need to be true for this to work for you?",
+            "danger_signs": None,
+            "what_not_to_say": "",
+        }
+
+
+async def generate_call_brief(
+    deal: Dict[str, Any],
+    health_signals: List[Dict[str, Any]],
+    rep_name: str,
+) -> Dict[str, Any]:
+    signals_text = "\n".join([
+        f"  [{s.get('label', '?').upper()}] {s.get('name', '')}: {s.get('detail', '')} ({s.get('score', 0)}/{s.get('max_score', 20)})"
+        for s in health_signals
+    ]) or "No signals available"
+
+    prompt = CALL_BRIEF_PROMPT.format(
+        rep_persona=_build_rep_persona(rep_name),
+        deal_name=deal.get("name", "Unknown"),
+        account_name=deal.get("account_name", "Unknown"),
+        stage=deal.get("stage", "Unknown"),
+        amount=_fmt(deal.get("amount", 0)),
+        health_score=deal.get("health_score", 0),
+        health_label=deal.get("health_label", "unknown"),
+        days_since_buyer_response=deal.get("days_since_buyer_response", deal.get("last_activity_days", "Unknown")),
+        contact_count=deal.get("contact_count", 1),
+        economic_buyer_engaged=deal.get("economic_buyer_engaged", False),
+        next_step=deal.get("next_step") or "None set",
+        signals_text=signals_text,
+    )
+
+    try:
+        resp = await _get_client().chat.completions.create(
+            model=MODEL,
+            max_tokens=1400,
+            temperature=0.3,
+            messages=[
+                {"role": "system", "content": "You are an elite B2B sales strategist and call preparation expert. Return ONLY valid JSON."},
+                {"role": "user", "content": prompt},
+            ],
+        )
+        result = _extract_json(resp.choices[0].message.content)
+        result["generated"] = True
+        return result
+    except Exception as e:
+        return {
+            "generated": False,
+            "call_objective": "Could not generate brief.",
+            "situation_summary": str(e)[:100],
+            "what_was_promised": "",
+            "stakeholder_intel": "",
+            "talking_points": [],
+            "risk_questions": [],
+            "red_flags_to_watch": [],
+            "opening_line": "",
         }

@@ -1,42 +1,28 @@
 """
 Deal Timeline Service
 =====================
-Builds a chronological timeline of every significant event on a deal:
-- Deal created
-- Notes added (from Zoho Notes)
-- Activities logged (calls, tasks, emails from Zoho Activities)
-- Last known activity
-- Closing date (future or past)
-- Health signals (computed)
-
-Then passes this to Groq to generate a narrative summary:
-"This deal has been silent for 23 days. The last interaction was a demo
-in November. Closing date passed 5 days ago. This is the pattern of a
-zombie deal — recommend killing it or doing one final re-engagement."
+Builds a chronological timeline of every significant event on a deal
+and passes it to Groq to generate a narrative summary.
 """
 
-import openai
+from groq import AsyncGroq
 import os
 import re
 import json
 from datetime import datetime, timezone, date
 from typing import List, Dict, Any, Optional
 
-# Lazy client — only created on first AI call, never at import time.
-_client: openai.OpenAI | None = None
+_client: AsyncGroq | None = None
 
 
-def _get_client() -> openai.OpenAI:
+def _get_client() -> AsyncGroq:
     global _client
     if _client is None:
-        _client = openai.OpenAI(
-            api_key=os.getenv("GROQ_API_KEY"),
-            base_url="https://api.groq.com/openai/v1",
-        )
+        _client = AsyncGroq(api_key=os.getenv("GROQ_API_KEY"))
     return _client
 
 
-MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+MODEL = "llama-3.1-8b-instant"  # Speed-optimised for timeline narrative
 
 
 def _parse_dt(s: Optional[str]) -> Optional[datetime]:
@@ -75,13 +61,8 @@ def build_timeline(
     notes: List[Dict[str, Any]],
     activities: List[Dict[str, Any]],
 ) -> Dict[str, Any]:
-    """
-    Build a structured timeline from deal metadata + notes + activities.
-    Returns a list of events sorted chronologically, plus computed signals.
-    """
     events = []
 
-    # ── Deal created ──────────────────────────────────────────────────────────
     created_dt = _parse_dt(deal.get("created_time"))
     if created_dt:
         events.append({
@@ -93,8 +74,7 @@ def build_timeline(
             "icon": "plus",
         })
 
-    # ── Notes ─────────────────────────────────────────────────────────────────
-    for note in notes[:10]:  # cap at 10 most recent
+    for note in notes[:10]:
         note_dt = _parse_dt(note.get("Created_Time") or note.get("created_time"))
         content = note.get("Note_Content") or note.get("note_content") or ""
         title = note.get("Note_Title") or note.get("note_title") or "Note added"
@@ -108,7 +88,6 @@ def build_timeline(
                 "icon": "file-text",
             })
 
-    # ── Activities (calls, tasks, emails) ─────────────────────────────────────
     for act in activities[:10]:
         act_dt = _parse_dt(
             act.get("Created_Time") or act.get("created_time") or
@@ -131,11 +110,9 @@ def build_timeline(
                 "icon": icon,
             })
 
-    # ── Last activity (from deal record itself) ───────────────────────────────
     last_act_dt = _parse_dt(deal.get("last_activity_time"))
     last_act_days = _days_ago(last_act_dt)
 
-    # Only add if no notes/activities close to this date already
     if last_act_dt and (not events or all(
         abs((_parse_dt(e["datetime"]) - last_act_dt).total_seconds()) > 86400
         for e in events if _parse_dt(e.get("datetime"))
@@ -149,7 +126,6 @@ def build_timeline(
             "icon": "activity",
         })
 
-    # ── Closing date ──────────────────────────────────────────────────────────
     closing_date = deal.get("closing_date")
     days_to_close = _days_from_now(closing_date)
     if closing_date:
@@ -175,7 +151,6 @@ def build_timeline(
                 "is_future": True,
             })
 
-    # Sort chronologically
     def sort_key(e):
         try:
             return datetime.fromisoformat(e["datetime"].replace("Z", "+00:00"))
@@ -184,9 +159,8 @@ def build_timeline(
 
     events.sort(key=sort_key)
 
-    # ── Computed signals ──────────────────────────────────────────────────────
     silence_days = last_act_days if last_act_days is not None else _days_ago(created_dt)
-    stage_age_days = _days_ago(created_dt)  # approximation
+    stage_age_days = _days_ago(created_dt)
 
     signals = []
     if silence_days is not None:
@@ -225,40 +199,35 @@ async def generate_timeline_narrative(
     health_label: str,
     timeline: Dict[str, Any],
 ) -> str:
-    """
-    Reads the timeline and writes a 2-3 sentence narrative that explains
-    what the pattern of activity means for this deal's future.
-    """
     events_text = "\n".join([
         f"  {i+1}. [{e.get('days_ago', '?')} days ago] {e['label']}: {e.get('detail', '')}"
-        for i, e in enumerate(timeline["events"][-8:])  # last 8 events
+        for i, e in enumerate(timeline["events"][-8:])
     ]) or "  No recorded events"
 
     silence = timeline.get("silence_days")
     closing = timeline.get("days_to_close")
 
-    prompt = f"""You are a sales manager reviewing a deal's activity timeline.
+    prompt = f"""You are a sales manager reading a deal's activity timeline.
 
-DEAL: {deal_name}
-STAGE: {stage}
-AMOUNT: ${amount:,.0f}
-HEALTH: {health_label}
-Silent for: {silence} days
-Days to close: {closing if closing is not None else 'unknown'}
+DEAL: {deal_name} | STAGE: {stage} | AMOUNT: ${amount:,.0f} | HEALTH: {health_label}
+Silent for: {silence} days | Days to close: {closing if closing is not None else 'unknown'}
 
-TIMELINE (most recent events):
+RECENT TIMELINE:
 {events_text}
 
-Write a 2-3 sentence narrative interpreting this timeline. What does the pattern of activity tell you about this deal? Is the silence normal for this stage? What should happen next?
+Write a 2-3 sentence narrative. Tell me:
+1. What the PATTERN of activity reveals about this deal's momentum
+2. Whether the current silence is normal for this stage or a warning sign
+3. What must happen next and by when
 
-Be specific and direct. Use the actual data. Do not use bullet points. Output only the narrative text, no JSON, no headers."""
+Be direct and specific. No bullet points. Output only the narrative text."""
 
     try:
-        resp = _get_client().chat.completions.create(
+        resp = await _get_client().chat.completions.create(
             model=MODEL,
-            max_tokens=200,
-            messages=[{"role": "user", "content": prompt}],
+            max_tokens=250,
             temperature=0.3,
+            messages=[{"role": "user", "content": prompt}],
         )
         return resp.choices[0].message.content.strip()
     except Exception as e:

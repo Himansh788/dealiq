@@ -1,43 +1,34 @@
 """
 Email Thread Analyzer
 ======================
-Fetches the actual email thread from Zoho and uses Groq to extract
-real health signals from the content:
-
+Fetches the actual email thread from Zoho and extracts real health signals:
 - Buyer sentiment (positive / neutral / negative / no response)
 - Objections raised (price, timing, competition, authority)
 - Discount mentions (exact count from thread)
 - Next steps promised but not confirmed
-- Last buyer response date (actual, not CRM approximation)
-- Red flags (going dark, CC'd legal, "we're evaluating other options")
+- Last buyer response date
+- Red flags (going dark, CC'd legal, "evaluating other options")
 - Green flags (asked for contract, introduced new stakeholder, set a date)
-
-This feeds directly into the health score breakdown as a new signal
-AND enriches the existing signals with real data instead of approximations.
 """
 
-import openai
+from groq import AsyncGroq
 import os
 import json
 import re
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timezone
 
-# Lazy client — only created on first AI call, never at import time.
-_client: openai.OpenAI | None = None
+_client: AsyncGroq | None = None
 
 
-def _get_client() -> openai.OpenAI:
+def _get_client() -> AsyncGroq:
     global _client
     if _client is None:
-        _client = openai.OpenAI(
-            api_key=os.getenv("GROQ_API_KEY"),
-            base_url="https://api.groq.com/openai/v1",
-        )
+        _client = AsyncGroq(api_key=os.getenv("GROQ_API_KEY"))
     return _client
 
 
-MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+MODEL = "llama-3.3-70b-versatile"
 
 
 def _extract_json(text: str) -> Any:
@@ -52,13 +43,8 @@ def _extract_json(text: str) -> Any:
 
 
 def parse_emails(raw_emails: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """
-    Normalise Zoho email records into a clean format for the AI prompt.
-    Zoho emails can come in different shapes depending on API version.
-    """
     parsed = []
-    for e in raw_emails[:10]:  # cap at 10 most recent
-        # Try different Zoho email field names
+    for e in raw_emails[:10]:
         subject = (
             e.get("subject") or e.get("Subject") or
             e.get("mail_label") or "No subject"
@@ -80,7 +66,7 @@ def parse_emails(raw_emails: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         if subject or content:
             parsed.append({
                 "subject": subject[:100],
-                "content": content[:500],  # cap content per email
+                "content": content[:500],
                 "sent_time": sent_time,
                 "from": str(from_addr)[:60],
                 "direction": direction,
@@ -94,10 +80,6 @@ async def analyze_email_thread(
     stage: str,
     emails: List[Dict[str, Any]],
 ) -> Dict[str, Any]:
-    """
-    Send the email thread to Groq and get structured health signals back.
-    Returns a dict with extracted signals and an AI-written summary.
-    """
     if not emails:
         return {
             "generated": False,
@@ -110,10 +92,9 @@ async def analyze_email_thread(
             "red_flags": [],
             "green_flags": [],
             "next_step_promised": None,
-            "email_health_score": 5,  # neutral out of 20
+            "email_health_score": 5,
         }
 
-    # Build email thread text for the prompt
     thread_text = "\n\n".join([
         f"[{e.get('direction', '?').upper()}] From: {e['from']}\n"
         f"Subject: {e['subject']}\n"
@@ -124,36 +105,36 @@ async def analyze_email_thread(
 
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
-    prompt = f"""You are a sales intelligence analyst reading an email thread for a B2B SaaS deal.
+    prompt = f"""You are a senior deal intelligence analyst reading a B2B SaaS email thread.
+Extract every meaningful signal about deal health from this email thread.
 
-DEAL: {deal_name}
-STAGE: {stage}
-TODAY: {today}
+Be specific — quote actual language from the emails for red flags and green flags.
+Calculate buyer response time from the actual dates in the thread.
+
+DEAL: {deal_name} | STAGE: {stage} | TODAY: {today}
 
 EMAIL THREAD (most recent first):
 {thread_text}
 
-Analyse this email thread and extract health signals. Respond ONLY with this JSON:
+Return ONLY this JSON:
 {{
-  "buyer_sentiment": "positive" | "neutral" | "negative" | "no_response" | "unknown",
-  "last_buyer_response_days": <integer days since last buyer email, or null if unknown>,
-  "discount_mentions": <count of times discount/price reduction mentioned in thread>,
-  "objections": ["list of specific objections raised by buyer, e.g. 'price too high', 'need board approval'"],
-  "red_flags": ["specific concerning phrases or patterns, e.g. 'buyer went silent after pricing email'"],
-  "green_flags": ["positive signals, e.g. 'buyer asked for contract template', 'introduced CFO to thread'"],
-  "next_step_promised": "description of any next step promised in emails but not yet confirmed, or null",
-  "email_health_score": <integer 0-20 based on overall email thread health>,
-  "summary": "2-3 sentence summary of what the email thread tells us about this deal's health and likely outcome"
-}}
-
-Be specific. Use actual content from the emails. Do not make things up."""
+  "buyer_sentiment": "positive|neutral|negative|no_response|unknown",
+  "last_buyer_response_days": null,
+  "discount_mentions": 0,
+  "objections": ["specific objections raised by buyer — quote their actual language"],
+  "red_flags": ["specific concerning phrases or patterns — e.g., 'Buyer used passive language: evaluating our options'"],
+  "green_flags": ["specific positive signals — e.g., 'Buyer asked about contract process on [date]'"],
+  "next_step_promised": "What was promised as next step, if anything — or null",
+  "email_health_score": 10,
+  "summary": "2-3 sentence forensic summary of what this email thread reveals about deal health — be direct"
+}}"""
 
     try:
-        resp = _get_client().chat.completions.create(
+        resp = await _get_client().chat.completions.create(
             model=MODEL,
-            max_tokens=800,
+            max_tokens=900,
+            temperature=0.1,
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.2,
         )
         result = _extract_json(resp.choices[0].message.content)
         result["generated"] = True

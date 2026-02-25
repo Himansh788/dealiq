@@ -109,6 +109,30 @@ export const api = {
   getDealTimeline: (dealId: string) =>
     fetch(`${API_URL}/deals/${dealId}/timeline`, { headers: authHeaders() }).then(handleResponse),
 
+  // ── Live Email Coach ──────────────────────────────────────────────────────
+  emailCoach: (emailDraft: string, dealId?: string, dealContext?: any) =>
+    fetch(`${API_URL}/analysis/email-coach`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ email_draft: emailDraft, deal_id: dealId, deal_context: dealContext }),
+    }).then(handleResponse),
+
+  // ── Deal Autopsy ──────────────────────────────────────────────────────────
+  getAutopsy: (dealId: string, killReason?: string) =>
+    fetch(`${API_URL}/analysis/autopsy`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ deal_id: dealId, kill_reason: killReason }),
+    }).then(handleResponse),
+
+  // ── Pre-Call Intelligence Brief ───────────────────────────────────────────
+  getCallBrief: (dealId: string, repName?: string) =>
+    fetch(`${API_URL}/ai-rep/call-brief`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ deal_id: dealId, rep_name: repName || "the sales rep" }),
+    }).then(handleResponse),
+
   // ── Alerts Digest ─────────────────────────────────────────────────────────
   getAlertsDigest: () =>
     fetch(`${API_URL}/alerts/digest`, { headers: authHeaders() }).then(handleResponse),
