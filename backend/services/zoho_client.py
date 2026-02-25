@@ -15,7 +15,8 @@ def get_authorization_url(state: str = "") -> str:
     params = {
         "scope": "ZohoCRM.modules.deals.READ,ZohoCRM.modules.contacts.READ,"
                  "ZohoCRM.modules.activities.READ,ZohoCRM.modules.notes.READ,"
-                 "ZohoCRM.modules.calls.READ,ZohoCRM.users.READ",
+                 "ZohoCRM.modules.calls.READ,ZohoCRM.users.READ,"
+                 "ZohoCRM.modules.emails.READ",
         "client_id": ZOHO_CLIENT_ID,
         "response_type": "code",
         "access_type": "offline",
@@ -146,6 +147,9 @@ def map_zoho_deal(raw: Dict[str, Any]) -> Dict[str, Any]:
 
 async def fetch_deal_emails(access_token: str, deal_id: str) -> list:
     """Fetch emails linked to a deal from Zoho CRM."""
+    import logging
+    logger = logging.getLogger(__name__)
+
     async with httpx.AsyncClient() as client:
         resp = await client.get(
             f"{ZOHO_API_BASE}/Deals/{deal_id}/Emails",
@@ -154,5 +158,11 @@ async def fetch_deal_emails(access_token: str, deal_id: str) -> list:
         if resp.status_code == 204:
             return []
         if not resp.is_success:
+            logger.warning(
+                "Zoho email fetch failed: status=%s body=%s",
+                resp.status_code,
+                resp.text[:300],
+            )
             return []
-        return resp.json().get("Emails", resp.json().get("data", []))
+        data = resp.json()
+        return data.get("Emails", data.get("data", []))

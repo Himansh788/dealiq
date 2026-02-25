@@ -31,6 +31,14 @@ def _get_client() -> AsyncGroq:
 MODEL = "llama-3.3-70b-versatile"
 
 
+def _strip_html(text: str) -> str:
+    """Strip HTML tags and decode common entities to plain text."""
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = text.replace("&nbsp;", " ").replace("&amp;", "&")
+    text = text.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", '"')
+    return re.sub(r"\s+", " ", text).strip()
+
+
 def _extract_json(text: str) -> Any:
     clean = re.sub(r"```json\s*|\s*```", "", text).strip()
     try:
@@ -49,19 +57,33 @@ def parse_emails(raw_emails: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             e.get("subject") or e.get("Subject") or
             e.get("mail_label") or "No subject"
         )
-        content = (
-            e.get("content") or e.get("Content") or
-            e.get("description") or e.get("summary") or ""
+
+        # Prefer plain-text summary over raw HTML content
+        raw_content = (
+            e.get("summary") or          # Zoho plain-text preview — best option
+            e.get("content") or          # may be HTML
+            e.get("Content") or
+            e.get("description") or
+            e.get("mail_description") or
+            ""
         )
+        content = _strip_html(raw_content)
+
         sent_time = (
-            e.get("date") or e.get("Date") or
-            e.get("sent_time") or e.get("Created_Time") or ""
+            e.get("sent_time") or e.get("date") or
+            e.get("Date") or e.get("Created_Time") or ""
         )
-        from_addr = (
-            e.get("from", {}).get("user_name") if isinstance(e.get("from"), dict)
-            else e.get("from") or e.get("From") or "Unknown"
+
+        from_field = e.get("from") or e.get("From")
+        if isinstance(from_field, dict):
+            from_addr = from_field.get("user_name") or from_field.get("email") or "Unknown"
+        else:
+            from_addr = str(from_field) if from_field else "Unknown"
+
+        # Zoho sets type = "sent" | "received" directly
+        direction = e.get("type") or e.get("direction") or (
+            "sent" if e.get("source") == "CRM" else "received"
         )
-        direction = e.get("type") or ("sent" if "rep" in str(from_addr).lower() else "received")
 
         if subject or content:
             parsed.append({
