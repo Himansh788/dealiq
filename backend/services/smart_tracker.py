@@ -3,14 +3,14 @@ Smart Trackers
 ==============
 Detects CONCEPTS in sales call transcripts — not keywords but underlying intent.
 Inspired by Gong's tracker feature. Each tracker has a concept description that
-tells Claude what to look for semantically, so "Is that your best price?" fires
+tells the LLM what to look for semantically, so "Is that your best price?" fires
 the discount_pressure tracker even though "discount" was never said.
 
 All 6 default trackers + support for custom trackers created at runtime.
-Single Claude prompt per analysis — all trackers evaluated in one call.
+Single Groq prompt per analysis — all trackers evaluated in one call.
 """
 
-from anthropic import AsyncAnthropic
+from groq import AsyncGroq
 import os
 import json
 import re
@@ -18,15 +18,15 @@ from typing import Any
 
 from models.tracker_schemas import TrackerMatch, TrackerResponse
 
-_client: AsyncAnthropic | None = None
+_client: AsyncGroq | None = None
 
-MODEL = "claude-haiku-4-5-20251001"
+MODEL = "llama-3.3-70b-versatile"
 
 
-def _get_client() -> AsyncAnthropic:
+def _get_client() -> AsyncGroq:
     global _client
     if _client is None:
-        _client = AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+        _client = AsyncGroq(api_key=os.getenv("GROQ_API_KEY"))
     return _client
 
 
@@ -210,14 +210,17 @@ class SmartTracker:
 
         prompt = _build_user_prompt(transcript, trackers)
 
-        response = await _get_client().messages.create(
+        response = await _get_client().chat.completions.create(
             model=MODEL,
             max_tokens=2000,
-            system=TRACKER_SYSTEM,
-            messages=[{"role": "user", "content": prompt}],
+            temperature=0.1,
+            messages=[
+                {"role": "system", "content": TRACKER_SYSTEM},
+                {"role": "user", "content": prompt},
+            ],
         )
 
-        raw = response.content[0].text
+        raw = response.choices[0].message.content
         parsed = _extract_json(raw)
 
         matches: list[TrackerMatch] = []
