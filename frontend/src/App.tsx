@@ -8,6 +8,7 @@ import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import NotFound from "./pages/NotFound";
 import ForecastPage from "./pages/ForecastPage";
+import TrackersPage from "./pages/TrackersPage";
 
 const queryClient = new QueryClient();
 
@@ -21,7 +22,8 @@ const App = () => (
           <Routes>
             <Route path="/" element={<Login />} />
             <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/forecast" element={<ForecastPage />} /> 
+            <Route path="/forecast" element={<ForecastPage />} />
+            <Route path="/trackers" element={<TrackersPage />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>

@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import {
   BarChart3, AlertTriangle, LogOut, TrendingUp,
-  Activity, DollarSign, Users, Search, X, Filter, Radar, ChevronRight
+  Activity, DollarSign, Users, Search, X, Filter, Radar, ChevronRight, ScanSearch
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -331,6 +331,15 @@ export default function Dashboard() {
 
           {/* Nav */}
           <div className="flex items-center gap-2">
+            <Link to="/trackers">
+              <Button
+                variant="outline" size="sm"
+                className="border-primary/30 text-primary hover:bg-primary/10 hover:border-primary/50 gap-1.5 text-sm font-medium"
+              >
+                <ScanSearch className="h-3.5 w-3.5" />
+                Smart Trackers
+              </Button>
+            </Link>
             <Button
               variant="outline" size="sm"
               onClick={() => setSignalPanelOpen(true)}

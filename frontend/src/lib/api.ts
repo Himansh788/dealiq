@@ -155,4 +155,25 @@ export const api = {
 
   getDemoSignals: () =>
     fetch(`${API_URL}/signals/demo`).then(handleResponse),
+
+  // ── Smart Trackers ────────────────────────────────────────────────────────
+  listTrackers: () =>
+    fetch(`${API_URL}/trackers/`, { headers: authHeaders() }).then(handleResponse),
+
+  createTracker: (name: string, concept_description: string, severity: string) =>
+    fetch(`${API_URL}/trackers/`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ name, concept_description, severity }),
+    }).then(handleResponse),
+
+  analyzeTranscript: (transcript: string, tracker_ids?: string[]) =>
+    fetch(`${API_URL}/trackers/analyze`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ transcript, tracker_ids: tracker_ids ?? null }),
+    }).then(handleResponse),
+
+  getDemoTrackers: () =>
+    fetch(`${API_URL}/trackers/analyze/demo`).then(handleResponse),
 };

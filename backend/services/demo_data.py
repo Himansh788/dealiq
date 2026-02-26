@@ -352,3 +352,78 @@ Looking forward to getting this across the line. Let me know if you have any que
 Best,
 Sarah
 """
+
+
+# ── Smart Tracker demo transcript ─────────────────────────────────────────────
+# Embeds all 6 default tracker concepts naturally in a single sales call.
+# discount_pressure, competitor_mention, timeline_urgency, budget_objection,
+# decision_maker_absent, next_steps_vague
+
+TRACKER_DEMO_TRANSCRIPT = """
+[Discovery & Proposal Call — LogiCo Supply Chain | March 4, 2026 | 10:00 AM IST]
+[Rep: Maya Patel (DealIQ) | Buyer: Vikram Singh, Head of Operations | 38 minutes]
+
+[00:01:12]
+Maya: Vikram, thanks for joining. Before I get into the updated numbers, how are you feeling
+about things since the demo last week?
+
+Vikram: Honestly, pretty good. The demo covered most of what we need. My main hesitation
+is the price point. We're a 50-person logistics company — $18K a year is a stretch.
+That's a significant chunk of our tooling budget for the year.
+
+[00:03:45]
+Maya: I hear you. Can I ask — what budget were you expecting to spend on pipeline tooling?
+
+Vikram: We had set aside maybe $10–12K. So we're already above that range. I'll need to
+go back to our CFO, Priya, to see if she can free up additional budget. She wasn't on
+this call unfortunately — I'd need her sign-off before we can commit to anything at this
+level. She's very conservative with new SaaS spend.
+
+[00:06:21]
+Maya: That makes sense. Is Priya someone we could include on a follow-up call?
+
+Vikram: Potentially, yes. Though her calendar is extremely tight — she has the board review
+on March 15th and is basically unavailable until after that. The board is asking for a
+cost reduction roadmap, which makes this a harder conversation right now. If we're going
+to do anything, it probably needs to happen before that board meeting or wait until April.
+
+[00:09:55]
+Maya: Understood. On the pricing side — is that your best price, or is there any flexibility?
+We've seen similar tools like Clari and Salesforce Starter offer lower per-seat costs for
+companies our size. I'm not trying to be difficult, I just want to make sure I'm comparing
+apples to apples before I take this to Priya.
+
+[00:11:03]
+Maya: That's a fair question. I can look at what we can do for a 12-month commit — we do
+have some flexibility for annual contracts signed before quarter-end. I'd need to check
+with my team, but there may be room.
+
+Vikram: That would help a lot. Also, on the competitor question — we've done a trial with
+HubSpot Sales Hub. Their deal tracking isn't as deep as yours, but their price is
+significantly lower. If we go with you, I need to be able to justify the premium clearly.
+
+[00:14:40]
+Maya: Absolutely — I'll put together a side-by-side comparison. One thing worth noting is
+that our pipeline health scoring isn't something HubSpot offers at this tier.
+
+Vikram: That's true. Look, I think there's a deal here. But I genuinely need two things:
+a better number to take to Priya, and something that shows ROI within six months.
+Our current quarter ends March 31st and if we're going to get budget approved, it has
+to happen before then.
+
+[00:27:15]
+Maya: Totally. I'll work on a revised proposal and ROI case. Let me ask — if the numbers
+work out, what would the sign-off process look like on your side?
+
+Vikram: It would go through Priya for budget sign-off. And then our legal team would need
+to review the contract — that usually takes a week. I wouldn't be making the final call
+on this one.
+
+[00:35:50]
+Maya: Makes sense. I'll get that to you soon and we'll figure out next steps from there.
+Thanks again, Vikram — really appreciate the time.
+
+Vikram: Sure, thanks Maya. Talk soon.
+
+[End of call — 38:04]
+"""

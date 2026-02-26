@@ -3,7 +3,7 @@ load_dotenv()
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from routers import auth, deals, analysis, ai_rep, forecast, alerts, signals
+from routers import auth, deals, analysis, ai_rep, forecast, alerts, signals, trackers
 import uvicorn
 
 app = FastAPI(
@@ -27,6 +27,7 @@ app.include_router(ai_rep.router, prefix="/ai-rep", tags=["AI Sales Rep"])
 app.include_router(forecast.router, prefix="/forecast", tags=["Forecast"])
 app.include_router(alerts.router, prefix="/alerts", tags=["Alerts"])
 app.include_router(signals.router, prefix="/signals", tags=["Signal Detector"])
+app.include_router(trackers.router, prefix="/trackers", tags=["Smart Trackers"])
 
 
 @app.get("/")
