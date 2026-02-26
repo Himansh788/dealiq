@@ -7,7 +7,7 @@ from services.claude_client import detect_narrative_mismatch, analyse_discount_t
 from services.email_coach import analyse_email_draft
 from services.deal_autopsy import generate_deal_autopsy
 from services.health_scorer import score_deal_from_zoho
-from services.demo_data import SIMULATED_DEALS, DEMO_TRANSCRIPT, DEMO_EMAIL
+from services.demo_data import SIMULATED_DEALS, SIMULATED_EMAILS, DEMO_TRANSCRIPT, DEMO_EMAIL
 from models.schemas import (
     MismatchRequest, MismatchResult, MismatchFlag,
     DiscountAnalysis, DiscountMention,
@@ -34,6 +34,100 @@ def _decode_session(authorization: str) -> dict:
 
 def _is_demo(session: dict) -> bool:
     return session.get("access_token") == "DEMO_MODE"
+
+
+def _fmt_emails(emails: List[Dict], limit: int = 5) -> str:
+    """Format the last N emails into a compact context string for AI prompts."""
+    if not emails:
+        return "No email history available — analysis based on CRM data only."
+    lines = []
+    for e in emails[-limit:]:
+        # Zoho CRM v2 uses "incoming" for received and "outgoing" for sent/BCC Dropbox.
+        # Also handle legacy values: "received", "inbound", "sent".
+        direction_val = (e.get("direction") or e.get("type") or "").lower()
+        is_buyer = direction_val in ("incoming", "received", "inbound")
+        direction = "← BUYER" if is_buyer else "→ REP"
+        # Content field varies by Zoho endpoint/version.
+        # _fetch_email_body already strips HTML; strip here as fallback safety.
+        import re as _re
+        def _clean(s: str) -> str:
+            if s and "<" in s:
+                s = _re.sub(r"<[^>]+>", " ", s)
+                s = _re.sub(r"\s+", " ", s).strip()
+            return s
+        content = _clean(
+            e.get("content")
+            or e.get("html_body")
+            or e.get("body")
+            or e.get("text_body")
+            or e.get("description")
+            or e.get("summary")
+            or e.get("snippet")  # email_related_list format
+            or ""
+        )
+        # Time field: "sent_time" for standard, "date" for email_related_list
+        sent_at = e.get("sent_time") or e.get("date") or "Unknown date"
+        lines.append(
+            f"  [{direction}] {sent_at} | Subject: {e.get('subject', 'No subject')}\n"
+            f"  {content[:400]}"
+        )
+    return "\n\n".join(lines)
+
+
+async def _fetch_email_context(deal_id: str, session: dict, limit: int = 5) -> str:
+    """Fetch and format the last N emails for a deal. Returns empty-safe string."""
+    import logging
+    _log = logging.getLogger(__name__)
+
+    if _is_demo(session):
+        emails = SIMULATED_EMAILS.get(deal_id, [])
+    else:
+        try:
+            from services.zoho_client import fetch_deal_emails
+            emails = await fetch_deal_emails(session["access_token"], deal_id)
+        except Exception as exc:
+            _log.warning("Email fetch error for deal=%s: %s", deal_id, exc)
+            emails = []
+
+    if not emails:
+        _log.info("No emails found for deal=%s — AI will proceed without email context", deal_id)
+
+    return _fmt_emails(emails, limit)
+
+
+def _build_activity_context(deal: dict) -> str:
+    """Build a compact activity + contact roles context string for AI prompts.
+    Reads fields populated by _enrich_deal when real Zoho data is available.
+    """
+    lines = []
+
+    contact_roles = deal.get("contact_roles") or []
+    if contact_roles:
+        lines.append("CONTACTS & ROLES:")
+        for c in contact_roles:
+            role = c.get("role") or "No role specified"
+            name = c.get("name") or "Unknown"
+            email = c.get("email") or ""
+            lines.append(f"  • {name} ({role})" + (f" — {email}" if email else ""))
+    else:
+        lines.append("CONTACTS: No contact role data available in CRM")
+
+    closed_meetings = deal.get("closed_meetings") or []
+    if closed_meetings:
+        lines.append("\nCOMPLETED MEETINGS:")
+        for m in closed_meetings[:5]:
+            lines.append(f"  • {m.get('Subject', 'Untitled')} — {m.get('Start_DateTime', m.get('Status', ''))}")
+
+    closed_tasks = deal.get("closed_tasks") or []
+    if closed_tasks:
+        lines.append("\nCOMPLETED TASKS:")
+        for t in closed_tasks[:5]:
+            lines.append(f"  • {t.get('Subject', 'Untitled')} — closed {t.get('Closed_Time', t.get('Due_Date', ''))}")
+
+    if not closed_meetings and not closed_tasks:
+        lines.append("\nACTIVITIES: No completed activities found in CRM for this deal")
+
+    return "\n".join(lines)
 
 
 # ── Narrative Mismatch ────────────────────────────────────────────────────────
@@ -121,9 +215,14 @@ async def live_email_coach(
                     "days_stalled": d.get("activity_count_30d", 0),
                 }
 
+    email_context = ""
+    if request.deal_id:
+        email_context = await _fetch_email_context(request.deal_id, session, limit=3)
+
     result = await analyse_email_draft(
         email_draft=request.email_draft,
         deal_context=deal_context,
+        email_context=email_context,
     )
     return result
 
@@ -170,13 +269,9 @@ async def get_ack_recommendation(deal_id: str, authorization: str = Header(...))
             raise HTTPException(status_code=404, detail="Deal not found")
         raw = raw_list[0]
     else:
-        from routers.deals import _fetch_all_zoho_deals, _enrich_deal
+        from routers.deals import get_fully_enriched_deal
         try:
-            all_deals = await _fetch_all_zoho_deals(session["access_token"])
-            raw_list = [d for d in all_deals if d["id"] == deal_id]
-            if not raw_list:
-                raise HTTPException(status_code=404, detail="Deal not found")
-            raw = _enrich_deal(raw_list[0])
+            raw = await get_fully_enriched_deal(session["access_token"], deal_id)
         except HTTPException:
             raise
         except Exception as e:
@@ -263,18 +358,15 @@ async def run_deal_autopsy(
             raise HTTPException(status_code=404, detail="Deal not found")
         raw = raw_list[0]
     else:
-        from routers.deals import _fetch_all_zoho_deals, _enrich_deal
+        from routers.deals import get_fully_enriched_deal
         try:
-            all_deals = await _fetch_all_zoho_deals(session["access_token"])
-            raw_list = [d for d in all_deals if d["id"] == request.deal_id]
-            if not raw_list:
-                raise HTTPException(status_code=404, detail="Deal not found")
-            raw = _enrich_deal(raw_list[0])
+            raw = await get_fully_enriched_deal(session["access_token"], request.deal_id)
         except HTTPException:
             raise
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
 
+    from routers.deals import build_deal_context
     health = score_deal_from_zoho(raw)
     deal_with_health = {
         **raw,
@@ -287,10 +379,20 @@ async def run_deal_autopsy(
         for s in health.signals
     ]
 
+    emails = (
+        SIMULATED_EMAILS.get(request.deal_id, []) if simulated
+        else raw.get("_emails_raw", [])
+    )
+    email_context = _fmt_emails(emails)
+    activity_context = _build_activity_context(deal_with_health)
+
     autopsy = await generate_deal_autopsy(
         deal=deal_with_health,
         health_signals=signals,
         kill_reason=request.kill_reason,
+        email_context=email_context,
+        activity_context=activity_context,
+        deal_context=build_deal_context(deal_with_health),
     )
 
     return {

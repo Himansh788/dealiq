@@ -1,9 +1,13 @@
 from fastapi import APIRouter, Header, HTTPException, Query
 from typing import Optional, List
+import asyncio
 import base64
 import json
 from datetime import datetime, timezone
-from services.zoho_client import fetch_deals, map_zoho_deal
+from services.zoho_client import (
+    fetch_deals, map_zoho_deal, fetch_single_deal,
+    fetch_deal_activities_closed, fetch_deal_contact_roles, fetch_deal_emails,
+)
 from services.health_scorer import score_deal_from_zoho
 from services.demo_data import SIMULATED_DEALS
 from models.schemas import Deal, DealList, PipelineMetrics, DealHealthResult
@@ -86,8 +90,15 @@ def _is_demo(session: dict) -> bool:
 
 # ── Deal Enrichment ────────────────────────────────────────────────────────────
 
-def _enrich_deal(raw: dict) -> dict:
-    """Add computed time-based and proxy fields to a raw mapped deal dict."""
+def _enrich_deal(raw: dict, activities: dict = None, contact_roles: list = None) -> dict:
+    """Add computed time-based and real activity/contact fields to a raw mapped deal dict.
+
+    activities   — output of fetch_deal_activities_closed: {"tasks": [...], "meetings": [...]}
+    contact_roles — output of fetch_deal_contact_roles: [{name, role, email}, ...]
+
+    When real data is not provided (dashboard list calls that can't afford per-deal API calls),
+    we fall back to probability-based proxies so existing callers keep working unchanged.
+    """
     def _days_since(dt_str):
         if not dt_str:
             return None
@@ -103,15 +114,111 @@ def _enrich_deal(raw: dict) -> dict:
     raw["last_activity_days"] = _days_since(raw.get("last_activity_time"))
     raw["days_since_buyer_response"] = raw["last_activity_days"]
 
-    prob = raw.get("probability", 0) or 0
-    if prob >= 90:    raw["activity_count_30d"] = 5
-    elif prob >= 50:  raw["activity_count_30d"] = 3
-    elif prob >= 20:  raw["activity_count_30d"] = 2
-    else:             raw["activity_count_30d"] = 1
+    # ── Activity data ──────────────────────────────────────────────────────────
+    if activities is not None:
+        closed_tasks = activities.get("tasks", [])
+        closed_meetings = activities.get("meetings", [])
+        raw["activity_count_30d"] = len(closed_tasks) + len(closed_meetings)
+        raw["has_completed_meeting"] = len(closed_meetings) > 0
+        raw["closed_tasks"] = closed_tasks
+        raw["closed_meetings"] = closed_meetings
+    else:
+        prob = raw.get("probability", 0) or 0
+        if prob >= 90:    raw["activity_count_30d"] = 5
+        elif prob >= 50:  raw["activity_count_30d"] = 3
+        elif prob >= 20:  raw["activity_count_30d"] = 2
+        else:             raw["activity_count_30d"] = 1
+        raw["has_completed_meeting"] = False
+        raw["closed_tasks"] = []
+        raw["closed_meetings"] = []
 
-    raw["economic_buyer_engaged"] = prob >= 70
-    raw["contact_count"] = 2 if prob >= 30 else 1
+    # ── Contact role data ──────────────────────────────────────────────────────
+    if contact_roles is not None:
+        raw["contact_count"] = len(contact_roles)
+        raw["contact_roles"] = contact_roles
+        economic_titles = {"economic buyer", "decision maker", "approver", "ceo", "cfo", "cto",
+                           "vp", "vice president", "director", "executive", "owner", "president"}
+        raw["economic_buyer_engaged"] = any(
+            any(kw in (c.get("role") or "").lower() for kw in economic_titles)
+            for c in contact_roles
+        )
+    else:
+        prob = raw.get("probability", 0) or 0
+        raw["contact_count"] = 2 if prob >= 30 else 1
+        raw["contact_roles"] = []
+        raw["economic_buyer_engaged"] = prob >= 70
+
     raw["discount_mention_count"] = 0
+    return raw
+
+
+def build_deal_context(raw: dict) -> str:
+    """
+    Build a compact deal-level context string from mapped deal fields.
+    Injected into every AI prompt so the model knows the buyer's pain point,
+    deal type, region, and team — not just name/stage/amount.
+    """
+    lines = []
+
+    if raw.get("description"):
+        lines.append(f"BUYER PAIN POINT: {raw['description']}")
+
+    if raw.get("deal_type"):
+        lines.append(f"Deal Type: {raw['deal_type']}")
+
+    region_parts = [raw.get("geo_region", ""), raw.get("country", ""), raw.get("city", "")]
+    region = " | ".join(p for p in region_parts if p)
+    if region:
+        lines.append(f"Region: {region}")
+
+    if raw.get("contact_name"):
+        lines.append(f"Primary Contact: {raw['contact_name']}")
+
+    if raw.get("no_of_booking_per_month"):
+        lines.append(f"Bookings/Month: {raw['no_of_booking_per_month']}")
+
+    if raw.get("expected_revenue"):
+        lines.append(f"Expected Revenue: ${raw['expected_revenue']:,.0f}")
+
+    if raw.get("inside_sales_rep") and str(raw.get("inside_sales_rep", "")).upper() not in ("NA", "N/A", "NONE", ""):
+        lines.append(f"Inside Sales Rep: {raw['inside_sales_rep']}")
+
+    if raw.get("lost_reason"):
+        lines.append(f"Lost/Kill Reason on File: {raw['lost_reason']}")
+
+    return "\n".join(lines) if lines else ""
+
+
+async def get_fully_enriched_deal(access_token: str, deal_id: str) -> dict:
+    """
+    Single entry point for fetching a deal with ALL context needed by AI endpoints.
+
+    - Fetches exactly ONE deal (no more 200-deal list scans)
+    - Fetches activities, contact roles, and emails in parallel
+    - Enriches the deal dict with real CRM data (replaces probability proxies)
+    - Stores _emails_raw for callers to format into email_context
+
+    Raises HTTP 404 if the deal is not found.
+    """
+    raw = await fetch_single_deal(access_token, deal_id)
+    if not raw:
+        raise HTTPException(status_code=404, detail="Deal not found")
+
+    activities, contact_roles, emails = await asyncio.gather(
+        fetch_deal_activities_closed(access_token, deal_id),
+        fetch_deal_contact_roles(access_token, deal_id),
+        fetch_deal_emails(access_token, deal_id),
+        return_exceptions=True,
+    )
+    if isinstance(activities, Exception):
+        activities = {}
+    if isinstance(contact_roles, Exception):
+        contact_roles = []
+    if isinstance(emails, Exception):
+        emails = []
+
+    raw = _enrich_deal(raw, activities=activities, contact_roles=contact_roles)
+    raw["_emails_raw"] = emails
     return raw
 
 
@@ -247,20 +354,15 @@ async def get_pipeline_metrics(authorization: str = Header(...)):
 async def get_deal_health(deal_id: str, authorization: str = Header(...)):
     """Get full health score breakdown for a single deal."""
     session = _decode_session(authorization)
-    simulated = _is_demo(session)
 
-    if simulated:
+    if _is_demo(session):
         raw_list = [d for d in SIMULATED_DEALS if d["id"] == deal_id]
         if not raw_list:
             raise HTTPException(status_code=404, detail="Deal not found")
         raw = raw_list[0]
     else:
         try:
-            all_deals = await _fetch_all_zoho_deals(session["access_token"])
-            raw_list = [r for r in all_deals if r.get("id") == deal_id]
-            if not raw_list:
-                raise HTTPException(status_code=404, detail="Deal not found in Zoho CRM")
-            raw = raw_list[0]
+            raw = await get_fully_enriched_deal(session["access_token"], deal_id)
         except HTTPException:
             raise
         except Exception as e:
@@ -320,21 +422,19 @@ async def get_deal_timeline(deal_id: str, authorization: str = Header(...)):
     else:
         try:
             from services.zoho_client import fetch_deal_notes, fetch_deal_activities
-            import asyncio
 
-            notes, activities = await asyncio.gather(
+            raw, notes, activities = await asyncio.gather(
+                fetch_single_deal(session["access_token"], deal_id),
                 fetch_deal_notes(session["access_token"], deal_id),
                 fetch_deal_activities(session["access_token"], deal_id),
                 return_exceptions=True,
             )
+            if isinstance(raw, Exception) or raw is None:
+                raw = {}
             if isinstance(notes, Exception):
                 notes = []
             if isinstance(activities, Exception):
                 activities = []
-
-            all_deals = await _fetch_all_zoho_deals(session["access_token"])
-            raw_list = [r for r in all_deals if r.get("id") == deal_id]
-            raw = raw_list[0] if raw_list else {}
         except Exception as e:
             return {"error": str(e), "events": [], "signals": [], "narrative": ""}
 

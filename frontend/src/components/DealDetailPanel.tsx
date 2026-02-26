@@ -1,7 +1,9 @@
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { useState, useEffect } from "react";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { SheetDescription } from "@/components/ui/sheet";
 import { Brain, Clock, Phone, Activity, GitMerge, Layers } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { api } from "@/lib/api";
 import HealthBreakdown from "./deal/HealthBreakdown";
 import AckSection from "./deal/AckSection";
 import MismatchChecker from "./deal/MismatchChecker";
@@ -13,94 +15,149 @@ interface Props {
   dealId: string | null;
   dealName: string;
   repName?: string;
+  stage?: string;
+  amount?: number;
+  healthScore?: number;
+  healthLabel?: string;
   onClose: () => void;
 }
 
-export default function DealDetailPanel({ dealId, dealName, repName, onClose }: Props) {
+function formatCurrency(val: number): string {
+  if (val >= 1_000_000) return `$${(val / 1_000_000).toFixed(1)}M`;
+  if (val >= 1_000) return `$${Math.round(val / 1_000)}K`;
+  return `$${val}`;
+}
+
+function scoreColor(score: number) {
+  if (score >= 75) return "text-health-green";
+  if (score >= 50) return "text-health-yellow";
+  return "text-health-red";
+}
+
+function stagePillClass(stage: string): string {
+  const s = stage.toLowerCase();
+  if (s.includes("discovery"))  return "bg-sky-500/10 text-sky-400 border-sky-500/20";
+  if (s.includes("qualif"))     return "bg-violet-500/10 text-violet-400 border-violet-500/20";
+  if (s.includes("proposal"))   return "bg-amber-500/10 text-amber-400 border-amber-500/20";
+  if (s.includes("negotiat"))   return "bg-orange-500/10 text-orange-400 border-orange-500/20";
+  if (s.includes("won"))        return "bg-health-green/10 text-health-green border-health-green/20";
+  if (s.includes("lost"))       return "bg-health-red/10 text-health-red border-health-red/20";
+  return "bg-secondary/60 text-muted-foreground border-border/30";
+}
+
+const SECTION_STYLES = {
+  timeline:   { icon: Clock,     label: "Deal Timeline",                    iconColor: "text-sky-400",    activeBorder: "border-l-sky-400/50" },
+  health:     { icon: Activity,  label: "Health Score Breakdown",           iconColor: "text-primary",    activeBorder: "border-l-primary/50" },
+  "ai-rep":   { icon: Brain,     label: "AI Sales Rep",                     iconColor: "text-accent",     activeBorder: "border-l-accent/50" },
+  "call-brief": { icon: Phone,   label: "Pre-Call Intelligence Brief",      iconColor: "text-green-400",  activeBorder: "border-l-green-400/50" },
+  mismatch:   { icon: GitMerge,  label: "Narrative Check + Live Email Coach", iconColor: "text-amber-400", activeBorder: "border-l-amber-400/50" },
+  ack:        { icon: Layers,    label: "Advance / Close / Kill",           iconColor: "text-health-red", activeBorder: "border-l-health-red/50" },
+} as const;
+
+type SectionKey = keyof typeof SECTION_STYLES;
+
+function SectionTrigger({ sectionKey }: { sectionKey: SectionKey }) {
+  const { icon: Icon, label, iconColor } = SECTION_STYLES[sectionKey];
+  return (
+    <div className="flex items-center gap-2.5">
+      <Icon className={cn("h-4 w-4 shrink-0", iconColor)} />
+      <span className="text-sm font-semibold text-foreground">{label}</span>
+    </div>
+  );
+}
+
+export default function DealDetailPanel({
+  dealId, dealName, repName, stage, amount, healthScore, healthLabel, onClose
+}: Props) {
+  const [liveScore, setLiveScore] = useState<number | undefined>(undefined);
+  const [liveLabel, setLiveLabel] = useState<string | undefined>(undefined);
+
+  useEffect(() => {
+    if (!dealId) return;
+    setLiveScore(undefined);
+    setLiveLabel(undefined);
+    api.getDealHealth(dealId)
+      .then((data) => {
+        setLiveScore(data.total_score ?? data.overall_score);
+        setLiveLabel(data.health_label);
+      })
+      .catch(() => { /* fall back to stale list score */ });
+  }, [dealId]);
+
+  const displayScore = liveScore ?? healthScore;
+  const displayLabel = liveLabel ?? healthLabel;
+  const showMeta = stage || (amount != null && amount > 0) || displayScore != null;
+
   return (
     <Sheet open={!!dealId} onOpenChange={(open) => !open && onClose()}>
-      <SheetContent side="right" className="w-full overflow-y-auto border-border/50 bg-background sm:max-w-2xl">
-        <SheetHeader className="pb-4">
-          <SheetTitle className="text-xl text-foreground">{dealName || "Deal Analysis"}</SheetTitle>
-          <SheetDescription className="text-muted-foreground">In-depth deal intelligence and actions</SheetDescription>
-        </SheetHeader>
+      <SheetContent side="right" className="w-full overflow-y-auto border-l border-border/40 bg-background p-0 sm:max-w-2xl">
 
+        {/* Panel header */}
+        <div className="sticky top-0 z-10 border-b border-border/40 bg-background/95 px-6 py-5 backdrop-blur-sm">
+          <SheetHeader className="gap-1">
+            <SheetTitle className="text-lg font-bold text-foreground leading-tight">
+              {dealName || "Deal Analysis"}
+            </SheetTitle>
+            <SheetDescription className="text-xs text-muted-foreground/60">
+              In-depth deal intelligence and AI-powered actions
+            </SheetDescription>
+          </SheetHeader>
+
+          {/* Deal meta strip */}
+          {showMeta && (
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              {stage && (
+                <span className={cn(
+                  "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium",
+                  stagePillClass(stage)
+                )}>
+                  {stage}
+                </span>
+              )}
+              {amount != null && amount > 0 && (
+                <span className="rounded-md border border-border/40 bg-secondary/40 px-2.5 py-0.5 text-xs font-semibold tabular-nums text-foreground/80">
+                  {formatCurrency(amount)}
+                </span>
+              )}
+              {displayScore != null && (
+                <span className={cn(
+                  "rounded-md border border-border/40 bg-secondary/40 px-2.5 py-0.5 text-xs font-bold tabular-nums",
+                  scoreColor(displayScore)
+                )}>
+                  Health {displayScore}
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Accordion sections */}
         {dealId && (
-          <Accordion type="multiple" defaultValue={["timeline", "health", "ai-rep"]} className="space-y-2">
+          <div className="px-4 py-4">
+            <Accordion type="multiple" defaultValue={["timeline", "health", "ai-rep"]} className="space-y-2">
 
-            <AccordionItem value="timeline" className="rounded-lg border border-border/50 px-4">
-              <AccordionTrigger className="text-foreground hover:no-underline">
-                <div className="flex items-center gap-2">
-                  <Clock className="h-4 w-4 text-primary" />
-                  Deal Timeline
-                </div>
-              </AccordionTrigger>
-              <AccordionContent>
-                <DealTimeline dealId={dealId} />
-              </AccordionContent>
-            </AccordionItem>
+              {(Object.keys(SECTION_STYLES) as SectionKey[]).map(key => (
+                <AccordionItem
+                  key={key}
+                  value={key}
+                  className="overflow-hidden rounded-lg border border-border/40 bg-card/40 px-0 transition-colors hover:border-border/60 data-[state=open]:border-border/60 data-[state=open]:bg-card/60"
+                >
+                  <AccordionTrigger className="border-b-0 px-4 py-3 hover:no-underline hover:bg-transparent [&>svg]:text-muted-foreground/50">
+                    <SectionTrigger sectionKey={key} />
+                  </AccordionTrigger>
+                  <AccordionContent className="px-4 pb-4 pt-0">
+                    {key === "timeline"    && <DealTimeline dealId={dealId} />}
+                    {key === "health"      && <HealthBreakdown dealId={dealId} />}
+                    {key === "ai-rep"      && <AIRepPanel dealId={dealId} dealName={dealName} repName={repName} />}
+                    {key === "call-brief"  && <CallBriefPanel dealId={dealId} repName={repName} />}
+                    {key === "mismatch"    && <MismatchChecker dealId={dealId} />}
+                    {key === "ack"         && <AckSection dealId={dealId} />}
+                  </AccordionContent>
+                </AccordionItem>
+              ))}
 
-            <AccordionItem value="health" className="rounded-lg border border-border/50 px-4">
-              <AccordionTrigger className="text-foreground hover:no-underline">
-                <div className="flex items-center gap-2">
-                  <Activity className="h-4 w-4 text-primary" />
-                  Health Score Breakdown
-                </div>
-              </AccordionTrigger>
-              <AccordionContent>
-                <HealthBreakdown dealId={dealId} />
-              </AccordionContent>
-            </AccordionItem>
-
-            <AccordionItem value="ai-rep" className="rounded-lg border border-border/50 px-4">
-              <AccordionTrigger className="text-foreground hover:no-underline">
-                <div className="flex items-center gap-2">
-                  <Brain className="h-4 w-4 text-primary" />
-                  AI Sales Rep
-                </div>
-              </AccordionTrigger>
-              <AccordionContent>
-                <AIRepPanel dealId={dealId} dealName={dealName} repName={repName} />
-              </AccordionContent>
-            </AccordionItem>
-
-            <AccordionItem value="call-brief" className="rounded-lg border border-border/50 px-4">
-              <AccordionTrigger className="text-foreground hover:no-underline">
-                <div className="flex items-center gap-2">
-                  <Phone className="h-4 w-4 text-primary" />
-                  Pre-Call Intelligence Brief
-                </div>
-              </AccordionTrigger>
-              <AccordionContent>
-                <CallBriefPanel dealId={dealId} repName={repName} />
-              </AccordionContent>
-            </AccordionItem>
-
-            <AccordionItem value="mismatch" className="rounded-lg border border-border/50 px-4">
-              <AccordionTrigger className="text-foreground hover:no-underline">
-                <div className="flex items-center gap-2">
-                  <GitMerge className="h-4 w-4 text-primary" />
-                  Narrative Check + Live Email Coach
-                </div>
-              </AccordionTrigger>
-              <AccordionContent>
-                <MismatchChecker dealId={dealId} />
-              </AccordionContent>
-            </AccordionItem>
-
-            <AccordionItem value="ack" className="rounded-lg border border-border/50 px-4">
-              <AccordionTrigger className="text-foreground hover:no-underline">
-                <div className="flex items-center gap-2">
-                  <Layers className="h-4 w-4 text-primary" />
-                  Advance / Close / Kill
-                </div>
-              </AccordionTrigger>
-              <AccordionContent>
-                <AckSection dealId={dealId} />
-              </AccordionContent>
-            </AccordionItem>
-
-          </Accordion>
+            </Accordion>
+          </div>
         )}
       </SheetContent>
     </Sheet>

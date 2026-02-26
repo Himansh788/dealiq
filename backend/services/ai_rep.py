@@ -77,6 +77,9 @@ Discount mentions: {discount_mention_count}
 Activity last 30 days: {activity_count_30d}
 Health score: {health_score}/100 ({health_label})
 
+═══ DEAL CONTEXT ═══
+{deal_context}
+
 ═══ HEALTH SIGNAL BREAKDOWN ═══
 {signals_text}
 
@@ -129,6 +132,12 @@ CRM next step: {next_step}
 Email objective: {email_objective}
 Action context: {action_context}
 
+═══ DEAL CONTEXT ═══
+{deal_context}
+
+═══ RECENT EMAIL CONTEXT (last 5 emails) ═══
+{email_context}
+
 ═══ EMAIL REQUIREMENTS ═══
 - Subject line: specific, creates curiosity or references shared context — never generic
 - Opening: no "Hope you're well" — reference something real (their last message, a shared context, the current situation)
@@ -155,6 +164,12 @@ A buyer just raised an objection on the deal: {deal_name} ({account_name}, {stag
 Deal health: {health_score}/100 ({health_label}).
 
 OBJECTION: "{objection}"
+
+═══ DEAL CONTEXT ═══
+{deal_context}
+
+═══ RECENT EMAIL CONTEXT (last 5 emails) ═══
+{email_context}
 
 Think step by step:
 1. What is the REAL concern behind this objection? (people rarely say what they actually mean)
@@ -186,17 +201,35 @@ Days since last activity: {days_since_buyer_response}
 Contact count: {contact_count} | Economic buyer engaged: {economic_buyer_engaged}
 CRM next step: {next_step}
 
+═══ DEAL CONTEXT ═══
+{deal_context}
+
 ═══ HEALTH SIGNALS ═══
 {signals_text}
 
+═══ RECENT EMAIL CONTEXT (last 5 emails) ═══
+{email_context}
+
+═══ CLOSED ACTIVITIES & STAKEHOLDERS (from CRM) ═══
+{activity_context}
+
 Think like you're preparing for your most important call of the week.
 What does the buyer need to feel? What do YOU need to walk away with?
+
+Before writing the JSON, scan the email context above and extract EVERY concrete commitment, regardless of size:
+- Scheduled meetings or calls with dates/times (e.g. "call Thursday 3pm", "demo next week")
+- Documents sent or still pending (NDAs, contracts, proposals, pricing sheets, technical specs)
+- People either side committed to adding or looping in (e.g. "I'll copy our CFO", "you'll introduce your CTO")
+- Any action item either party agreed to, even small ones (e.g. "I'll send a calendar invite", "can you share the case study?")
+
+List every one of these in what_was_promised — do not summarise them into a vague statement.
+If the email context is empty or has no commitments, say so explicitly rather than inventing something.
 
 Return ONLY this JSON:
 {{
   "call_objective": "The single outcome you MUST achieve on this call (specific and measurable)",
   "situation_summary": "2-sentence honest summary of where this deal stands right now",
-  "what_was_promised": "What commitments were made in the last interaction that you must reference or deliver on",
+  "what_was_promised": "Bullet-point list of every concrete commitment from the emails — meetings with dates, docs sent/pending, people to be looped in, agreed action items. Example: '• Sent pricing proposal on [date] — awaiting response\\n• Promised to intro their CFO on next call\\n• Buyer asked for a case study — not yet sent'. If no emails or no commitments found, state that explicitly.",
   "stakeholder_intel": "What you know about the buyer's situation, pressures, and decision criteria",
   "talking_points": [
     "Talking point 1 — tied to their specific business context",
@@ -222,6 +255,7 @@ async def generate_next_best_action(
     health_signals: List[Dict[str, Any]],
     rep_name: str,
     email_thread: Optional[List[Dict[str, Any]]] = None,
+    deal_context: str = "",
 ) -> Dict[str, Any]:
     signals_text = "\n".join([
         f"  [{s.get('label', '?').upper()}] {s.get('name', '')}: {s.get('detail', '')} ({s.get('score', 0)}/{s.get('max_score', 20)})"
@@ -231,7 +265,7 @@ async def generate_next_best_action(
     # Build email context from thread
     if email_thread:
         formatted_emails = []
-        for e in email_thread[-8:]:  # last 8 emails for context
+        for e in email_thread[-5:]:  # last 5 emails for context
             direction = "← BUYER" if e.get("direction") in ("received", "inbound") else "→ REP"
             formatted_emails.append(
                 f"  [{direction}] {e.get('sent_time', 'Unknown date')} | Subject: {e.get('subject', 'No subject')}\n"
@@ -257,6 +291,7 @@ async def generate_next_best_action(
         activity_count_30d=deal.get("activity_count_30d", 0),
         health_score=deal.get("health_score", 0),
         health_label=deal.get("health_label", "unknown"),
+        deal_context=deal_context or "No additional deal context available.",
         signals_text=signals_text,
         email_context=email_context_text,
     )
@@ -292,6 +327,8 @@ async def generate_email_draft(
     rep_name: str,
     email_objective: str,
     action_context: str,
+    email_context: str = "",
+    deal_context: str = "",
 ) -> Dict[str, Any]:
     tone_guidance = {
         "zombie": "a bold pattern interrupt — short, direct, unexpected",
@@ -314,6 +351,8 @@ async def generate_email_draft(
         email_objective=email_objective,
         action_context=action_context or "No specific context provided",
         tone_guidance=tone_guidance,
+        deal_context=deal_context or "No additional deal context available.",
+        email_context=email_context or "No email history available — analysis based on CRM data only.",
     )
 
     try:
@@ -341,6 +380,8 @@ async def handle_objection(
     deal: Dict[str, Any],
     objection: str,
     rep_name: str,
+    email_context: str = "",
+    deal_context: str = "",
 ) -> Dict[str, Any]:
     prompt = OBJECTION_PROMPT.format(
         rep_persona=_build_rep_persona(rep_name),
@@ -351,6 +392,8 @@ async def handle_objection(
         health_score=deal.get("health_score", 0),
         health_label=deal.get("health_label", "unknown"),
         objection=objection,
+        deal_context=deal_context or "No additional deal context available.",
+        email_context=email_context or "No email history available — analysis based on CRM data only.",
     )
 
     try:
@@ -380,6 +423,9 @@ async def generate_call_brief(
     deal: Dict[str, Any],
     health_signals: List[Dict[str, Any]],
     rep_name: str,
+    email_context: str = "",
+    activity_context: str = "",
+    deal_context: str = "",
 ) -> Dict[str, Any]:
     signals_text = "\n".join([
         f"  [{s.get('label', '?').upper()}] {s.get('name', '')}: {s.get('detail', '')} ({s.get('score', 0)}/{s.get('max_score', 20)})"
@@ -398,7 +444,10 @@ async def generate_call_brief(
         contact_count=deal.get("contact_count", 1),
         economic_buyer_engaged=deal.get("economic_buyer_engaged", False),
         next_step=deal.get("next_step") or "None set",
+        deal_context=deal_context or "No additional deal context available.",
         signals_text=signals_text,
+        email_context=email_context or "No email history available — analysis based on CRM data only.",
+        activity_context=activity_context or "No activity/contact data available — analysis based on CRM deal fields only.",
     )
 
     try:

@@ -68,6 +68,9 @@ async def generate_deal_autopsy(
     health_signals: List[Dict[str, Any]],
     kill_reason: Optional[str] = None,
     timeline_events: Optional[List[Dict[str, Any]]] = None,
+    email_context: str = "",
+    activity_context: str = "",
+    deal_context: str = "",
 ) -> Dict[str, Any]:
     """
     Generate a full autopsy for a dead or killed deal.
@@ -101,6 +104,15 @@ Discount mentions: {deal.get('discount_mention_count', 0)}{kill_reason_text}
 
 ═══ HEALTH SIGNALS AT TIME OF DEATH ═══
 {signals_text}{timeline_text}
+
+═══ RECENT EMAIL CONTEXT (last 5 emails) ═══
+{email_context or "No email history available — analysis based on CRM data only."}
+
+═══ DEAL CONTEXT ═══
+{deal_context or "No additional deal context available."}
+
+═══ CLOSED ACTIVITIES & STAKEHOLDERS (from CRM) ═══
+{activity_context or "No activity/contact data available."}
 
 Think step by step:
 1. What is the single clearest root cause?

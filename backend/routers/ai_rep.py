@@ -7,6 +7,7 @@ from services.ai_rep import generate_next_best_action, generate_email_draft, han
 from services.health_scorer import score_deal_from_zoho
 from services.demo_data import SIMULATED_DEALS, SIMULATED_EMAILS
 from datetime import datetime, timezone
+# build_deal_context imported inline to avoid circular import at module load
 
 router = APIRouter()
 
@@ -78,13 +79,9 @@ async def _get_deal(deal_id: str, session: dict) -> dict:
             raise HTTPException(status_code=404, detail="Deal not found")
         return matches[0]
     else:
-        from routers.deals import _fetch_all_zoho_deals, _enrich_deal
+        from routers.deals import get_fully_enriched_deal
         try:
-            all_deals = await _fetch_all_zoho_deals(session["access_token"])
-            matches = [d for d in all_deals if d["id"] == deal_id]
-            if not matches:
-                raise HTTPException(status_code=404, detail="Deal not found")
-            return _enrich_deal(matches[0])
+            return await get_fully_enriched_deal(session["access_token"], deal_id)
         except HTTPException:
             raise
         except Exception as e:
@@ -105,10 +102,105 @@ def _rep_name_from(request_rep: str, session: dict, deal: dict) -> str:
     return session.get("display_name") or deal.get("owner") or "the sales rep"
 
 
+def _fmt_emails(emails: List[Dict], limit: int = 5) -> str:
+    """Format the last N emails into a compact context string for AI prompts."""
+    if not emails:
+        return "No email history available — analysis based on CRM data only."
+    lines = []
+    for e in emails[-limit:]:
+        # Zoho CRM v2 uses "incoming" for received and "outgoing" for sent/BCC Dropbox.
+        # Also handle legacy values: "received", "inbound", "sent".
+        direction_val = (e.get("direction") or e.get("type") or "").lower()
+        is_buyer = direction_val in ("incoming", "received", "inbound")
+        direction = "← BUYER" if is_buyer else "→ REP"
+        # Content field varies by Zoho endpoint/version.
+        # _fetch_email_body already strips HTML; strip here as fallback safety.
+        import re as _re
+        def _clean(s: str) -> str:
+            if s and "<" in s:
+                s = _re.sub(r"<[^>]+>", " ", s)
+                s = _re.sub(r"\s+", " ", s).strip()
+            return s
+        content = _clean(
+            e.get("content")
+            or e.get("html_body")
+            or e.get("body")
+            or e.get("text_body")
+            or e.get("description")
+            or e.get("summary")
+            or e.get("snippet")  # email_related_list format
+            or ""
+        )
+        # Time field: "sent_time" for standard, "date" for email_related_list
+        sent_at = e.get("sent_time") or e.get("date") or "Unknown date"
+        lines.append(
+            f"  [{direction}] {sent_at} | Subject: {e.get('subject', 'No subject')}\n"
+            f"  {content[:400]}"
+        )
+    return "\n\n".join(lines)
+
+
+async def _fetch_email_context(deal_id: str, session: dict, limit: int = 5) -> str:
+    """Fetch and format the last N emails for a deal. Returns empty-safe string."""
+    import logging
+    _log = logging.getLogger(__name__)
+
+    if _is_demo(session):
+        emails = SIMULATED_EMAILS.get(deal_id, [])
+    else:
+        try:
+            from services.zoho_client import fetch_deal_emails
+            emails = await fetch_deal_emails(session["access_token"], deal_id)
+        except Exception as exc:
+            _log.warning("Email fetch error for deal=%s: %s", deal_id, exc)
+            emails = []
+
+    if not emails:
+        _log.info("No emails found for deal=%s — AI will proceed without email context", deal_id)
+
+    return _fmt_emails(emails, limit)
+
+
+def _build_activity_context(deal: dict) -> str:
+    """Build a compact activity + contact roles context string for AI prompts.
+    Reads fields populated by _enrich_deal when real Zoho data is available.
+    """
+    lines = []
+
+    contact_roles = deal.get("contact_roles") or []
+    if contact_roles:
+        lines.append("CONTACTS & ROLES:")
+        for c in contact_roles:
+            role = c.get("role") or "No role specified"
+            name = c.get("name") or "Unknown"
+            email = c.get("email") or ""
+            lines.append(f"  • {name} ({role})" + (f" — {email}" if email else ""))
+    else:
+        lines.append("CONTACTS: No contact role data available in CRM")
+
+    closed_meetings = deal.get("closed_meetings") or []
+    if closed_meetings:
+        lines.append("\nCOMPLETED MEETINGS:")
+        for m in closed_meetings[:5]:
+            lines.append(f"  • {m.get('Subject', 'Untitled')} — {m.get('Start_DateTime', m.get('Status', ''))}")
+
+    closed_tasks = deal.get("closed_tasks") or []
+    if closed_tasks:
+        lines.append("\nCOMPLETED TASKS:")
+        for t in closed_tasks[:5]:
+            lines.append(f"  • {t.get('Subject', 'Untitled')} — closed {t.get('Closed_Time', t.get('Due_Date', ''))}")
+
+    if not closed_meetings and not closed_tasks:
+        lines.append("\nACTIVITIES: No completed activities found in CRM for this deal")
+
+    return "\n".join(lines)
+
+
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @router.post("/nba")
 async def get_next_best_action(request: NBARequest, authorization: str = Header(...)):
+    from routers.deals import build_deal_context
     session = _decode_session(authorization)
     deal = await _get_deal(request.deal_id, session)
     rep_name = _rep_name_from(request.rep_name, session, deal)
@@ -117,22 +209,18 @@ async def get_next_best_action(request: NBARequest, authorization: str = Header(
     health_result = score_deal_from_zoho(deal)
     deal_with_health = {**deal, "health_score": health_result.total_score, "health_label": health_result.health_label}
 
-    # Fetch email thread for richer AI context
-    email_thread: List[Dict] = []
-    if _is_demo(session):
-        email_thread = SIMULATED_EMAILS.get(request.deal_id, [])
-    else:
-        try:
-            from services.zoho_client import fetch_deal_emails
-            email_thread = await fetch_deal_emails(session["access_token"], request.deal_id)
-        except Exception:
-            email_thread = []
+    # Emails already fetched by get_fully_enriched_deal — no second API call needed
+    email_thread: List[Dict] = (
+        SIMULATED_EMAILS.get(request.deal_id, []) if _is_demo(session)
+        else deal.get("_emails_raw", [])
+    )
 
     action_plan = await generate_next_best_action(
         deal=deal_with_health,
         health_signals=signals,
         rep_name=rep_name,
         email_thread=email_thread,
+        deal_context=build_deal_context(deal_with_health),
     )
 
     return {
@@ -159,6 +247,7 @@ async def approve_action_plan(request: ActionApprovalRequest, authorization: str
 
 @router.post("/draft-email")
 async def draft_email(request: EmailDraftRequest, authorization: str = Header(...)):
+    from routers.deals import build_deal_context
     session = _decode_session(authorization)
     deal = await _get_deal(request.deal_id, session)
     rep_name = _rep_name_from(request.rep_name, session, deal)
@@ -166,11 +255,19 @@ async def draft_email(request: EmailDraftRequest, authorization: str = Header(..
     health_result = score_deal_from_zoho(deal)
     deal_with_health = {**deal, "health_score": health_result.total_score, "health_label": health_result.health_label}
 
+    emails = (
+        SIMULATED_EMAILS.get(request.deal_id, []) if _is_demo(session)
+        else deal.get("_emails_raw", [])
+    )
+    email_context = _fmt_emails(emails)
+
     email = await generate_email_draft(
         deal=deal_with_health,
         rep_name=rep_name,
         email_objective=request.email_objective or "Re-engage buyer and establish next step",
         action_context=request.action_context or "",
+        email_context=email_context,
+        deal_context=build_deal_context(deal_with_health),
     )
 
     return {
@@ -201,11 +298,24 @@ async def approve_email(request: EmailApprovalRequest, authorization: str = Head
 
 @router.post("/handle-objection")
 async def handle_objection_endpoint(request: ObjectionRequest, authorization: str = Header(...)):
+    from routers.deals import build_deal_context
     session = _decode_session(authorization)
     deal = await _get_deal(request.deal_id, session)
     rep_name = _rep_name_from(request.rep_name, session, deal)
 
-    response = await handle_objection(deal=deal, objection=request.objection, rep_name=rep_name)
+    emails = (
+        SIMULATED_EMAILS.get(request.deal_id, []) if _is_demo(session)
+        else deal.get("_emails_raw", [])
+    )
+    email_context = _fmt_emails(emails)
+
+    response = await handle_objection(
+        deal=deal,
+        objection=request.objection,
+        rep_name=rep_name,
+        email_context=email_context,
+        deal_context=build_deal_context(deal),
+    )
 
     return {
         "deal_id": request.deal_id,
@@ -228,11 +338,26 @@ async def get_call_brief(request: CallBriefRequest, authorization: str = Header(
     deal = await _get_deal(request.deal_id, session)
     rep_name = _rep_name_from(request.rep_name, session, deal)
 
+    from routers.deals import build_deal_context
     health_result = score_deal_from_zoho(deal)
     deal_with_health = {**deal, "health_score": health_result.total_score, "health_label": health_result.health_label}
     signals = _get_health_signals(deal)
 
-    brief = await generate_call_brief(deal=deal_with_health, health_signals=signals, rep_name=rep_name)
+    emails = (
+        SIMULATED_EMAILS.get(request.deal_id, []) if _is_demo(session)
+        else deal.get("_emails_raw", [])
+    )
+    email_context = _fmt_emails(emails)
+    activity_context = _build_activity_context(deal_with_health)
+
+    brief = await generate_call_brief(
+        deal=deal_with_health,
+        health_signals=signals,
+        rep_name=rep_name,
+        email_context=email_context,
+        activity_context=activity_context,
+        deal_context=build_deal_context(deal_with_health),
+    )
 
     return {
         "deal_id": request.deal_id,

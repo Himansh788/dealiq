@@ -4,49 +4,49 @@
 
 @layer base {
   :root {
-    --background: 222 47% 11%;
-    --foreground: 210 40% 98%;
+    --background: 224 40% 8%;
+    --foreground: 210 40% 96%;
 
-    --card: 217 33% 17%;
-    --card-foreground: 210 40% 98%;
+    --card: 222 35% 12%;
+    --card-foreground: 210 40% 96%;
 
-    --popover: 217 33% 17%;
-    --popover-foreground: 210 40% 98%;
+    --popover: 222 35% 12%;
+    --popover-foreground: 210 40% 96%;
 
-    --primary: 217 91% 60%;
-    --primary-foreground: 222 47% 11%;
+    --primary: 217 91% 62%;
+    --primary-foreground: 222 47% 8%;
 
-    --secondary: 215 28% 17%;
-    --secondary-foreground: 210 40% 98%;
+    --secondary: 218 30% 16%;
+    --secondary-foreground: 210 40% 96%;
 
-    --muted: 215 28% 17%;
-    --muted-foreground: 215 20% 65%;
+    --muted: 218 28% 15%;
+    --muted-foreground: 215 20% 55%;
 
-    --accent: 259 60% 55%;
+    --accent: 259 62% 60%;
     --accent-foreground: 210 40% 98%;
 
     --destructive: 0 84% 60%;
     --destructive-foreground: 210 40% 98%;
 
-    --border: 215 28% 22%;
-    --input: 215 28% 22%;
-    --ring: 217 91% 60%;
+    --border: 218 30% 19%;
+    --input: 218 30% 19%;
+    --ring: 217 91% 62%;
 
-    --radius: 0.5rem;
+    --radius: 0.625rem;
 
     --health-green: 142 71% 45%;
     --health-yellow: 38 92% 50%;
     --health-orange: 25 95% 53%;
     --health-red: 0 84% 60%;
 
-    --sidebar-background: 222 47% 11%;
-    --sidebar-foreground: 210 40% 98%;
-    --sidebar-primary: 217 91% 60%;
-    --sidebar-primary-foreground: 222 47% 11%;
-    --sidebar-accent: 215 28% 17%;
-    --sidebar-accent-foreground: 210 40% 98%;
-    --sidebar-border: 215 28% 22%;
-    --sidebar-ring: 217 91% 60%;
+    --sidebar-background: 224 40% 8%;
+    --sidebar-foreground: 210 40% 96%;
+    --sidebar-primary: 217 91% 62%;
+    --sidebar-primary-foreground: 222 47% 8%;
+    --sidebar-accent: 218 30% 16%;
+    --sidebar-accent-foreground: 210 40% 96%;
+    --sidebar-border: 218 30% 19%;
+    --sidebar-ring: 217 91% 62%;
   }
 }
 
@@ -58,5 +58,30 @@
   body {
     @apply bg-background text-foreground;
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    font-feature-settings: 'cv11', 'ss01';
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Refined scrollbar */
+  ::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: hsl(218 30% 24%);
+    border-radius: 100px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(218 20% 36%);
+  }
+
+  /* Selection highlight */
+  ::selection {
+    background: hsl(217 91% 62% / 0.22);
+    color: hsl(210 40% 96%);
   }
 }

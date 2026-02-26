@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import {
   BarChart3, AlertTriangle, LogOut, TrendingUp,
-  Activity, DollarSign, Users, Search, X, Filter, Radar
+  Activity, DollarSign, Users, Search, X, Filter, Radar, ChevronRight
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -20,6 +20,7 @@ import {
 import { useSession } from "@/contexts/SessionContext";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
+import { cn } from "@/lib/utils";
 import DealDetailPanel from "@/components/DealDetailPanel";
 import AlertsDigestPanel, { AlertsBell } from "@/components/AlertsDigestPanel";
 import BuyingSignalPanel from "@/components/BuyingSignalPanel";
@@ -56,21 +57,121 @@ function formatCurrency(val: number): string {
   return `$${val}`;
 }
 
-function healthColor(label: string) {
-  switch (label) {
-    case "healthy":  return "bg-health-green/20 text-health-green border-health-green/30";
-    case "at_risk":  return "bg-health-yellow/20 text-health-yellow border-health-yellow/30";
-    case "critical": return "bg-health-orange/20 text-health-orange border-health-orange/30";
-    case "zombie":   return "bg-health-red/20 text-health-red border-health-red/30";
-    default:         return "bg-muted text-muted-foreground";
-  }
-}
-
 function scoreColor(score: number) {
   if (score >= 75) return "text-health-green";
   if (score >= 50) return "text-health-yellow";
   return "text-health-red";
 }
+
+function healthColor(label: string) {
+  switch (label) {
+    case "healthy":  return "bg-health-green/15 text-health-green border-health-green/25";
+    case "at_risk":  return "bg-health-yellow/15 text-health-yellow border-health-yellow/25";
+    case "critical": return "bg-health-orange/15 text-health-orange border-health-orange/25";
+    case "zombie":   return "bg-health-red/15 text-health-red border-health-red/25";
+    default:         return "bg-muted text-muted-foreground border-border/40";
+  }
+}
+
+function dealInitialClass(label: string): string {
+  switch (label) {
+    case "healthy":  return "bg-health-green/15 text-health-green";
+    case "at_risk":  return "bg-health-yellow/15 text-health-yellow";
+    case "critical": return "bg-health-orange/15 text-health-orange";
+    case "zombie":   return "bg-health-red/15 text-health-red";
+    default:         return "bg-secondary text-muted-foreground";
+  }
+}
+
+function stagePillClass(stage: string): string {
+  const s = stage.toLowerCase();
+  if (s.includes("discovery"))  return "bg-sky-500/10 text-sky-400 border-sky-500/20";
+  if (s.includes("qualif"))     return "bg-violet-500/10 text-violet-400 border-violet-500/20";
+  if (s.includes("proposal"))   return "bg-amber-500/10 text-amber-400 border-amber-500/20";
+  if (s.includes("negotiat"))   return "bg-orange-500/10 text-orange-400 border-orange-500/20";
+  if (s.includes("won"))        return "bg-health-green/10 text-health-green border-health-green/20";
+  if (s.includes("lost"))       return "bg-health-red/10 text-health-red border-health-red/20";
+  return "bg-secondary/60 text-muted-foreground border-border/30";
+}
+
+// ── Sub-components ────────────────────────────────────────────────────────────
+
+function HealthRing({ score }: { score: number }) {
+  const r = 8;
+  const circ = 2 * Math.PI * r;
+  const filled = (score / 100) * circ;
+  const ringColor =
+    score >= 75 ? "stroke-health-green" :
+    score >= 50 ? "stroke-health-yellow" :
+    "stroke-health-red";
+  return (
+    <div className="flex items-center gap-1.5">
+      <svg width="22" height="22" viewBox="0 0 20 20" className="-rotate-90" aria-hidden>
+        <circle cx="10" cy="10" r={r} fill="none" strokeWidth="2.5" className="stroke-border/40" />
+        <circle
+          cx="10" cy="10" r={r} fill="none" strokeWidth="2.5"
+          strokeDasharray={`${filled} ${circ}`} strokeLinecap="round"
+          className={ringColor}
+        />
+      </svg>
+      <span className={cn("text-sm font-bold tabular-nums", scoreColor(score))}>{score}</span>
+    </div>
+  );
+}
+
+function OwnerAvatar({ name }: { name: string }) {
+  const initials = (name ?? "")
+    .split(" ")
+    .filter(Boolean)
+    .map(n => n[0])
+    .slice(0, 2)
+    .join("")
+    .toUpperCase() || "?";
+  return (
+    <div className="flex items-center gap-2 min-w-0">
+      <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/15 text-[10px] font-bold text-primary">
+        {initials}
+      </div>
+      <span className="text-sm text-muted-foreground truncate">{name}</span>
+    </div>
+  );
+}
+
+// Health pill config — static class strings for Tailwind JIT
+const HEALTH_PILLS = [
+  {
+    key: "healthy",
+    label: "Healthy",
+    metricKey: "healthy_count" as keyof Metrics,
+    active:   "border-health-green/60 bg-health-green/20 text-health-green",
+    inactive: "border-health-green/20 bg-health-green/5 text-health-green/80 hover:bg-health-green/15 hover:border-health-green/40",
+    dot: "bg-health-green",
+  },
+  {
+    key: "at_risk",
+    label: "At Risk",
+    metricKey: "at_risk_count" as keyof Metrics,
+    active:   "border-health-yellow/60 bg-health-yellow/20 text-health-yellow",
+    inactive: "border-health-yellow/20 bg-health-yellow/5 text-health-yellow/80 hover:bg-health-yellow/15 hover:border-health-yellow/40",
+    dot: "bg-health-yellow",
+  },
+  {
+    key: "critical",
+    label: "Critical",
+    metricKey: "critical_count" as keyof Metrics,
+    active:   "border-health-orange/60 bg-health-orange/20 text-health-orange",
+    inactive: "border-health-orange/20 bg-health-orange/5 text-health-orange/80 hover:bg-health-orange/15 hover:border-health-orange/40",
+    dot: "bg-health-orange",
+  },
+  {
+    key: "zombie",
+    label: "Zombie",
+    metricKey: "zombie_count" as keyof Metrics,
+    active:   "border-health-red/60 bg-health-red/20 text-health-red",
+    inactive: "border-health-red/20 bg-health-red/5 text-health-red/80 hover:bg-health-red/15 hover:border-health-red/40",
+    dot: "bg-health-red",
+  },
+] as const;
 
 // ── Demo fallbacks ────────────────────────────────────────────────────────────
 
@@ -98,11 +199,11 @@ export default function Dashboard() {
 
   // Data state
   const [metrics, setMetrics]               = useState<Metrics | null>(null);
-  const [allDeals, setAllDeals]             = useState<Deal[]>([]);   // full unfiltered list for this page
+  const [allDeals, setAllDeals]             = useState<Deal[]>([]);
   const [loadingMetrics, setLoadingMetrics] = useState(true);
   const [loadingDeals, setLoadingDeals]     = useState(true);
   const [selectedDealId, setSelectedDealId] = useState<string | null>(null);
-  const [digestOpen, setDigestOpen] = useState(false);
+  const [digestOpen, setDigestOpen]         = useState(false);
   const [digestCriticalCount, setDigestCriticalCount] = useState<number | undefined>(undefined);
   const [signalPanelOpen, setSignalPanelOpen] = useState(false);
 
@@ -111,13 +212,13 @@ export default function Dashboard() {
   const [totalDeals, setTotalDeals]   = useState(0);
   const PER_PAGE = 20;
 
-  // ── Filter state ──────────────────────────────────────────────────────────
+  // Filter state
   const [searchName, setSearchName]     = useState("");
   const [filterOwner, setFilterOwner]   = useState("all");
   const [filterStage, setFilterStage]   = useState("all");
   const [filterHealth, setFilterHealth] = useState("all");
 
-  // ── Load metrics ──────────────────────────────────────────────────────────
+  // Load metrics
   useEffect(() => {
     if (!session) { navigate("/", { replace: true }); return; }
     api.getMetrics()
@@ -137,7 +238,7 @@ export default function Dashboard() {
       .finally(() => setLoadingMetrics(false));
   }, [session, navigate]);
 
-  // ── Load ALL deals once — getAllDeals loops pages internally ─────────────
+  // Load all deals once
   useEffect(() => {
     if (!session) return;
     setLoadingDeals(true);
@@ -154,12 +255,13 @@ export default function Dashboard() {
           owner:        typeof d.owner === "object" ? d.owner?.name : d.owner ?? "—",
         }));
         setAllDeals(mapped);
+        setTotalDeals(mapped.length);
       })
-      .catch(() => { setAllDeals(DEMO_DEALS); })
+      .catch(() => { setAllDeals(DEMO_DEALS); setTotalDeals(DEMO_DEALS.length); })
       .finally(() => setLoadingDeals(false));
-  }, [session]);   // ← runs once on login — getAllDeals handles all pages
+  }, [session]);
 
-  // ── Derived filter options (built from loaded deals) ──────────────────────
+  // Derived filter options
   const ownerOptions = useMemo(() => {
     const names = [...new Set(allDeals.map(d => d.owner).filter(Boolean))] as string[];
     return names.sort();
@@ -170,7 +272,7 @@ export default function Dashboard() {
     return stages.sort();
   }, [allDeals]);
 
-  // ── Client-side filtering ─────────────────────────────────────────────────
+  // Client-side filtering
   const filteredDeals = useMemo(() => {
     return allDeals.filter(deal => {
       if (searchName && !deal.deal_name.toLowerCase().includes(searchName.toLowerCase()) &&
@@ -185,91 +287,119 @@ export default function Dashboard() {
   const hasActiveFilters = searchName || filterOwner !== "all" || filterStage !== "all" || filterHealth !== "all";
 
   const clearFilters = () => {
-    setSearchName("");
-    setFilterOwner("all");
-    setFilterStage("all");
-    setFilterHealth("all");
+    setSearchName(""); setFilterOwner("all"); setFilterStage("all"); setFilterHealth("all");
   };
 
-  // ── Pagination ────────────────────────────────────────────────────────────
-  // When filters are active, show filtered count. Otherwise show server total.
-  const displayTotal   = hasActiveFilters ? filteredDeals.length : totalDeals;
-  const totalPages     = Math.ceil(totalDeals / PER_PAGE);
-  const startItem      = (currentPage - 1) * PER_PAGE + 1;
-  const endItem        = Math.min(currentPage * PER_PAGE, totalDeals);
+  // Pagination
+  const totalPages = Math.ceil(totalDeals / PER_PAGE);
+  const startItem  = (currentPage - 1) * PER_PAGE + 1;
+  const endItem    = Math.min(currentPage * PER_PAGE, totalDeals);
 
   const handleLogout = () => { logout(); navigate("/"); };
   const selectedDeal = allDeals.find(d => d.id === selectedDealId);
 
+  // User initials for avatar
+  const userInitials = (session?.display_name ?? "U")
+    .split(" ").filter(Boolean).map(n => n[0]).slice(0, 2).join("").toUpperCase();
+
   const summaryCards = [
-    { label: "Total Deals",    value: metrics?.total_deals,           icon: Users,         format: (v: number) => String(v) },
-    { label: "Pipeline Value", value: metrics?.total_value,           icon: DollarSign,    format: formatCurrency },
-    { label: "Avg Health",     value: metrics?.average_health_score,  icon: Activity,      format: (v: number) => String(Math.round(v)), colorFn: (v: number) => scoreColor(v) },
-    { label: "Needs Action",   value: metrics?.deals_needing_action,  icon: AlertTriangle, format: (v: number) => String(v), isAlert: true },
+    { label: "Total Deals",    value: metrics?.total_deals,           icon: Users,         format: (v: number) => String(v),              isAlert: false },
+    { label: "Pipeline Value", value: metrics?.total_value,           icon: DollarSign,    format: formatCurrency,                        isAlert: false },
+    { label: "Avg Health",     value: metrics?.average_health_score,  icon: Activity,      format: (v: number) => String(Math.round(v)),  isAlert: false, colorFn: (v: number) => scoreColor(v) },
+    { label: "Needs Action",   value: metrics?.deals_needing_action,  icon: AlertTriangle, format: (v: number) => String(v),              isAlert: true },
   ];
 
   return (
     <div className="min-h-screen bg-background">
 
       {/* ── Header ── */}
-      <header className="sticky top-0 z-40 border-b border-border/50 bg-background/80 backdrop-blur-sm">
+      <header className="sticky top-0 z-40 border-b border-border/40 bg-background/90 backdrop-blur-md">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6">
+
+          {/* Brand */}
           <div className="flex items-center gap-3">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-accent">
-              <BarChart3 className="h-5 w-5 text-foreground" />
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-primary via-primary/80 to-accent shadow-lg shadow-primary/20">
+              <BarChart3 className="h-5 w-5 text-white" />
             </div>
-            <span className="text-xl font-bold text-foreground">DealIQ</span>
+            <span className="text-xl font-bold tracking-tight text-foreground">DealIQ</span>
             {isDemo && (
-              <Badge className="ml-2 border-health-orange/30 bg-health-orange/20 text-health-orange text-xs">DEMO MODE</Badge>
+              <span className="ml-1 rounded-full border border-health-orange/40 bg-health-orange/10 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-health-orange">
+                Demo
+              </span>
             )}
           </div>
-          <div className="flex items-center gap-3">
+
+          {/* Nav */}
+          <div className="flex items-center gap-2">
             <Button
-              variant="outline"
-              size="sm"
+              variant="outline" size="sm"
               onClick={() => setSignalPanelOpen(true)}
-              className="border-health-orange/40 text-health-orange hover:bg-health-orange/10 hover:border-health-orange/60 font-medium gap-1.5"
+              className="border-health-orange/30 text-health-orange hover:bg-health-orange/10 hover:border-health-orange/50 gap-1.5 text-sm font-medium"
             >
-              <Radar className="h-4 w-4" />
+              <Radar className="h-3.5 w-3.5" />
               Signal Radar
             </Button>
             <Link to="/forecast">
-              <Button variant="outline" size="sm" className="border-primary/40 text-primary hover:bg-primary/10 hover:border-primary/60 font-medium gap-1.5">
-                <TrendingUp className="h-4 w-4" />
+              <Button variant="outline" size="sm" className="border-primary/30 text-primary hover:bg-primary/10 hover:border-primary/50 gap-1.5 text-sm font-medium">
+                <TrendingUp className="h-3.5 w-3.5" />
                 AI Forecast
               </Button>
             </Link>
-            <AlertsBell
-              onClick={() => setDigestOpen(true)}
-              criticalCount={digestCriticalCount}
-            />
-            <div className="hidden text-right sm:block">
-              <p className="text-sm font-medium text-foreground">{session?.display_name ?? "User"}</p>
-              <p className="text-xs text-muted-foreground">{session?.email ?? ""}</p>
+            <AlertsBell onClick={() => setDigestOpen(true)} criticalCount={digestCriticalCount} />
+
+            {/* User */}
+            <div className="ml-1 flex items-center gap-2.5 border-l border-border/40 pl-3">
+              <div className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/15 text-xs font-bold text-primary sm:flex">
+                {userInitials}
+              </div>
+              <div className="hidden text-right sm:block">
+                <p className="text-sm font-semibold text-foreground leading-tight">{session?.display_name ?? "User"}</p>
+                <p className="text-xs text-muted-foreground/70">{session?.email ?? ""}</p>
+              </div>
+              <Button variant="ghost" size="sm" onClick={handleLogout}
+                className="ml-1 h-8 w-8 p-0 text-muted-foreground hover:text-foreground">
+                <LogOut className="h-4 w-4" />
+              </Button>
             </div>
-            <Button variant="ghost" size="sm" onClick={handleLogout} className="text-muted-foreground hover:text-foreground">
-              <LogOut className="mr-1 h-4 w-4" /> Logout
-            </Button>
           </div>
         </div>
       </header>
 
-      <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 space-y-6">
+      <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 space-y-5">
 
         {/* ── Summary Cards ── */}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {summaryCards.map((card) => (
-            <Card key={card.label} className="border-border/50 bg-card/80">
+          {summaryCards.map((card, idx) => (
+            <Card
+              key={card.label}
+              className="group relative overflow-hidden border-border/40 bg-card/60 transition-all duration-200 hover:border-border/70 hover:shadow-xl hover:shadow-black/25 animate-slide-up"
+              style={{ animationDelay: `${idx * 55}ms` }}
+            >
+              {/* Top accent line */}
+              <div className={cn(
+                "absolute inset-x-0 top-0 h-px",
+                card.isAlert
+                  ? "bg-gradient-to-r from-transparent via-health-red/70 to-transparent"
+                  : "bg-gradient-to-r from-transparent via-primary/50 to-transparent"
+              )} />
               <CardContent className="flex items-center gap-4 p-5">
-                <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-lg ${card.isAlert ? "bg-health-red/20" : "bg-primary/10"}`}>
-                  <card.icon className={`h-5 w-5 ${card.isAlert ? "text-health-red" : "text-primary"}`} />
+                <div className={cn(
+                  "flex h-11 w-11 shrink-0 items-center justify-center rounded-xl",
+                  card.isAlert ? "bg-health-red/10" : "bg-primary/10"
+                )}>
+                  <card.icon className={cn("h-5 w-5", card.isAlert ? "text-health-red" : "text-primary")} />
                 </div>
-                <div>
-                  <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">{card.label}</p>
+                <div className="min-w-0">
+                  <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/60 mb-0.5">
+                    {card.label}
+                  </p>
                   {loadingMetrics ? (
-                    <Skeleton className="mt-1 h-7 w-16" />
+                    <Skeleton className="mt-1 h-8 w-20" />
                   ) : (
-                    <p className={`text-2xl font-bold ${card.colorFn ? card.colorFn(card.value ?? 0) : card.isAlert ? "text-health-red" : "text-foreground"}`}>
+                    <p className={cn(
+                      "text-3xl font-black tracking-tight tabular-nums",
+                      card.colorFn ? card.colorFn(card.value ?? 0) : card.isAlert ? "text-health-red" : "text-foreground"
+                    )}>
                       {card.value != null ? card.format(card.value) : "—"}
                     </p>
                   )}
@@ -279,111 +409,108 @@ export default function Dashboard() {
           ))}
         </div>
 
-        {/* ── Health breakdown badges ── */}
+        {/* ── Health breakdown pills ── */}
         {metrics && !loadingMetrics && (
-          <div className="flex flex-wrap gap-2">
-            <Badge variant="outline" className="border-health-green/30 bg-health-green/10 text-health-green cursor-pointer hover:bg-health-green/20"
-              onClick={() => setFilterHealth(filterHealth === "healthy" ? "all" : "healthy")}>
-              ✓ {metrics.healthy_count} Healthy
-            </Badge>
-            <Badge variant="outline" className="border-health-yellow/30 bg-health-yellow/10 text-health-yellow cursor-pointer hover:bg-health-yellow/20"
-              onClick={() => setFilterHealth(filterHealth === "at_risk" ? "all" : "at_risk")}>
-              ⚠ {metrics.at_risk_count} At Risk
-            </Badge>
-            <Badge variant="outline" className="border-health-orange/30 bg-health-orange/10 text-health-orange cursor-pointer hover:bg-health-orange/20"
-              onClick={() => setFilterHealth(filterHealth === "critical" ? "all" : "critical")}>
-              ✕ {metrics.critical_count} Critical
-            </Badge>
-            <Badge variant="outline" className="border-health-red/30 bg-health-red/10 text-health-red cursor-pointer hover:bg-health-red/20"
-              onClick={() => setFilterHealth(filterHealth === "zombie" ? "all" : "zombie")}>
-              💀 {metrics.zombie_count} Zombie
-            </Badge>
+          <div className="flex flex-wrap gap-2 animate-fade-in" style={{ animationDelay: "220ms" }}>
+            {HEALTH_PILLS.map(pill => {
+              const isActive = filterHealth === pill.key;
+              return (
+                <button
+                  key={pill.key}
+                  onClick={() => setFilterHealth(isActive ? "all" : pill.key)}
+                  className={cn(
+                    "flex items-center gap-2 rounded-full border px-3.5 py-1.5 text-xs font-semibold transition-all duration-150",
+                    isActive ? pill.active : pill.inactive
+                  )}
+                >
+                  <span className={cn("h-1.5 w-1.5 rounded-full", pill.dot, isActive && "animate-pulse-slow")} />
+                  {metrics[pill.metricKey]} {pill.label}
+                </button>
+              );
+            })}
             {filterHealth !== "all" && (
-              <Badge variant="outline" className="border-border/50 text-muted-foreground cursor-pointer hover:bg-secondary/80"
-                onClick={() => setFilterHealth("all")}>
-                <X className="h-3 w-3 mr-1" /> Clear
-              </Badge>
+              <button
+                onClick={() => setFilterHealth("all")}
+                className="flex items-center gap-1.5 rounded-full border border-border/40 bg-secondary/30 px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground hover:bg-secondary/60"
+              >
+                <X className="h-3 w-3" /> Clear
+              </button>
             )}
           </div>
         )}
 
         {/* ── Deal Pipeline Table ── */}
-        <Card className="border-border/50 bg-card/80">
-          <div className="p-5 pb-4 space-y-4">
-            {/* Title row */}
+        <Card className="overflow-hidden border-border/40 bg-card/60 animate-slide-up" style={{ animationDelay: "180ms" }}>
+
+          {/* Table header / filters */}
+          <div className="p-5 pb-4 space-y-3.5">
             <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-lg font-semibold text-foreground">Deal Pipeline</h2>
-                <p className="text-sm text-muted-foreground">
-                  Sorted by health score — worst first · Active deals only
-                  {!hasActiveFilters && totalDeals > 0 && ` · Showing ${startItem}–${endItem} of ${totalDeals}`}
-                  {hasActiveFilters && ` · ${filteredDeals.length} match${filteredDeals.length !== 1 ? "es" : ""} your filters`}
+                <h2 className="text-base font-semibold text-foreground">Deal Pipeline</h2>
+                <p className="mt-0.5 text-xs text-muted-foreground/70">
+                  Worst health first · Active current-quarter deals
+                  {!hasActiveFilters && totalDeals > 0 && ` · ${startItem}–${endItem} of ${totalDeals}`}
+                  {hasActiveFilters && ` · ${filteredDeals.length} match${filteredDeals.length !== 1 ? "es" : ""}`}
                 </p>
               </div>
               {hasActiveFilters && (
-                <Button variant="ghost" size="sm" onClick={clearFilters}
-                  className="text-muted-foreground hover:text-foreground text-xs gap-1.5">
-                  <X className="h-3 w-3" /> Clear all filters
-                </Button>
+                <button
+                  onClick={clearFilters}
+                  className="flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  <X className="h-3 w-3" /> Clear filters
+                </button>
               )}
             </div>
 
-            {/* ── Filter bar ── */}
+            {/* Filter bar */}
             <div className="flex flex-wrap gap-2">
-              {/* Deal name / company search */}
               <div className="relative flex-1 min-w-[200px]">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/50" />
                 <Input
                   value={searchName}
                   onChange={e => setSearchName(e.target.value)}
-                  placeholder="Search deal or company..."
-                  className="pl-9 h-9 border-border/50 bg-secondary/50 text-sm focus-visible:ring-primary/50"
+                  placeholder="Search deal or company…"
+                  className="h-9 border-border/40 bg-secondary/40 pl-9 text-sm placeholder:text-muted-foreground/40 focus-visible:ring-primary/40"
                 />
                 {searchName && (
                   <button onClick={() => setSearchName("")}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground/50 hover:text-foreground">
                     <X className="h-3.5 w-3.5" />
                   </button>
                 )}
               </div>
 
-              {/* Owner filter */}
               <Select value={filterOwner} onValueChange={setFilterOwner}>
-                <SelectTrigger className="h-9 w-[160px] border-border/50 bg-secondary/50 text-sm">
+                <SelectTrigger className="h-9 w-[148px] border-border/40 bg-secondary/40 text-sm">
                   <SelectValue placeholder="All Owners" />
                 </SelectTrigger>
-                <SelectContent className="bg-card border-border/50">
+                <SelectContent className="border-border/40 bg-card">
                   <SelectItem value="all">All Owners</SelectItem>
-                  {ownerOptions.map(owner => (
-                    <SelectItem key={owner} value={owner}>{owner}</SelectItem>
-                  ))}
+                  {ownerOptions.map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}
                 </SelectContent>
               </Select>
 
-              {/* Stage filter */}
               <Select value={filterStage} onValueChange={setFilterStage}>
-                <SelectTrigger className="h-9 w-[170px] border-border/50 bg-secondary/50 text-sm">
+                <SelectTrigger className="h-9 w-[158px] border-border/40 bg-secondary/40 text-sm">
                   <SelectValue placeholder="All Stages" />
                 </SelectTrigger>
-                <SelectContent className="bg-card border-border/50">
+                <SelectContent className="border-border/40 bg-card">
                   <SelectItem value="all">All Stages</SelectItem>
-                  {stageOptions.map(stage => (
-                    <SelectItem key={stage} value={stage}>{stage}</SelectItem>
-                  ))}
+                  {stageOptions.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
                 </SelectContent>
               </Select>
 
-              {/* Health filter */}
               <Select value={filterHealth} onValueChange={setFilterHealth}>
-                <SelectTrigger className="h-9 w-[150px] border-border/50 bg-secondary/50 text-sm">
+                <SelectTrigger className="h-9 w-[142px] border-border/40 bg-secondary/40 text-sm">
                   <SelectValue placeholder="All Health" />
                 </SelectTrigger>
-                <SelectContent className="bg-card border-border/50">
+                <SelectContent className="border-border/40 bg-card">
                   <SelectItem value="all">All Health</SelectItem>
-                  <SelectItem value="healthy">✓ Healthy</SelectItem>
-                  <SelectItem value="at_risk">⚠ At Risk</SelectItem>
-                  <SelectItem value="critical">✕ Critical</SelectItem>
-                  <SelectItem value="zombie">💀 Zombie</SelectItem>
+                  <SelectItem value="healthy">Healthy</SelectItem>
+                  <SelectItem value="at_risk">At Risk</SelectItem>
+                  <SelectItem value="critical">Critical</SelectItem>
+                  <SelectItem value="zombie">Zombie</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -391,78 +518,176 @@ export default function Dashboard() {
 
           <CardContent className="p-0">
             {loadingDeals ? (
-              <div className="space-y-3 p-5">{[...Array(5)].map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}</div>
+              <div className="divide-y divide-border/20 px-6 py-2">
+                {[...Array(6)].map((_, i) => (
+                  <div key={i} className="flex items-center gap-4 py-4">
+                    <Skeleton className="h-8 w-8 shrink-0 rounded-lg" />
+                    <div className="flex-1 space-y-2">
+                      <Skeleton className="h-3.5 w-44" />
+                      <Skeleton className="h-3 w-28" />
+                    </div>
+                    <Skeleton className="h-5 w-20 rounded-full" />
+                    <Skeleton className="h-5 w-24" />
+                    <Skeleton className="h-5 w-16" />
+                    <Skeleton className="h-5 w-12 rounded-full" />
+                  </div>
+                ))}
+              </div>
             ) : filteredDeals.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-16 text-center">
-                <Filter className="h-8 w-8 text-muted-foreground/40 mb-3" />
-                <p className="text-sm font-medium text-muted-foreground">No deals match your filters</p>
-                <p className="text-xs text-muted-foreground/60 mt-1">Try adjusting or clearing the filters above</p>
-                <Button variant="ghost" size="sm" onClick={clearFilters} className="mt-3 text-xs text-primary">
+              <div className="flex flex-col items-center justify-center py-20 text-center">
+                <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-border/40 bg-secondary/30">
+                  <Filter className="h-6 w-6 text-muted-foreground/30" />
+                </div>
+                <p className="text-sm font-semibold text-muted-foreground">No deals match your filters</p>
+                <p className="mt-1 max-w-xs text-xs text-muted-foreground/50">
+                  Try broadening your search or clearing the active filters
+                </p>
+                <button onClick={clearFilters} className="mt-4 text-xs font-semibold text-primary hover:underline">
                   Clear all filters
-                </Button>
+                </button>
               </div>
             ) : (
               <>
                 <Table>
                   <TableHeader>
-                    <TableRow className="border-border/50 hover:bg-transparent">
-                      <TableHead>Deal Name</TableHead>
-                      <TableHead>Company</TableHead>
-                      <TableHead>Stage</TableHead>
-                      <TableHead>Owner</TableHead>
-                      <TableHead className="text-right">Amount</TableHead>
-                      <TableHead className="text-center">Health</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead className="text-right">Action</TableHead>
+                    <TableRow className="border-border/30 hover:bg-transparent">
+                      <TableHead className="py-3 pl-6 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/50">
+                        Deal
+                      </TableHead>
+                      <TableHead className="py-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/50">
+                        Stage
+                      </TableHead>
+                      <TableHead className="py-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/50">
+                        Owner
+                      </TableHead>
+                      <TableHead className="py-3 text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/50">
+                        Amount
+                      </TableHead>
+                      <TableHead className="py-3 text-center text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/50">
+                        Score
+                      </TableHead>
+                      <TableHead className="py-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/50">
+                        Status
+                      </TableHead>
+                      <TableHead className="w-8" />
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {filteredDeals.map((deal) => (
-                      <TableRow key={deal.id} className="border-border/30 hover:bg-secondary/50 cursor-pointer"
-                        onClick={() => setSelectedDealId(deal.id)}>
-                        <TableCell className="font-medium text-foreground">{deal.deal_name}</TableCell>
-                        <TableCell className="text-muted-foreground">{deal.company}</TableCell>
-                        <TableCell className="text-muted-foreground text-sm">{deal.stage}</TableCell>
-                        <TableCell className="text-muted-foreground text-sm">{deal.owner ?? "—"}</TableCell>
-                        <TableCell className="text-right text-foreground font-medium">{formatCurrency(deal.amount)}</TableCell>
-                        <TableCell className="text-center">
-                          <span className={`text-sm font-bold ${scoreColor(deal.health_score)}`}>{deal.health_score}</span>
+                      <TableRow
+                        key={deal.id}
+                        onClick={() => setSelectedDealId(deal.id)}
+                        className={cn(
+                          "group cursor-pointer border-border/20 transition-colors duration-100",
+                          selectedDealId === deal.id
+                            ? "bg-primary/10 hover:bg-primary/[0.13]"
+                            : "hover:bg-secondary/40"
+                        )}
+                      >
+                        {/* Deal + Company */}
+                        <TableCell className="py-3.5 pl-6">
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className={cn(
+                              "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-xs font-bold",
+                              dealInitialClass(deal.health_label)
+                            )}>
+                              {deal.deal_name.charAt(0).toUpperCase()}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-semibold leading-tight text-foreground">
+                                {deal.deal_name}
+                              </p>
+                              <p className="mt-0.5 truncate text-xs text-muted-foreground/60">
+                                {deal.company}
+                              </p>
+                            </div>
+                          </div>
                         </TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className={`text-xs capitalize ${healthColor(deal.health_label)}`}>
+
+                        {/* Stage */}
+                        <TableCell className="py-3.5">
+                          <span className={cn(
+                            "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium whitespace-nowrap",
+                            stagePillClass(deal.stage)
+                          )}>
+                            {deal.stage}
+                          </span>
+                        </TableCell>
+
+                        {/* Owner */}
+                        <TableCell className="py-3.5 max-w-[150px]">
+                          <OwnerAvatar name={deal.owner ?? "—"} />
+                        </TableCell>
+
+                        {/* Amount */}
+                        <TableCell className="py-3.5 text-right">
+                          <span className="tabular-nums text-sm font-semibold text-foreground/90">
+                            {formatCurrency(deal.amount)}
+                          </span>
+                        </TableCell>
+
+                        {/* Health Ring */}
+                        <TableCell className="py-3.5 text-center">
+                          <div className="flex justify-center">
+                            <HealthRing score={deal.health_score} />
+                          </div>
+                        </TableCell>
+
+                        {/* Status Badge */}
+                        <TableCell className="py-3.5">
+                          <Badge variant="outline" className={cn(
+                            "border text-xs font-medium capitalize",
+                            healthColor(deal.health_label)
+                          )}>
                             {deal.health_label.replace("_", " ")}
                           </Badge>
                         </TableCell>
-                        <TableCell className="text-right">
-                          <Button size="sm" variant="ghost" className="text-primary hover:text-primary hover:bg-primary/10"
-                            onClick={(e) => { e.stopPropagation(); setSelectedDealId(deal.id); }}>
-                            Analyse →
-                          </Button>
+
+                        {/* Chevron */}
+                        <TableCell className="py-3.5 pr-4 w-8">
+                          <ChevronRight className={cn(
+                            "h-4 w-4 transition-all duration-150",
+                            selectedDealId === deal.id
+                              ? "text-primary opacity-100"
+                              : "text-muted-foreground opacity-0 group-hover:opacity-50"
+                          )} />
                         </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
                 </Table>
 
-                {/* ── Pagination — only shown when no active filters ── */}
+                {/* Pagination */}
                 {!hasActiveFilters && totalPages > 1 && (
-                  <div className="flex items-center justify-between border-t border-border/30 px-5 py-4">
-                    <p className="text-xs text-muted-foreground">Page {currentPage} of {totalPages}</p>
+                  <div className="flex items-center justify-between border-t border-border/20 px-6 py-4">
+                    <p className="text-xs text-muted-foreground/50">Page {currentPage} of {totalPages}</p>
                     <div className="flex items-center gap-1">
-                      <Button variant="outline" size="sm" onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                        disabled={currentPage === 1} className="h-8 border-border/50 text-xs">Previous</Button>
+                      <Button variant="outline" size="sm"
+                        onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                        disabled={currentPage === 1}
+                        className="h-8 border-border/40 px-3 text-xs">
+                        Previous
+                      </Button>
                       {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
                         const start = Math.max(1, Math.min(currentPage - 2, totalPages - 4));
                         return start + i;
                       }).map(page => (
-                        <Button key={page} variant={page === currentPage ? "default" : "outline"} size="sm"
+                        <Button
+                          key={page}
+                          variant={page === currentPage ? "default" : "outline"}
+                          size="sm"
                           onClick={() => setCurrentPage(page)}
-                          className={`h-8 w-8 p-0 text-xs ${page === currentPage ? "" : "border-border/50"}`}>
+                          className={cn("h-8 w-8 p-0 text-xs", page !== currentPage && "border-border/40")}
+                        >
                           {page}
                         </Button>
                       ))}
-                      <Button variant="outline" size="sm" onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                        disabled={currentPage === totalPages} className="h-8 border-border/50 text-xs">Next</Button>
+                      <Button variant="outline" size="sm"
+                        onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                        disabled={currentPage === totalPages}
+                        className="h-8 border-border/40 px-3 text-xs">
+                        Next
+                      </Button>
                     </div>
                   </div>
                 )}
@@ -476,16 +701,14 @@ export default function Dashboard() {
         dealId={selectedDealId}
         dealName={selectedDeal?.deal_name ?? ""}
         repName={selectedDeal?.owner ?? session?.display_name}
+        stage={selectedDeal?.stage}
+        amount={selectedDeal?.amount}
+        healthScore={selectedDeal?.health_score}
+        healthLabel={selectedDeal?.health_label}
         onClose={() => setSelectedDealId(null)}
       />
-      <AlertsDigestPanel
-        open={digestOpen}
-        onClose={() => setDigestOpen(false)}
-      />
-      <BuyingSignalPanel
-        open={signalPanelOpen}
-        onClose={() => setSignalPanelOpen(false)}
-      />
+      <AlertsDigestPanel open={digestOpen} onClose={() => setDigestOpen(false)} />
+      <BuyingSignalPanel open={signalPanelOpen} onClose={() => setSignalPanelOpen(false)} />
     </div>
   );
 }

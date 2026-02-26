@@ -55,6 +55,7 @@ Return ONLY valid JSON — no markdown, no text outside JSON."""
 async def analyse_email_draft(
     email_draft: str,
     deal_context: Dict[str, Any],
+    email_context: str = "",
 ) -> Dict[str, Any]:
     """
     Fast real-time analysis of an email draft in the context of a specific deal.
@@ -86,11 +87,12 @@ async def analyse_email_draft(
         "healthy": "Momentum email. Affirm progress, preview next milestone, and confirm next meeting details.",
     }.get(health_label, "Write a clear, professional follow-up with a specific call to action.")
 
+    email_ctx_section = f"\nRECENT EMAIL HISTORY (last 3):\n{email_context}\n" if email_context else ""
+
     prompt = f"""Coach this sales email draft in real-time.
 
 DEAL: {deal_name} | Stage: {stage} | Health: {health_label} ({health_score}/100) | Days stalled: {days_stalled}
-TONE REQUIREMENT: {tone_guide}
-
+TONE REQUIREMENT: {tone_guide}{email_ctx_section}
 EMAIL DRAFT:
 ---
 {email_draft[:1500]}
