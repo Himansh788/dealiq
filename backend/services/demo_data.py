@@ -359,6 +359,149 @@ Sarah
 # discount_pressure, competitor_mention, timeline_urgency, budget_objection,
 # decision_maker_absent, next_steps_vague
 
+# ── Coaching / Transcript Analysis demo transcript ────────────────────────────
+# Two clearly labeled speakers. Designed to surface:
+#   - Talk ratio issue: Rep ~62% (above 43% ideal)
+#   - Monologue issue: opening pitch ~280s (above 76s ideal)
+#   - Filler words: ~28 total in ~19 min rep speaking time (~1.5/min — below threshold, positive note)
+#   - Question count: Rep 8 (below 11-14 ideal), Prospect 6
+#   - Key moments: competitor mention (Gong), budget objection, pricing discussion, commitment
+#   - Good pattern: strong discovery questions once rep slows down
+
+COACHING_DEMO_TRANSCRIPT = """
+[B2B SaaS Sales Call — DealIQ Platform Demo | March 6, 2026 | 10:00 AM IST]
+[Rep: James Okafor, Account Executive — DealIQ]
+[Prospect: Neha Joshi, VP of Sales — HealthScale Inc. | ~37 minutes]
+
+Rep: Hi Neha, thanks so much for making time today, really appreciate it. Um, so I thought
+I'd start by giving you a quick overview of what DealIQ does and then we can get into
+your specific situation. Does that work?
+
+Prospect: Sure, go ahead.
+
+Rep: Great. So basically, DealIQ is a deal intelligence platform built specifically for
+B2B SaaS revenue teams. What we do is connect directly to your CRM — whether that's
+Salesforce, HubSpot, or Zoho — and we pull in all of your deal data and run it through
+our AI health scoring engine. The engine looks at, uh, twelve different signals across
+each deal — things like days in stage, last activity date, contact coverage, whether
+discounts have been mentioned in emails, email sentiment from the buyer — and it scores
+each deal from zero to a hundred. And the reason that's actually really powerful is
+because you can, like, immediately see which deals are healthy, which are at risk, and
+which ones are basically dead and just eating up your reps' attention.
+
+We also have what we call the AI Sales Rep Clone, which is — right — it's essentially
+a second brain for your reps. Before every call they get a personalized pre-call brief
+that tells them exactly what to say, what risks to address, and what the buyer's likely
+concerns are going to be. And then after the call, they can run our Narrative Check
+feature, which basically compares what was said on the call versus what was written in
+the follow-up email — you know — to make sure everything's consistent. We've found that
+reps often miss committing things in writing that they verbally promised, and that creates
+trust issues further down the funnel.
+
+Then there's our Advance/Close/Kill recommendation engine — for every stalled deal, it
+tells managers whether to push it forward, get a final decision, or kill it to clean
+the pipeline. And actually we just launched Smart Trackers, which is concept-based call
+analysis — kind of like what Gong does for trackers but uh more focused on deal-level
+intelligence rather than just surface-level keyword matching. So the platform is pretty
+comprehensive. I know that was a lot — does that give you a sense of the surface area?
+
+Prospect: Yeah, it does. Um, what does pricing look like?
+
+Rep: Right, so pricing is per seat and varies by tier. Basically for a team your size —
+you said you have around twenty reps — you'd be on our Growth tier, which is around $850
+per seat per year. So roughly $17,000 annually. We also have an Enterprise tier at $1,200
+per seat that includes white-glove onboarding, dedicated success management, custom
+integrations, and the full analytics suite. Most teams your size start on Growth and
+upgrade after the first renewal once they see the ROI.
+
+Prospect: Okay. We're currently using Gong for call analysis. It's pretty deeply embedded
+in how we run coaching. Why would we add or replace that with you?
+
+Rep: That's a fair question. So Gong is great for call recording and rep-level conversation
+intelligence — coaching individual reps on what they said. What DealIQ does differently
+is deal-level intelligence across your entire pipeline. Instead of looking at what happened
+on a single call, we're looking at the health of every deal simultaneously and giving
+managers a system-wide view of where the risk is. They're honestly not competing products.
+A lot of our customers actually use both — Gong for rep coaching at the call level and
+DealIQ for pipeline intelligence at the manager and CRO level. Does that distinction make
+sense?
+
+Prospect: Yeah, that does make sense. So DealIQ is more for me and our VP of Revenue
+than for the reps day to day?
+
+Rep: Exactly, though reps benefit from the pre-call briefs and email coaching. Can I ask —
+what does your current pipeline review process look like? How are you assessing deal
+health week to week?
+
+Prospect: Honestly, it's pretty manual. Our RevOps team exports from Salesforce every
+Monday and builds a spreadsheet. Takes about three hours and it's always a bit out of
+date by the time we review it.
+
+Rep: And what decisions does that spreadsheet drive when you do the review?
+
+Prospect: We go through each rep's deals with the sales managers, flag the ones that look
+stuck, and decide where to focus coaching. But we're heavily dependent on the rep's own
+read on the deal, which is often overly optimistic.
+
+Rep: Right, rep-reported probability versus actual deal health signals — that's exactly
+the problem we solve. I'm curious, in your last pipeline review, how many deals would you
+say the managers were genuinely uncertain about?
+
+Prospect: Easily ten to fifteen. We have around eighty active deals at any given time.
+
+Rep: That's a significant percentage. What's the cost when one of those goes wrong — say
+a deal that looks healthy goes dark two weeks before quarter end?
+
+Prospect: It's big. Last quarter we had three deals we were confident about that basically
+fell apart in the last two weeks. Probably cost us around $350,000 in expected ARR.
+
+Rep: That's a real number. That's the scenario DealIQ is built to catch sixty to ninety
+days out rather than two weeks. Is that the kind of problem that would get budget
+attention from your CRO if we could quantify it?
+
+Prospect: Potentially. But I have to be honest — budget is tight. We just went through a
+planning cycle where every discretionary line item got scrutinised. I'd need to build a
+strong ROI case before taking this to Sarah, our CRO.
+
+Rep: Makes sense. We have an ROI calculator and customer case studies that make that case
+pretty compellingly. What would a strong ROI case need to show for Sarah specifically?
+
+Prospect: She cares about pipeline predictability and quota attainment. If you can show
+that teams using DealIQ have meaningfully better forecast accuracy, that would land well.
+
+Rep: Perfect, we have exactly that data. Last question — if the ROI case lands and Sarah
+is on board, what does your buying process look like from there?
+
+Prospect: It would be me, Sarah, and our Head of RevOps, Priya. Legal reviews any contract.
+Usually takes us about three weeks from decision to signature.
+
+Rep: That's a clean process. What's your timeline — is there a planning deadline or
+quarter-end driving urgency on your side?
+
+Prospect: We'd want something in place before Q3 starts in July. So realistically we need
+to be moving in the next six weeks.
+
+Rep: Very doable. Here's what I'd like to do — I'll send you our ROI calculator pre-filled
+with your numbers, plus two or three case studies from companies in a similar situation.
+Then we schedule a thirty-minute call with you and Sarah to walk through the business
+case together. Does that work?
+
+Prospect: Yes, that works. Can you get the materials to me by end of this week?
+
+Rep: Absolutely, I'll have everything in your inbox by Thursday. And for the Sarah call —
+would the week of the 16th work?
+
+Prospect: Let me check with her and come back to you. I'll email you by Friday.
+
+Rep: Perfect. Thanks so much Neha, this was a genuinely useful conversation. Really
+appreciate you being so candid about the pipeline situation.
+
+Prospect: Thanks James, looking forward to the materials.
+
+[End of call — 37:22]
+"""
+
+
 TRACKER_DEMO_TRANSCRIPT = """
 [Discovery & Proposal Call — LogiCo Supply Chain | March 4, 2026 | 10:00 AM IST]
 [Rep: Maya Patel (DealIQ) | Buyer: Vikram Singh, Head of Operations | 38 minutes]
