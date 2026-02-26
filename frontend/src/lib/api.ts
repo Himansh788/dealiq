@@ -1,5 +1,16 @@
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
+// Abort any fetch that takes longer than this — prevents eternal spinners
+const TIMEOUT_MS = 15_000;
+
+function fetchWithTimeout(input: RequestInfo, init?: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  return fetch(input, { ...init, signal: controller.signal }).finally(() =>
+    clearTimeout(id)
+  );
+}
+
 function authHeaders(): HeadersInit {
   const raw = localStorage.getItem("dealiq_session");
   if (!raw) return { "Content-Type": "application/json" };
@@ -19,23 +30,23 @@ async function handleResponse(res: Response) {
 
 export const api = {
   getLoginUrl: () =>
-    fetch(`${API_URL}/auth/login`).then(handleResponse),
+    fetchWithTimeout(`${API_URL}/auth/login`).then(handleResponse),
 
   getDemoSession: () =>
-    fetch(`${API_URL}/auth/demo-session`).then(handleResponse),
+    fetchWithTimeout(`${API_URL}/auth/demo-session`).then(handleResponse),
 
   // ── Deals ─────────────────────────────────────────────────────────────────
   getMetrics: () =>
-    fetch(`${API_URL}/deals/metrics`, { headers: authHeaders() }).then(handleResponse),
+    fetchWithTimeout(`${API_URL}/deals/metrics`, { headers: authHeaders() }).then(handleResponse),
 
   getDeals: () =>
-    fetch(`${API_URL}/deals/?per_page=20&page=1`, { headers: authHeaders() }).then(handleResponse),
+    fetchWithTimeout(`${API_URL}/deals/?per_page=20&page=1`, { headers: authHeaders() }).then(handleResponse),
 
   getDealsPage: (page: number, perPage: number = 20) =>
-    fetch(`${API_URL}/deals/?page=${page}&per_page=${perPage}`, { headers: authHeaders() }).then(handleResponse),
+    fetchWithTimeout(`${API_URL}/deals/?page=${page}&per_page=${perPage}`, { headers: authHeaders() }).then(handleResponse),
 
   getAllDeals: async (): Promise<any[]> => {
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       `${API_URL}/deals/?page=1&per_page=500`,
       { headers: authHeaders() }
     );
@@ -45,42 +56,42 @@ export const api = {
   },
 
   getDealHealth: (id: string) =>
-    fetch(`${API_URL}/deals/${id}/health`, { headers: authHeaders() }).then(handleResponse),
+    fetchWithTimeout(`${API_URL}/deals/${id}/health`, { headers: authHeaders() }).then(handleResponse),
 
   // ── Analysis ──────────────────────────────────────────────────────────────
   getAck: (dealId: string) =>
-    fetch(`${API_URL}/analysis/ack/${dealId}`, { headers: authHeaders() }).then(handleResponse),
+    fetchWithTimeout(`${API_URL}/analysis/ack/${dealId}`, { headers: authHeaders() }).then(handleResponse),
 
   postDecision: (dealId: string, decision: string) =>
-    fetch(`${API_URL}/analysis/ack/${dealId}/decide`, {
+    fetchWithTimeout(`${API_URL}/analysis/ack/${dealId}/decide`, {
       method: "POST",
       headers: authHeaders(),
       body: JSON.stringify({ deal_id: dealId, decision }),
     }).then(handleResponse),
 
   checkMismatch: (transcript: string, email_draft: string) =>
-    fetch(`${API_URL}/analysis/mismatch`, {
+    fetchWithTimeout(`${API_URL}/analysis/mismatch`, {
       method: "POST",
       headers: authHeaders(),
       body: JSON.stringify({ transcript, email_draft }),
     }).then(handleResponse),
 
   generateNBA: (dealId: string, repName: string) =>
-    fetch(`${API_URL}/ai-rep/nba`, {
+    fetchWithTimeout(`${API_URL}/ai-rep/nba`, {
       method: "POST",
       headers: authHeaders(),
       body: JSON.stringify({ deal_id: dealId, rep_name: repName }),
     }).then(handleResponse),
 
   approveActionPlan: (dealId: string, actionPlan: any, approved: boolean, feedback?: string) =>
-    fetch(`${API_URL}/ai-rep/approve-action`, {
+    fetchWithTimeout(`${API_URL}/ai-rep/approve-action`, {
       method: "POST",
       headers: authHeaders(),
       body: JSON.stringify({ deal_id: dealId, action_plan: actionPlan, approved, rep_feedback: feedback }),
     }).then(handleResponse),
 
   generateEmailDraft: (dealId: string, repName: string, actionContext?: string) =>
-    fetch(`${API_URL}/ai-rep/draft-email`, {
+    fetchWithTimeout(`${API_URL}/ai-rep/draft-email`, {
       method: "POST",
       headers: authHeaders(),
       body: JSON.stringify({
@@ -92,14 +103,14 @@ export const api = {
     }).then(handleResponse),
 
   approveEmail: (dealId: string, subject: string, body: string, repName: string, approved: boolean, edits?: string) =>
-    fetch(`${API_URL}/ai-rep/approve-email`, {
+    fetchWithTimeout(`${API_URL}/ai-rep/approve-email`, {
       method: "POST",
       headers: authHeaders(),
       body: JSON.stringify({ deal_id: dealId, subject, body, rep_name: repName, approved, edits }),
     }).then(handleResponse),
 
   handleObjection: (dealId: string, objection: string, repName: string) =>
-    fetch(`${API_URL}/ai-rep/handle-objection`, {
+    fetchWithTimeout(`${API_URL}/ai-rep/handle-objection`, {
       method: "POST",
       headers: authHeaders(),
       body: JSON.stringify({ deal_id: dealId, objection, rep_name: repName }),
@@ -107,11 +118,11 @@ export const api = {
 
   // ── Timeline ─────────────────────────────────────────────────────────────
   getDealTimeline: (dealId: string) =>
-    fetch(`${API_URL}/deals/${dealId}/timeline`, { headers: authHeaders() }).then(handleResponse),
+    fetchWithTimeout(`${API_URL}/deals/${dealId}/timeline`, { headers: authHeaders() }).then(handleResponse),
 
   // ── Live Email Coach ──────────────────────────────────────────────────────
   emailCoach: (emailDraft: string, dealId?: string, dealContext?: any) =>
-    fetch(`${API_URL}/analysis/email-coach`, {
+    fetchWithTimeout(`${API_URL}/analysis/email-coach`, {
       method: "POST",
       headers: authHeaders(),
       body: JSON.stringify({ email_draft: emailDraft, deal_id: dealId, deal_context: dealContext }),
@@ -119,7 +130,7 @@ export const api = {
 
   // ── Deal Autopsy ──────────────────────────────────────────────────────────
   getAutopsy: (dealId: string, killReason?: string) =>
-    fetch(`${API_URL}/analysis/autopsy`, {
+    fetchWithTimeout(`${API_URL}/analysis/autopsy`, {
       method: "POST",
       headers: authHeaders(),
       body: JSON.stringify({ deal_id: dealId, kill_reason: killReason }),
@@ -127,7 +138,7 @@ export const api = {
 
   // ── Pre-Call Intelligence Brief ───────────────────────────────────────────
   getCallBrief: (dealId: string, repName?: string) =>
-    fetch(`${API_URL}/ai-rep/call-brief`, {
+    fetchWithTimeout(`${API_URL}/ai-rep/call-brief`, {
       method: "POST",
       headers: authHeaders(),
       body: JSON.stringify({ deal_id: dealId, rep_name: repName || "the sales rep" }),
@@ -135,15 +146,15 @@ export const api = {
 
   // ── Alerts Digest ─────────────────────────────────────────────────────────
   getAlertsDigest: () =>
-    fetch(`${API_URL}/alerts/digest`, { headers: authHeaders() }).then(handleResponse),
+    fetchWithTimeout(`${API_URL}/alerts/digest`, { headers: authHeaders() }).then(handleResponse),
 
   // ── Forecast ─────────────────────────────────────────────────────────────
   getForecast: () =>
-    fetch(`${API_URL}/forecast`, { headers: authHeaders() }).then(handleResponse),
+    fetchWithTimeout(`${API_URL}/forecast`, { headers: authHeaders() }).then(handleResponse),
 
   // ── Buying Signal Detector ────────────────────────────────────────────────
   detectSignals: (transcript: string, researcherName?: string, companyContext?: string) =>
-    fetch(`${API_URL}/signals/detect`, {
+    fetchWithTimeout(`${API_URL}/signals/detect`, {
       method: "POST",
       headers: authHeaders(),
       body: JSON.stringify({
@@ -154,40 +165,47 @@ export const api = {
     }).then(handleResponse),
 
   getDemoSignals: () =>
-    fetch(`${API_URL}/signals/demo`).then(handleResponse),
+    fetchWithTimeout(`${API_URL}/signals/demo`).then(handleResponse),
 
   // ── Smart Trackers ────────────────────────────────────────────────────────
   listTrackers: () =>
-    fetch(`${API_URL}/trackers/`, { headers: authHeaders() }).then(handleResponse),
+    fetchWithTimeout(`${API_URL}/trackers/`, { headers: authHeaders() }).then(handleResponse),
 
   createTracker: (name: string, concept_description: string, severity: string) =>
-    fetch(`${API_URL}/trackers/`, {
+    fetchWithTimeout(`${API_URL}/trackers/`, {
       method: "POST",
       headers: authHeaders(),
       body: JSON.stringify({ name, concept_description, severity }),
     }).then(handleResponse),
 
   analyzeTranscript: (transcript: string, tracker_ids?: string[]) =>
-    fetch(`${API_URL}/trackers/analyze`, {
+    fetchWithTimeout(`${API_URL}/trackers/analyze`, {
       method: "POST",
       headers: authHeaders(),
       body: JSON.stringify({ transcript, tracker_ids: tracker_ids ?? null }),
     }).then(handleResponse),
 
   getDemoTrackers: () =>
-    fetch(`${API_URL}/trackers/analyze/demo`).then(handleResponse),
+    fetchWithTimeout(`${API_URL}/trackers/analyze/demo`).then(handleResponse),
 
   // ── Coaching / Transcript Analysis ───────────────────────────────────────
   analyzeConversation: (transcript: string, rep_name?: string) =>
-    fetch(`${API_URL}/coaching/analyze`, {
+    fetchWithTimeout(`${API_URL}/coaching/analyze`, {
       method: "POST",
       headers: authHeaders(),
       body: JSON.stringify({ transcript, rep_name: rep_name ?? null }),
     }).then(handleResponse),
 
   getDemoCoaching: () =>
-    fetch(`${API_URL}/coaching/analyze/demo`).then(handleResponse),
+    fetchWithTimeout(`${API_URL}/coaching/analyze/demo`).then(handleResponse),
 
   getCoachingBenchmarks: () =>
-    fetch(`${API_URL}/coaching/benchmarks`).then(handleResponse),
+    fetchWithTimeout(`${API_URL}/coaching/benchmarks`).then(handleResponse),
+
+  // ── Activity Intelligence ─────────────────────────────────────────────────
+  getDealActivities: (dealId: string) =>
+    fetchWithTimeout(`${API_URL}/activities/${dealId}`, { headers: authHeaders() }).then(handleResponse),
+
+  getTeamActivitySummary: () =>
+    fetchWithTimeout(`${API_URL}/activities/team-summary`, { headers: authHeaders() }).then(handleResponse),
 };

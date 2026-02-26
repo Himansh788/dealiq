@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import {
-  BarChart3, TrendingUp, TrendingDown, AlertTriangle,
-  ArrowLeft, RefreshCw, Target, Skull, LifeBuoy,
+  TrendingUp, TrendingDown, AlertTriangle,
+  RefreshCw, Target, Skull, LifeBuoy,
   DollarSign, Calendar, X, Sparkles, Brain,
   ChevronDown, ChevronUp, Zap, ShieldAlert, Clock
 } from "lucide-react";
@@ -14,6 +14,9 @@ import { Progress } from "@/components/ui/progress";
 import { useSession } from "@/contexts/SessionContext";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
+import NavBar from "@/components/NavBar";
+import AlertsDigestPanel from "@/components/AlertsDigestPanel";
+import BuyingSignalPanel from "@/components/BuyingSignalPanel";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -207,6 +210,8 @@ export default function ForecastPage() {
 
   const [data, setData] = useState<ForecastData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [digestOpen, setDigestOpen]         = useState(false);
+  const [signalPanelOpen, setSignalPanelOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"overview" | "reps" | "pipeline" | "alerts">("overview");
   const [expandedRep, setExpandedRep] = useState<string | null>(null);
   const [expandedLabel, setExpandedLabel] = useState<string | null>(null);
@@ -249,30 +254,27 @@ export default function ForecastPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <header className="sticky top-0 z-40 border-b border-border/50 bg-background/80 backdrop-blur-sm">
-        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6">
-          <div className="flex items-center gap-3">
-            <Link to="/dashboard">
-              <Button variant="ghost" size="sm" className="text-muted-foreground">
-                <ArrowLeft className="mr-1 h-4 w-4" /> Dashboard
-              </Button>
-            </Link>
-            <div className="h-4 w-px bg-border/50" />
-            <div className="flex items-center gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-accent">
-                <TrendingUp className="h-4 w-4 text-foreground" />
-              </div>
-              <span className="text-lg font-bold text-foreground">AI Forecast</span>
-              {data?.simulated && <Badge className="border-health-orange/30 bg-health-orange/20 text-health-orange text-xs">DEMO</Badge>}
+      <NavBar
+        onOpenDigest={() => setDigestOpen(true)}
+        onOpenSignal={() => setSignalPanelOpen(true)}
+      />
+
+      <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 space-y-6">
+
+        {/* Page title + refresh */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-accent">
+              <TrendingUp className="h-4 w-4 text-white" />
             </div>
+            <span className="text-lg font-bold text-foreground">AI Forecast</span>
+            {data?.simulated && <Badge className="border-health-orange/30 bg-health-orange/20 text-health-orange text-xs">DEMO</Badge>}
           </div>
           <Button variant="ghost" size="sm" onClick={loadForecast} disabled={loading} className="text-muted-foreground">
             <RefreshCw className={`mr-1 h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Refresh
           </Button>
         </div>
-      </header>
 
-      <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 space-y-6">
         {loading ? (
           <div className="space-y-6">
             <div className="rounded-xl border border-primary/20 bg-primary/5 p-5 space-y-3">
@@ -783,6 +785,9 @@ export default function ForecastPage() {
           </div>
         ) : null}
       </main>
+
+      <AlertsDigestPanel open={digestOpen} onClose={() => setDigestOpen(false)} />
+      <BuyingSignalPanel open={signalPanelOpen} onClose={() => setSignalPanelOpen(false)} />
     </div>
   );
 }

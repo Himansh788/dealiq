@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
 from models.schemas import HealthSignal, DealHealthResult
+from models.activity_schemas import ActivityItem
 
 
 # Stage order for calculating "going backward" detection
@@ -122,18 +123,18 @@ def score_stakeholder_depth(contact_count: int, economic_buyer_engaged: bool) ->
 
 
 def score_discount_pattern(discount_mention_count: int) -> HealthSignal:
-    """Signal 4: Has discount been mentioned multiple times without a close signal?"""
+    """Signal 4: Has discount been mentioned multiple times without a close signal? (max 10 pts)"""
     if discount_mention_count == 0:
-        return HealthSignal(name="Discount Pattern", score=15, max_score=15, label="good",
+        return HealthSignal(name="Discount Pattern", score=10, max_score=10, label="good",
                             detail="No discount pressure detected in this deal.")
     elif discount_mention_count == 1:
-        return HealthSignal(name="Discount Pattern", score=10, max_score=15, label="good",
+        return HealthSignal(name="Discount Pattern", score=7, max_score=10, label="good",
                             detail="Discount mentioned once — within normal range.")
     elif discount_mention_count == 2:
-        return HealthSignal(name="Discount Pattern", score=5, max_score=15, label="warn",
+        return HealthSignal(name="Discount Pattern", score=3, max_score=10, label="warn",
                             detail="Discount mentioned twice. Check if rep is discounting out of anxiety.")
     else:
-        return HealthSignal(name="Discount Pattern", score=0, max_score=15, label="critical",
+        return HealthSignal(name="Discount Pattern", score=0, max_score=10, label="critical",
                             detail=f"Discount mentioned {discount_mention_count} times. Commercial pressure is elevated.")
 
 
@@ -158,26 +159,30 @@ def score_stage_age(stage: str, days_in_stage: Optional[int]) -> HealthSignal:
                             detail=f"Deal stuck in '{stage}' for {days_in_stage} days. {int(ratio)}x over benchmark.")
 
 
-def score_interaction_quality(
-    last_activity_days: Optional[int],
-    activity_count_30d: int
-) -> HealthSignal:
-    """Signal 6: Are interactions advancing the deal or just maintaining it?"""
-    if last_activity_days is None:
-        return HealthSignal(name="Interaction Quality", score=5, max_score=10, label="warn",
-                            detail="No activity data available.")
-    if last_activity_days <= 5 and activity_count_30d >= 3:
-        return HealthSignal(name="Interaction Quality", score=10, max_score=10, label="good",
-                            detail=f"{activity_count_30d} interactions in last 30 days. Active deal.")
-    elif last_activity_days <= 10 and activity_count_30d >= 2:
-        return HealthSignal(name="Interaction Quality", score=7, max_score=10, label="good",
-                            detail=f"Regular activity. Last contact {last_activity_days} days ago.")
-    elif last_activity_days <= 21:
-        return HealthSignal(name="Interaction Quality", score=3, max_score=10, label="warn",
-                            detail=f"Low activity. Last contact {last_activity_days} days ago.")
+def score_activity_velocity(activities: Optional[List[ActivityItem]] = None) -> HealthSignal:
+    """Signal 6: Engagement velocity based on real activity feed (max 15 pts).
+    Falls back to neutral 5/15 if no activity data is provided (e.g. list view fetch).
+    """
+    if not activities:
+        return HealthSignal(name="Activity Velocity", score=5, max_score=15, label="warn",
+                            detail="No activity data available. Open deal for full analysis.")
+
+    from services.activity_intelligence import compute_engagement_velocity
+    ev = compute_engagement_velocity(activities, stage="")
+    score = ev.score
+
+    if score >= 12:
+        label, detail = "good", f"{ev.touchpoints_14d} touchpoints in 14 days. Strong engagement velocity."
+    elif score >= 8:
+        label, detail = "good", f"{ev.touchpoints_14d} touchpoints in 14 days. Healthy cadence."
+    elif score >= 5:
+        label, detail = "warn", f"Moderate activity ({ev.touchpoints_14d} touchpoints/14d). Increase cadence."
+    elif score >= 2:
+        label, detail = "warn", f"Low activity. Only {ev.touchpoints_14d} touchpoints in last 14 days."
     else:
-        return HealthSignal(name="Interaction Quality", score=0, max_score=10, label="critical",
-                            detail=f"No meaningful activity in {last_activity_days} days. Zombie risk.")
+        label, detail = "critical", "No activity in 14 days — send a re-engagement email and schedule a call."
+
+    return HealthSignal(name="Activity Velocity", score=score, max_score=15, label=label, detail=detail)
 
 
 def determine_health_label(score: int) -> str:
@@ -207,7 +212,7 @@ def build_recommendation(signals: List[HealthSignal], score: int, stage: str) ->
         "Stakeholder Depth": "Map the buying committee. Identify and engage the economic buyer.",
         "Discount Pattern": "Stop discounting reactively. Link any concession to a specific ask from the buyer.",
         "Stage Velocity": f"This deal has stalled in {stage}. Force a decision: advance, escalate, or kill.",
-        "Interaction Quality": "Schedule a call this week. Low activity is a leading indicator of deal death.",
+        "Activity Velocity": "No activity in 14 days — send a re-engagement email and schedule a call.",
     }
     return recommendations.get(worst.name, "Review this deal with your manager.")
 
@@ -224,6 +229,7 @@ def score_deal(
     days_in_stage: Optional[int] = None,
     last_activity_days: Optional[int] = None,
     activity_count_30d: int = 0,
+    activities: Optional[List[ActivityItem]] = None,
 ) -> DealHealthResult:
     """Compute the full health score for a deal."""
 
@@ -233,7 +239,7 @@ def score_deal(
         score_stakeholder_depth(contact_count, economic_buyer_engaged),
         score_discount_pattern(discount_mention_count),
         score_stage_age(stage, days_in_stage),
-        score_interaction_quality(last_activity_days, activity_count_30d),
+        score_activity_velocity(activities),
     ]
 
     total = sum(s.score for s in signals)

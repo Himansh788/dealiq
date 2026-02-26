@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import {
-  BarChart3, ArrowLeft, ScanSearch, AlertTriangle, AlertCircle,
+  ScanSearch, AlertTriangle, AlertCircle,
   Info, Plus, ChevronDown, ChevronUp, Sparkles, Shield, Check
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,9 @@ import {
 import { useSession } from "@/contexts/SessionContext";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
+import NavBar from "@/components/NavBar";
+import AlertsDigestPanel from "@/components/AlertsDigestPanel";
+import BuyingSignalPanel from "@/components/BuyingSignalPanel";
 import { cn } from "@/lib/utils";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -155,6 +158,9 @@ export default function TrackersPage() {
   const navigate    = useNavigate();
   const { toast }   = useToast();
 
+  const [digestOpen, setDigestOpen]             = useState(false);
+  const [signalPanelOpen, setSignalPanelOpen]   = useState(false);
+
   // Tracker library
   const [trackers, setTrackers]         = useState<Tracker[]>([]);
   const [loadingTrackers, setLoadingTrackers] = useState(true);
@@ -236,27 +242,10 @@ export default function TrackersPage() {
     <div className="min-h-screen bg-background">
 
       {/* ── Header ── */}
-      <header className="sticky top-0 z-40 border-b border-border/40 bg-background/90 backdrop-blur-md">
-        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6">
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-primary via-primary/80 to-accent shadow-lg shadow-primary/20">
-              <BarChart3 className="h-5 w-5 text-white" />
-            </div>
-            <span className="text-xl font-bold tracking-tight text-foreground">DealIQ</span>
-            <span className="text-muted-foreground/40 text-lg">/</span>
-            <div className="flex items-center gap-1.5">
-              <ScanSearch className="h-4 w-4 text-primary" />
-              <span className="text-sm font-semibold text-foreground">Smart Trackers</span>
-            </div>
-          </div>
-          <Link to="/dashboard">
-            <Button variant="outline" size="sm" className="border-border/40 text-muted-foreground hover:text-foreground gap-1.5 text-sm">
-              <ArrowLeft className="h-3.5 w-3.5" />
-              Dashboard
-            </Button>
-          </Link>
-        </div>
-      </header>
+      <NavBar
+        onOpenDigest={() => setDigestOpen(true)}
+        onOpenSignal={() => setSignalPanelOpen(true)}
+      />
 
       <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-[320px_1fr]">
@@ -510,6 +499,9 @@ export default function TrackersPage() {
 
         </div>
       </main>
+
+      <AlertsDigestPanel open={digestOpen} onClose={() => setDigestOpen(false)} />
+      <BuyingSignalPanel open={signalPanelOpen} onClose={() => setSignalPanelOpen(false)} />
     </div>
   );
 }

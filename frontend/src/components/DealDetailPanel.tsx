@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { Brain, Clock, Phone, Activity, GitMerge, Layers, ScanSearch } from "lucide-react";
+import { Brain, Clock, Phone, Activity, GitMerge, Layers, ScanSearch, GraduationCap, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
 import HealthBreakdown from "./deal/HealthBreakdown";
@@ -11,6 +11,8 @@ import DealTimeline from "./deal/DealTimeline";
 import AIRepPanel from "./deal/AIRepPanel";
 import CallBriefPanel from "./deal/CallBriefPanel";
 import TrackerPanel from "./deal/TrackerPanel";
+import CoachingPanel from "./deal/CoachingPanel";
+import ActivityFeedPanel from "./deal/ActivityFeedPanel";
 
 interface Props {
   dealId: string | null;
@@ -49,11 +51,13 @@ function stagePillClass(stage: string): string {
 const SECTION_STYLES = {
   timeline:   { icon: Clock,     label: "Deal Timeline",                    iconColor: "text-sky-400",    activeBorder: "border-l-sky-400/50" },
   health:     { icon: Activity,  label: "Health Score Breakdown",           iconColor: "text-primary",    activeBorder: "border-l-primary/50" },
+  activity:   { icon: Zap,       label: "Activity Feed",                    iconColor: "text-blue-400",   activeBorder: "border-l-blue-400/50" },
   "ai-rep":   { icon: Brain,     label: "AI Sales Rep",                     iconColor: "text-accent",     activeBorder: "border-l-accent/50" },
   "call-brief": { icon: Phone,   label: "Pre-Call Intelligence Brief",      iconColor: "text-green-400",  activeBorder: "border-l-green-400/50" },
   mismatch:   { icon: GitMerge,    label: "Narrative Check + Live Email Coach", iconColor: "text-amber-400",  activeBorder: "border-l-amber-400/50" },
   trackers:   { icon: ScanSearch, label: "Smart Trackers",                    iconColor: "text-primary",    activeBorder: "border-l-primary/50" },
-  ack:        { icon: Layers,     label: "Advance / Close / Kill",            iconColor: "text-health-red", activeBorder: "border-l-health-red/50" },
+  ack:        { icon: Layers,       label: "Advance / Close / Kill",            iconColor: "text-health-red",  activeBorder: "border-l-health-red/50" },
+  coaching:   { icon: GraduationCap, label: "Call Coaching",                    iconColor: "text-cyan-400",    activeBorder: "border-l-cyan-400/50" },
 } as const;
 
 type SectionKey = keyof typeof SECTION_STYLES;
@@ -150,11 +154,13 @@ export default function DealDetailPanel({
                   <AccordionContent className="px-4 pb-4 pt-0">
                     {key === "timeline"    && <DealTimeline dealId={dealId} />}
                     {key === "health"      && <HealthBreakdown dealId={dealId} />}
+                    {key === "activity"    && <ActivityFeedPanel dealId={dealId} stage={stage} />}
                     {key === "ai-rep"      && <AIRepPanel dealId={dealId} dealName={dealName} repName={repName} />}
                     {key === "call-brief"  && <CallBriefPanel dealId={dealId} repName={repName} />}
                     {key === "mismatch"    && <MismatchChecker dealId={dealId} />}
                     {key === "trackers"    && <TrackerPanel dealId={dealId} />}
                     {key === "ack"         && <AckSection dealId={dealId} />}
+                    {key === "coaching"    && <CoachingPanel dealId={dealId} repName={repName} />}
                   </AccordionContent>
                 </AccordionItem>
               ))}

@@ -502,6 +502,272 @@ Prospect: Thanks James, looking forward to the materials.
 """
 
 
+
+# ── Simulated Activity Feed (per deal) ────────────────────────────────────────
+
+SIMULATED_ACTIVITIES = {
+    "sim_001": {  # Acme Corp — active, Negotiation/Review
+        "contacts": [
+            {"name": "David Kim", "role": "VP Procurement", "email": "david.kim@acmecorp.com"},
+            {"name": "Lisa Park", "role": "CTO", "email": "lisa.park@acmecorp.com"},
+        ],
+        "activities": [
+            {
+                "id": "a001_1", "type": "email", "direction": "inbound",
+                "date": _days_ago(3),
+                "subject": "Re: Revised Contract — Acme Enterprise",
+                "participants": ["david.kim@acmecorp.com"],
+                "content": "Legal has the redlines. Should have feedback by Friday.",
+            },
+            {
+                "id": "a001_2", "type": "email", "direction": "outbound",
+                "date": _days_ago(5),
+                "subject": "Revised Contract — Acme Enterprise",
+                "participants": ["david.kim@acmecorp.com"],
+                "content": "Revised agreement attached with 12% early-commit discount.",
+            },
+            {
+                "id": "a001_3", "type": "meeting", "direction": "internal",
+                "date": _days_ago(7),
+                "subject": "Contract review call",
+                "participants": ["david.kim@acmecorp.com", "lisa.park@acmecorp.com"],
+                "content": "Discussed contract terms and implementation timeline.",
+                "duration_minutes": 45,
+            },
+            {
+                "id": "a001_4", "type": "call", "direction": "outbound",
+                "date": _days_ago(8),
+                "subject": "Follow-up on legal review",
+                "participants": ["david.kim@acmecorp.com"],
+                "content": "Called to check in on legal review progress.",
+                "duration_minutes": 15,
+            },
+            {
+                "id": "a001_5", "type": "email", "direction": "inbound",
+                "date": _days_ago(10),
+                "subject": "Re: Contract timeline",
+                "participants": ["david.kim@acmecorp.com"],
+                "content": "Procurement needs 2-week review minimum. Can you hold pricing?",
+            },
+            {
+                "id": "a001_6", "type": "meeting", "direction": "internal",
+                "date": _days_ago(12),
+                "subject": "Negotiation strategy sync",
+                "participants": ["lisa.park@acmecorp.com"],
+                "content": "CTO aligned on timeline and pricing structure.",
+                "duration_minutes": 30,
+            },
+        ],
+    },
+
+    "sim_002": {  # TechStart — at risk, VP Engineering silent 19d
+        "contacts": [
+            {"name": "Priya Sharma", "role": "Head of Engineering", "email": "priya.sharma@techstart.io"},
+            {"name": "Raj Patel", "role": "VP Engineering", "email": "raj.patel@techstart.io"},
+        ],
+        "activities": [
+            {
+                "id": "a002_1", "type": "email", "direction": "outbound",
+                "date": _days_ago(5),
+                "subject": "Following up — TechStart Growth Tier Proposal",
+                "participants": ["priya.sharma@techstart.io"],
+                "content": "Just checking in on the proposal I sent last week.",
+            },
+            {
+                "id": "a002_2", "type": "email", "direction": "inbound",
+                "date": _days_ago(22),
+                "subject": "Re: DealIQ demo follow-up",
+                "participants": ["priya.sharma@techstart.io"],
+                "content": "Team was impressed. Evaluating two other vendors as well.",
+            },
+            {
+                "id": "a002_3", "type": "meeting", "direction": "internal",
+                "date": _days_ago(22),
+                "subject": "Product demo",
+                "participants": ["priya.sharma@techstart.io", "raj.patel@techstart.io"],
+                "content": "Full demo delivered. Both contacts attended.",
+                "duration_minutes": 60,
+            },
+        ],
+    },
+
+    "sim_003": {  # GlobalRetail — increasing trend, early stage
+        "contacts": [
+            {"name": "Rahul Mehta", "role": "Head of Operations", "email": "rahul.mehta@globalretail.com"},
+            {"name": "Anita Singh", "role": "IT Manager", "email": "anita.singh@globalretail.com"},
+        ],
+        "activities": [
+            {
+                "id": "a003_1", "type": "email", "direction": "inbound",
+                "date": _days_ago(1),
+                "subject": "Re: Discovery call confirmed",
+                "participants": ["rahul.mehta@globalretail.com"],
+                "content": "Confirmed for March 5th. Will have IT manager on the call.",
+            },
+            {
+                "id": "a003_2", "type": "email", "direction": "outbound",
+                "date": _days_ago(2),
+                "subject": "Discovery call confirmed — agenda inside",
+                "participants": ["rahul.mehta@globalretail.com"],
+                "content": "Looking forward to meeting the team.",
+            },
+            {
+                "id": "a003_3", "type": "meeting", "direction": "outbound",
+                "date": _days_ago(3),
+                "subject": "Intro call",
+                "participants": ["rahul.mehta@globalretail.com"],
+                "content": "Initial discovery — covered pain points and use case.",
+                "duration_minutes": 30,
+            },
+            {
+                "id": "a003_4", "type": "call", "direction": "outbound",
+                "date": _days_ago(5),
+                "subject": "Qualification call",
+                "participants": ["rahul.mehta@globalretail.com", "anita.singh@globalretail.com"],
+                "content": "Both contacts joined. Strong interest expressed.",
+                "duration_minutes": 20,
+            },
+            {
+                "id": "a003_5", "type": "email", "direction": "inbound",
+                "date": _days_ago(6),
+                "subject": "Initial inquiry — DealIQ",
+                "participants": ["rahul.mehta@globalretail.com"],
+                "content": "Colleague recommended DealIQ. Can we set up a discovery call?",
+            },
+        ],
+    },
+
+    "sim_004": {  # FinanceFlow — zombie, 0 activities in 30d
+        "contacts": [
+            {"name": "Amir Hassan", "role": "CFO", "email": "amir.hassan@financeflow.com"},
+            {"name": "Diane Torres", "role": "VP Finance", "email": "diane.torres@financeflow.com"},
+        ],
+        "activities": [
+            {
+                "id": "a004_1", "type": "email", "direction": "outbound",
+                "date": _days_ago(34),
+                "subject": "FinanceFlow — checking in",
+                "participants": ["amir.hassan@financeflow.com"],
+                "content": "Wanted to check in on the Platform License proposal.",
+            },
+            {
+                "id": "a004_2", "type": "email", "direction": "inbound",
+                "date": _days_ago(34),
+                "subject": "Re: Platform License discussion",
+                "participants": ["amir.hassan@financeflow.com"],
+                "content": "Still internally evaluating. Budget committee meets next month.",
+            },
+            {
+                "id": "a004_3", "type": "email", "direction": "outbound",
+                "date": _days_ago(45),
+                "subject": "FinanceFlow Platform License",
+                "participants": ["amir.hassan@financeflow.com"],
+                "content": "Can offer 15% discount if finalised by end of month.",
+            },
+        ],
+    },
+
+    "sim_005": {  # HealthTech — active, CFO engaged, high score
+        "contacts": [
+            {"name": "Neha Joshi", "role": "VP of Sales", "email": "neha.joshi@healthtech.com"},
+            {"name": "Priya CFO", "role": "CFO", "email": "priya.cfo@healthtech.com"},
+            {"name": "IT Head", "role": "Head of IT", "email": "it@healthtech.com"},
+        ],
+        "activities": [
+            {
+                "id": "a005_1", "type": "email", "direction": "inbound",
+                "date": _days_ago(1),
+                "subject": "Re: ROI calculator — really helpful",
+                "participants": ["neha.joshi@healthtech.com"],
+                "content": "CFO was impressed. Move forward with formal proposal.",
+            },
+            {
+                "id": "a005_2", "type": "meeting", "direction": "outbound",
+                "date": _days_ago(2),
+                "subject": "CFO alignment call",
+                "participants": ["neha.joshi@healthtech.com", "priya.cfo@healthtech.com"],
+                "content": "Presented ROI model. CFO green-lit the proposal process.",
+                "duration_minutes": 30,
+            },
+            {
+                "id": "a005_3", "type": "email", "direction": "outbound",
+                "date": _days_ago(2),
+                "subject": "ROI Calculator + Case Study — HealthTech",
+                "participants": ["neha.joshi@healthtech.com"],
+                "content": "ROI calculator pre-filled with your numbers attached.",
+            },
+            {
+                "id": "a005_4", "type": "email", "direction": "inbound",
+                "date": _days_ago(4),
+                "subject": "Quick question before our call tomorrow",
+                "participants": ["neha.joshi@healthtech.com"],
+                "content": "Does platform integrate with Epic? HIPAA compliance needed.",
+            },
+            {
+                "id": "a005_5", "type": "call", "direction": "outbound",
+                "date": _days_ago(5),
+                "subject": "Technical deep-dive",
+                "participants": ["it@healthtech.com", "neha.joshi@healthtech.com"],
+                "content": "Covered Epic integration and HIPAA compliance.",
+                "duration_minutes": 45,
+            },
+            {
+                "id": "a005_6", "type": "meeting", "direction": "outbound",
+                "date": _days_ago(7),
+                "subject": "Product demo",
+                "participants": ["neha.joshi@healthtech.com", "priya.cfo@healthtech.com"],
+                "content": "Full platform demo for VP Sales and CFO.",
+                "duration_minutes": 60,
+            },
+            {
+                "id": "a005_7", "type": "email", "direction": "outbound",
+                "date": _days_ago(9),
+                "subject": "HealthTech — DealIQ proposal",
+                "participants": ["neha.joshi@healthtech.com"],
+                "content": "Initial proposal for 3-year enterprise agreement.",
+            },
+        ],
+    },
+
+    "sim_006": {  # LogiCo — stalled, 11d since two-way
+        "contacts": [
+            {"name": "Vikram Singh", "role": "Head of Operations", "email": "vikram.singh@logico.com"},
+        ],
+        "activities": [
+            {
+                "id": "a006_1", "type": "email", "direction": "outbound",
+                "date": _days_ago(4),
+                "subject": "Re: LogiCo Teams License",
+                "participants": ["vikram.singh@logico.com"],
+                "content": "Following up on the proposal I sent last week.",
+            },
+            {
+                "id": "a006_2", "type": "email", "direction": "outbound",
+                "date": _days_ago(11),
+                "subject": "LogiCo — Teams License Proposal",
+                "participants": ["vikram.singh@logico.com"],
+                "content": "Updated Teams License proposal for 8 users at $18K/year.",
+            },
+            {
+                "id": "a006_3", "type": "email", "direction": "inbound",
+                "date": _days_ago(15),
+                "subject": "Re: DealIQ demo",
+                "participants": ["vikram.singh@logico.com"],
+                "content": "Demo was solid. Main concern is price — $18K feels steep.",
+            },
+            {
+                "id": "a006_4", "type": "meeting", "direction": "outbound",
+                "date": _days_ago(18),
+                "subject": "Product demo",
+                "participants": ["vikram.singh@logico.com"],
+                "content": "Demo delivered. Strong interest but price objection raised.",
+                "duration_minutes": 45,
+            },
+        ],
+    },
+}
+
+
 TRACKER_DEMO_TRANSCRIPT = """
 [Discovery & Proposal Call — LogiCo Supply Chain | March 4, 2026 | 10:00 AM IST]
 [Rep: Maya Patel (DealIQ) | Buyer: Vikram Singh, Head of Operations | 38 minutes]

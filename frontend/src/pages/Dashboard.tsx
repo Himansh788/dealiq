@@ -1,8 +1,8 @@
 import { useEffect, useState, useMemo } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
-  BarChart3, AlertTriangle, LogOut, TrendingUp,
-  Activity, DollarSign, Users, Search, X, Filter, Radar, ChevronRight, ScanSearch
+  AlertTriangle, Activity, DollarSign, Users, Search, X, Filter, ChevronRight,
+  Users2, TrendingUp, TrendingDown, Minus, RefreshCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -22,8 +22,9 @@ import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import DealDetailPanel from "@/components/DealDetailPanel";
-import AlertsDigestPanel, { AlertsBell } from "@/components/AlertsDigestPanel";
+import AlertsDigestPanel from "@/components/AlertsDigestPanel";
 import BuyingSignalPanel from "@/components/BuyingSignalPanel";
+import NavBar from "@/components/NavBar";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -47,6 +48,23 @@ interface Deal {
   health_score: number;
   health_label: string;
   owner?: string;
+}
+
+interface RepActivity {
+  rep_name: string;
+  deals_active: number;
+  deals_touched_7d: number;
+  avg_health_score: number;
+  total_pipeline_value: number;
+  activity_trend: string;
+}
+
+interface TeamActivitySummary {
+  reps: RepActivity[];
+  team_avg_deals_touched_7d: number;
+  team_avg_health_score: number;
+  generated_at: string;
+  simulated: boolean;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -193,8 +211,9 @@ const DEMO_DEALS: Deal[] = [
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function Dashboard() {
-  const { session, logout, isDemo } = useSession();
+  const { session } = useSession();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { toast } = useToast();
 
   // Data state
@@ -206,6 +225,8 @@ export default function Dashboard() {
   const [digestOpen, setDigestOpen]         = useState(false);
   const [digestCriticalCount, setDigestCriticalCount] = useState<number | undefined>(undefined);
   const [signalPanelOpen, setSignalPanelOpen] = useState(false);
+  const [teamSummary, setTeamSummary]         = useState<TeamActivitySummary | null>(null);
+  const [loadingTeam, setLoadingTeam]         = useState(false);
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
@@ -261,6 +282,22 @@ export default function Dashboard() {
       .finally(() => setLoadingDeals(false));
   }, [session]);
 
+  // Load team activity summary (lazy, low priority)
+  const fetchTeamSummary = () => {
+    if (!session) return;
+    setLoadingTeam(true);
+    api.getTeamActivitySummary()
+      .then(setTeamSummary)
+      .catch(() => { /* silent — team card just won't render */ })
+      .finally(() => setLoadingTeam(false));
+  };
+
+  useEffect(() => {
+    if (!session) return;
+    fetchTeamSummary();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session]);
+
   // Derived filter options
   const ownerOptions = useMemo(() => {
     const names = [...new Set(allDeals.map(d => d.owner).filter(Boolean))] as string[];
@@ -295,12 +332,19 @@ export default function Dashboard() {
   const startItem  = (currentPage - 1) * PER_PAGE + 1;
   const endItem    = Math.min(currentPage * PER_PAGE, totalDeals);
 
-  const handleLogout = () => { logout(); navigate("/"); };
   const selectedDeal = allDeals.find(d => d.id === selectedDealId);
 
-  // User initials for avatar
-  const userInitials = (session?.display_name ?? "U")
-    .split(" ").filter(Boolean).map(n => n[0]).slice(0, 2).join("").toUpperCase();
+  // Open deal from ?deal=ID query param (set by command palette on other pages)
+  useEffect(() => {
+    const dealParam = searchParams.get("deal");
+    if (dealParam && allDeals.length > 0) {
+      const found = allDeals.find(d => d.id === dealParam);
+      if (found) {
+        setSelectedDealId(dealParam);
+        setSearchParams({}, { replace: true });
+      }
+    }
+  }, [searchParams, allDeals, setSearchParams]);
 
   const summaryCards = [
     { label: "Total Deals",    value: metrics?.total_deals,           icon: Users,         format: (v: number) => String(v),              isAlert: false },
@@ -313,66 +357,13 @@ export default function Dashboard() {
     <div className="min-h-screen bg-background">
 
       {/* ── Header ── */}
-      <header className="sticky top-0 z-40 border-b border-border/40 bg-background/90 backdrop-blur-md">
-        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6">
-
-          {/* Brand */}
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-primary via-primary/80 to-accent shadow-lg shadow-primary/20">
-              <BarChart3 className="h-5 w-5 text-white" />
-            </div>
-            <span className="text-xl font-bold tracking-tight text-foreground">DealIQ</span>
-            {isDemo && (
-              <span className="ml-1 rounded-full border border-health-orange/40 bg-health-orange/10 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-health-orange">
-                Demo
-              </span>
-            )}
-          </div>
-
-          {/* Nav */}
-          <div className="flex items-center gap-2">
-            <Link to="/trackers">
-              <Button
-                variant="outline" size="sm"
-                className="border-primary/30 text-primary hover:bg-primary/10 hover:border-primary/50 gap-1.5 text-sm font-medium"
-              >
-                <ScanSearch className="h-3.5 w-3.5" />
-                Smart Trackers
-              </Button>
-            </Link>
-            <Button
-              variant="outline" size="sm"
-              onClick={() => setSignalPanelOpen(true)}
-              className="border-health-orange/30 text-health-orange hover:bg-health-orange/10 hover:border-health-orange/50 gap-1.5 text-sm font-medium"
-            >
-              <Radar className="h-3.5 w-3.5" />
-              Signal Radar
-            </Button>
-            <Link to="/forecast">
-              <Button variant="outline" size="sm" className="border-primary/30 text-primary hover:bg-primary/10 hover:border-primary/50 gap-1.5 text-sm font-medium">
-                <TrendingUp className="h-3.5 w-3.5" />
-                AI Forecast
-              </Button>
-            </Link>
-            <AlertsBell onClick={() => setDigestOpen(true)} criticalCount={digestCriticalCount} />
-
-            {/* User */}
-            <div className="ml-1 flex items-center gap-2.5 border-l border-border/40 pl-3">
-              <div className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/15 text-xs font-bold text-primary sm:flex">
-                {userInitials}
-              </div>
-              <div className="hidden text-right sm:block">
-                <p className="text-sm font-semibold text-foreground leading-tight">{session?.display_name ?? "User"}</p>
-                <p className="text-xs text-muted-foreground/70">{session?.email ?? ""}</p>
-              </div>
-              <Button variant="ghost" size="sm" onClick={handleLogout}
-                className="ml-1 h-8 w-8 p-0 text-muted-foreground hover:text-foreground">
-                <LogOut className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
-        </div>
-      </header>
+      <NavBar
+        onOpenDigest={() => setDigestOpen(true)}
+        onOpenSignal={() => setSignalPanelOpen(true)}
+        digestCriticalCount={digestCriticalCount}
+        deals={allDeals}
+        onSelectDeal={(id) => setSelectedDealId(id)}
+      />
 
       <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 space-y-5">
 
@@ -704,6 +695,118 @@ export default function Dashboard() {
             )}
           </CardContent>
         </Card>
+        {/* ── Team Activity Card ── */}
+        {(loadingTeam || teamSummary) && (
+          <Card className="overflow-hidden border-border/40 bg-card/60 animate-slide-up" style={{ animationDelay: "240ms" }}>
+            <div className="flex items-center justify-between px-5 pt-5 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
+                  <Users2 className="h-4 w-4 text-primary" />
+                </div>
+                <div>
+                  <h2 className="text-sm font-semibold text-foreground">Team Activity — Last 7 Days</h2>
+                  {teamSummary && (
+                    <p className="text-xs text-muted-foreground/60">
+                      Team avg: {teamSummary.team_avg_deals_touched_7d} deals touched · Health avg: {Math.round(teamSummary.team_avg_health_score)}
+                    </p>
+                  )}
+                </div>
+              </div>
+              <button
+                onClick={fetchTeamSummary}
+                disabled={loadingTeam}
+                className="flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
+              >
+                <RefreshCw className={cn("h-3.5 w-3.5", loadingTeam && "animate-spin")} />
+                Refresh
+              </button>
+            </div>
+
+            <CardContent className="p-0 pb-4">
+              {loadingTeam ? (
+                <div className="space-y-2 px-5">
+                  {[...Array(3)].map((_, i) => (
+                    <Skeleton key={i} className="h-10 w-full rounded-lg" />
+                  ))}
+                </div>
+              ) : teamSummary && teamSummary.reps.length > 0 ? (
+                <div className="divide-y divide-border/20">
+                  {/* Header row */}
+                  <div className="grid grid-cols-[1fr_100px_80px_100px_80px] gap-2 px-5 py-2">
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/50">Rep</span>
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/50 text-center">Deals Touched</span>
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/50 text-center">Avg Health</span>
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/50 text-right">Pipeline</span>
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/50 text-right">Trend</span>
+                  </div>
+                  {teamSummary.reps.map((rep) => {
+                    const initials = rep.rep_name.split(" ").filter(Boolean).map(n => n[0]).slice(0, 2).join("").toUpperCase() || "?";
+                    return (
+                      <div key={rep.rep_name} className="grid grid-cols-[1fr_100px_80px_100px_80px] items-center gap-2 px-5 py-3 hover:bg-secondary/30 transition-colors">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/15 text-[10px] font-bold text-primary">
+                            {initials}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-foreground truncate">{rep.rep_name}</p>
+                            <p className="text-[10px] text-muted-foreground/60">{rep.deals_active} deals</p>
+                          </div>
+                        </div>
+                        <div className="text-center">
+                          <span className={cn(
+                            "text-sm font-bold tabular-nums",
+                            rep.deals_touched_7d / Math.max(rep.deals_active, 1) >= 0.6 ? "text-health-green" :
+                            rep.deals_touched_7d / Math.max(rep.deals_active, 1) >= 0.3 ? "text-health-yellow" :
+                            "text-health-red"
+                          )}>
+                            {rep.deals_touched_7d}
+                          </span>
+                          <span className="text-xs text-muted-foreground"> / {rep.deals_active}</span>
+                        </div>
+                        <div className="text-center">
+                          <span className={cn(
+                            "text-sm font-bold tabular-nums",
+                            scoreColor(rep.avg_health_score)
+                          )}>
+                            {Math.round(rep.avg_health_score)}
+                          </span>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-sm font-semibold tabular-nums text-foreground/80">
+                            {formatCurrency(rep.total_pipeline_value)}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-end gap-1">
+                          {rep.activity_trend === "active" && (
+                            <>
+                              <TrendingUp className="h-3.5 w-3.5 text-health-green" />
+                              <span className="text-xs text-health-green font-medium">Active</span>
+                            </>
+                          )}
+                          {rep.activity_trend === "slowing" && (
+                            <>
+                              <Minus className="h-3.5 w-3.5 text-health-yellow" />
+                              <span className="text-xs text-health-yellow font-medium">Slowing</span>
+                            </>
+                          )}
+                          {rep.activity_trend === "inactive" && (
+                            <>
+                              <TrendingDown className="h-3.5 w-3.5 text-health-red" />
+                              <span className="text-xs text-health-red font-medium">Inactive ⚠</span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="px-5 py-4 text-xs text-muted-foreground">Could not load team data.</p>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
       </main>
 
       <DealDetailPanel
