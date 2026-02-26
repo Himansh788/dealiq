@@ -12,12 +12,12 @@ router = APIRouter()
 
 BENCHMARKS = CoachingBenchmarks(
     ideal_talk_ratio_rep=43.0,
-    ideal_talk_ratio_rep_label="43% — top performers talk less and listen more (Gong, 2021)",
+    ideal_talk_ratio_rep_label="43% — top performers talk less and listen more (Google, 2021)",
     ideal_question_count_min=11,
     ideal_question_count_max=14,
     ideal_longest_monologue_seconds=76,
     filler_threshold_per_minute=5.0,
-    source="Gong Research — The Science of the Perfect Sales Call (2021)",
+    source="Google Research — The Science of the Perfect Sales Call (2021)",
     notes=[
         "Top reps ask 21.6% more questions than average reps",
         "Best calls feature 4 pricing discussions, not just one",
@@ -58,5 +58,5 @@ async def demo_analysis():
 
 @router.get("/benchmarks", response_model=CoachingBenchmarks)
 async def get_benchmarks():
-    """Return Gong-research benchmarks for conversation quality."""
+    """Return Vervotech-research benchmarks for conversation quality."""
     return BENCHMARKS

@@ -2,7 +2,7 @@
 Smart Trackers
 ==============
 Detects CONCEPTS in sales call transcripts — not keywords but underlying intent.
-Inspired by Gong's tracker feature. Each tracker has a concept description that
+Each tracker has a concept description that
 tells the LLM what to look for semantically, so "Is that your best price?" fires
 the discount_pressure tracker even though "discount" was never said.
 

@@ -365,7 +365,7 @@ Sarah
 #   - Monologue issue: opening pitch ~280s (above 76s ideal)
 #   - Filler words: ~28 total in ~19 min rep speaking time (~1.5/min — below threshold, positive note)
 #   - Question count: Rep 8 (below 11-14 ideal), Prospect 6
-#   - Key moments: competitor mention (Gong), budget objection, pricing discussion, commitment
+#   - Key moments: competitor mention, budget objection, pricing discussion, commitment
 #   - Good pattern: strong discovery questions once rep slows down
 
 COACHING_DEMO_TRANSCRIPT = """
@@ -401,7 +401,7 @@ trust issues further down the funnel.
 Then there's our Advance/Close/Kill recommendation engine — for every stalled deal, it
 tells managers whether to push it forward, get a final decision, or kill it to clean
 the pipeline. And actually we just launched Smart Trackers, which is concept-based call
-analysis — kind of like what Gong does for trackers but uh more focused on deal-level
+analysis — kind of like what Giata does for trackers but uh more focused on deal-level
 intelligence rather than just surface-level keyword matching. So the platform is pretty
 comprehensive. I know that was a lot — does that give you a sense of the surface area?
 
@@ -414,15 +414,15 @@ per seat that includes white-glove onboarding, dedicated success management, cus
 integrations, and the full analytics suite. Most teams your size start on Growth and
 upgrade after the first renewal once they see the ROI.
 
-Prospect: Okay. We're currently using Gong for call analysis. It's pretty deeply embedded
+Prospect: Okay. We're currently using Giata for call analysis. It's pretty deeply embedded
 in how we run coaching. Why would we add or replace that with you?
 
-Rep: That's a fair question. So Gong is great for call recording and rep-level conversation
+Rep: That's a fair question. So Giata is great for call recording and rep-level conversation
 intelligence — coaching individual reps on what they said. What DealIQ does differently
 is deal-level intelligence across your entire pipeline. Instead of looking at what happened
 on a single call, we're looking at the health of every deal simultaneously and giving
 managers a system-wide view of where the risk is. They're honestly not competing products.
-A lot of our customers actually use both — Gong for rep coaching at the call level and
+A lot of our customers actually use both — Giata for rep coaching at the call level and
 DealIQ for pipeline intelligence at the manager and CRO level. Does that distinction make
 sense?
 

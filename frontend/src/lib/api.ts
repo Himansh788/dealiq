@@ -176,4 +176,18 @@ export const api = {
 
   getDemoTrackers: () =>
     fetch(`${API_URL}/trackers/analyze/demo`).then(handleResponse),
+
+  // ── Coaching / Transcript Analysis ───────────────────────────────────────
+  analyzeConversation: (transcript: string, rep_name?: string) =>
+    fetch(`${API_URL}/coaching/analyze`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ transcript, rep_name: rep_name ?? null }),
+    }).then(handleResponse),
+
+  getDemoCoaching: () =>
+    fetch(`${API_URL}/coaching/analyze/demo`).then(handleResponse),
+
+  getCoachingBenchmarks: () =>
+    fetch(`${API_URL}/coaching/benchmarks`).then(handleResponse),
 };
