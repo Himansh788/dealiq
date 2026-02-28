@@ -3,7 +3,10 @@ from typing import Optional, List
 import asyncio
 import base64
 import json
+import logging
 from datetime import datetime, timezone
+
+logger = logging.getLogger(__name__)
 from services.zoho_client import (
     fetch_deals, map_zoho_deal, fetch_single_deal,
     fetch_deal_activities_closed, fetch_deal_contact_roles, fetch_deal_emails,
@@ -367,6 +370,23 @@ async def get_deal_health(deal_id: str, authorization: str = Header(...)):
             raise
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
+
+    # Fetch activity bundle — async, non-blocking, failure-safe
+    activity_data = None
+    if _is_demo(session):
+        from services.demo_data import get_demo_activity_data
+        activity_data = get_demo_activity_data(deal_id)
+    else:
+        try:
+            from services.zoho_client import get_all_activity_for_deal
+            activity_data = await get_all_activity_for_deal(session["access_token"], deal_id)
+        except Exception as e:
+            logger.warning("Activity fetch failed deal=%s: %s", deal_id, e)
+
+    # Score with 9 signals when activity data is available, 6 signals as fallback
+    if activity_data and activity_data.get("summary"):
+        from services.health_scorer import score_deal_with_activities
+        return score_deal_with_activities(raw, activity_data)
 
     return score_deal_from_zoho(raw)
 

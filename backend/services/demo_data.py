@@ -768,6 +768,99 @@ SIMULATED_ACTIVITIES = {
 }
 
 
+def get_demo_activity_data(deal_id: str) -> dict:
+    """
+    Returns an activity bundle matching get_all_activity_for_deal structure, using demo data.
+    Used by the health endpoint and activity feed in demo mode.
+    """
+    now = datetime.now(timezone.utc)
+
+    def _days_since(date_str: str) -> int:
+        if not date_str:
+            return 999
+        try:
+            dt = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return (now - dt).days
+        except Exception:
+            return 999
+
+    # Get activity entry and emails
+    activity_entry = SIMULATED_ACTIVITIES.get(deal_id, {"activities": [], "contacts": []})
+    raw_activities = activity_entry.get("activities", [])
+    contacts = activity_entry.get("contacts", [])
+
+    # Split emails vs non-email activities
+    email_items = [a for a in raw_activities if a.get("type") == "email"]
+    non_email_items = [a for a in raw_activities if a.get("type") != "email"]
+
+    # Also include SIMULATED_EMAILS for this deal (deduplicate by subject+direction)
+    sim_emails_raw = SIMULATED_EMAILS.get(deal_id, [])
+    # Merge: SIMULATED_EMAILS uses 'direction': 'received'/'sent'
+    # Normalise direction to inbound/outbound
+    merged_emails = list(email_items)  # start with activity-type emails
+    seen_subjects: set = {(e.get("subject", ""), e.get("direction", "")) for e in email_items}
+    for e in sim_emails_raw:
+        direction = "inbound" if e.get("direction") == "received" else "outbound"
+        key = (e.get("subject", ""), direction)
+        if key not in seen_subjects:
+            seen_subjects.add(key)
+            merged_emails.append({
+                "id": f"se_{deal_id}_{len(merged_emails)}",
+                "type": "email",
+                "direction": direction,
+                "date": e.get("sent_time", ""),
+                "subject": e.get("subject", ""),
+                "participants": [e.get("from", "")],
+                "content": e.get("content", ""),
+                "sent_time": e.get("sent_time", ""),
+            })
+
+    # Sort emails newest first
+    merged_emails.sort(key=lambda e: e.get("date") or e.get("sent_time", ""), reverse=True)
+
+    # Summary stats
+    def _is_inbound(e: dict) -> bool:
+        d = (e.get("direction") or "").lower()
+        return d in ("inbound", "received", "incoming")
+
+    inbound_emails = [e for e in merged_emails if _is_inbound(e)]
+    outbound_emails = [e for e in merged_emails if not _is_inbound(e)]
+
+    last_email_date = merged_emails[0].get("date") or merged_emails[0].get("sent_time") if merged_emails else None
+    last_inbound_date = (inbound_emails[0].get("date") or inbound_emails[0].get("sent_time")) if inbound_emails else None
+
+    # Most recent non-email activity date
+    act_dates = [
+        a.get("date", "") for a in non_email_items if a.get("date")
+    ]
+    last_activity_date = max(act_dates) if act_dates else None
+
+    days_since_inbound = _days_since(last_inbound_date) if last_inbound_date else 999
+    days_since_any = _days_since(last_email_date or last_activity_date)
+
+    return {
+        "deal_id": deal_id,
+        "contacts": contacts,
+        "emails": merged_emails,
+        "activities": non_email_items,
+        "notes": [],
+        "summary": {
+            "total_emails": len(merged_emails),
+            "total_activities": len(non_email_items),
+            "total_contacts": len(contacts),
+            "emails_inbound": len(inbound_emails),
+            "emails_outbound": len(outbound_emails),
+            "last_email_date": last_email_date,
+            "last_inbound_email_date": last_inbound_date,
+            "last_activity_date": last_activity_date,
+            "days_since_last_inbound": days_since_inbound,
+            "days_since_any_activity": days_since_any,
+        },
+    }
+
+
 TRACKER_DEMO_TRANSCRIPT = """
 [Discovery & Proposal Call — LogiCo Supply Chain | March 4, 2026 | 10:00 AM IST]
 [Rep: Maya Patel (DealIQ) | Buyer: Vikram Singh, Head of Operations | 38 minutes]

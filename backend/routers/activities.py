@@ -80,7 +80,7 @@ async def get_team_activity_summary(
     else:
         from services.zoho_client import fetch_deals, map_zoho_deal
         try:
-            raw_deals = await fetch_deals(_zoho_headers(session))
+            raw_deals = await fetch_deals(session.get("access_token", ""))
             deals = [map_zoho_deal(d) for d in raw_deals]
         except Exception:
             raise HTTPException(status_code=502, detail="Failed to fetch deal data from Zoho")
@@ -114,7 +114,7 @@ async def get_activity_feed(
 
         return await get_deal_activity_feed(
             deal_id=deal_id,
-            zoho_headers={},
+            access_token="",
             stage=stage,
             deal_age_days=deal_age_days,
             is_demo=True,
@@ -122,10 +122,11 @@ async def get_activity_feed(
         )
 
     # Real mode — fetch deal metadata first for stage/age context
-    from services.zoho_client import fetch_single_deal, map_zoho_deal
+    # fetch_single_deal already returns a mapped deal (calls map_zoho_deal internally)
+    from services.zoho_client import fetch_single_deal
+    access_token = session.get("access_token", "")
     try:
-        raw_deal = await fetch_single_deal(deal_id, _zoho_headers(session))
-        deal_meta = map_zoho_deal(raw_deal) if raw_deal else {}
+        deal_meta = await fetch_single_deal(access_token, deal_id) or {}
     except Exception:
         deal_meta = {}
 
@@ -134,7 +135,7 @@ async def get_activity_feed(
 
     return await get_deal_activity_feed(
         deal_id=deal_id,
-        zoho_headers=_zoho_headers(session),
+        access_token=access_token,
         stage=stage,
         deal_age_days=deal_age_days,
         is_demo=False,

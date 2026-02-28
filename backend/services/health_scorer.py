@@ -213,8 +213,63 @@ def build_recommendation(signals: List[HealthSignal], score: int, stage: str) ->
         "Discount Pattern": "Stop discounting reactively. Link any concession to a specific ask from the buyer.",
         "Stage Velocity": f"This deal has stalled in {stage}. Force a decision: advance, escalate, or kill.",
         "Activity Velocity": "No activity in 14 days — send a re-engagement email and schedule a call.",
+        "Communication Balance": "Re-engage the buyer. Send a question that requires a response.",
+        "Multi-threading": "Add a second contact. Ask your champion to introduce you to the decision maker.",
+        "Activity Momentum": "No recent activity — schedule a touchpoint today.",
     }
     return recommendations.get(worst.name, "Review this deal with your manager.")
+
+
+# ── Activity-data signal scorers (used by score_deal_with_activities) ──────────
+
+def _score_communication_balance(emails_out: int, emails_in: int) -> HealthSignal:
+    ratio = emails_out / max(emails_in, 1)
+    if 0.5 <= ratio <= 2.0:
+        return HealthSignal(name="Communication Balance", score=10, max_score=10, label="good",
+                            detail=f"{emails_out} out / {emails_in} in — healthy two-way dialogue.")
+    elif 0.3 <= ratio <= 3.0:
+        return HealthSignal(name="Communication Balance", score=6, max_score=10, label="warn",
+                            detail=f"Ratio {ratio:.1f}:1 — slightly imbalanced communication.")
+    else:
+        return HealthSignal(name="Communication Balance", score=2, max_score=10, label="critical",
+                            detail=f"{emails_out} outbound, {emails_in} inbound — one-sided conversation.")
+
+
+def _score_multithreading(contact_count: int) -> HealthSignal:
+    if contact_count >= 3:
+        return HealthSignal(name="Multi-threading", score=10, max_score=10, label="good",
+                            detail=f"{contact_count} contacts engaged. Strong stakeholder coverage.")
+    elif contact_count == 2:
+        return HealthSignal(name="Multi-threading", score=7, max_score=10, label="warn",
+                            detail="2 contacts. Add a third stakeholder to reduce single-thread risk.")
+    elif contact_count == 1:
+        return HealthSignal(name="Multi-threading", score=3, max_score=10, label="critical",
+                            detail="Only 1 contact. If they go dark, deal is stuck.")
+    else:
+        return HealthSignal(name="Multi-threading", score=0, max_score=10, label="critical",
+                            detail="No contacts linked. Cannot assess stakeholder coverage.")
+
+
+def _score_activity_momentum(days_since_any: int) -> HealthSignal:
+    if days_since_any <= 3:
+        return HealthSignal(name="Activity Momentum", score=5, max_score=5, label="good",
+                            detail=f"Activity {days_since_any} day(s) ago — deal is live.")
+    elif days_since_any <= 7:
+        return HealthSignal(name="Activity Momentum", score=4, max_score=5, label="good",
+                            detail=f"Last activity {days_since_any} days ago — within normal range.")
+    elif days_since_any <= 14:
+        return HealthSignal(name="Activity Momentum", score=2, max_score=5, label="warn",
+                            detail=f"{days_since_any} days since last touchpoint. Momentum slowing.")
+    else:
+        return HealthSignal(name="Activity Momentum", score=0, max_score=5, label="critical",
+                            detail=f"{days_since_any} days since any activity. Deal may be stalling.")
+
+
+def _rescale_signal(sig: HealthSignal, new_max: int) -> HealthSignal:
+    """Proportionally rescale a signal score to a new max_score."""
+    new_score = round((sig.score / sig.max_score) * new_max) if sig.max_score else 0
+    return HealthSignal(name=sig.name, score=new_score, max_score=new_max,
+                        label=sig.label, detail=sig.detail)
 
 
 def score_deal(
@@ -290,4 +345,77 @@ def score_deal_from_zoho(raw_deal: Dict[str, Any]) -> DealHealthResult:
         days_in_stage=days_in_stage,
         last_activity_days=last_activity_days,
         activity_count_30d=raw_deal.get("activity_count_30d", 0),
+    )
+
+
+def score_deal_with_activities(deal_data: Dict[str, Any], activity_data: dict) -> DealHealthResult:
+    """
+    Score a deal using Zoho CRM fields + real activity bundle (9 signals, total=100).
+
+    Rebalanced max scores vs score_deal (6 signals, 100pts):
+      Next Step Defined    20 → 15
+      Buyer Response       20 → 20  (now uses real inbound email date)
+      Stakeholder Depth    20 → 10
+      Discount Pattern     10 → 10
+      Stage Velocity       15 → 10
+      Activity Velocity    15 → 10
+      Communication Balance —  → 10  (NEW)
+      Multi-threading      —  → 10  (NEW)
+      Activity Momentum    —  →  5  (NEW)
+    """
+    deal_id = deal_data.get("id", "unknown")
+    deal_name = deal_data.get("name", "Unknown Deal")
+    stage = deal_data.get("stage", "Unknown")
+    summary = activity_data.get("summary", {})
+
+    days_in_stage = (
+        deal_data.get("days_in_stage")
+        or _days_since(deal_data.get("modified_time"))
+        or _days_since(deal_data.get("created_time"))
+    )
+    next_step = deal_data.get("next_step") or deal_data.get("description")
+
+    # Use real inbound email date; treat sentinel 999 as "no data"
+    days_since_inbound = summary.get("days_since_last_inbound")
+    if isinstance(days_since_inbound, int) and days_since_inbound >= 999:
+        days_since_inbound = None
+
+    # Existing 6 signals, rescaled to new max weights
+    raw_signals = [
+        (_rescale_signal(score_next_step(next_step), 15)),
+        score_response_recency(days_since_inbound),             # stays 20
+        (_rescale_signal(score_stakeholder_depth(
+            deal_data.get("contact_count", 1),
+            deal_data.get("economic_buyer_engaged", False),
+        ), 10)),
+        score_discount_pattern(deal_data.get("discount_mention_count", 0)),  # stays 10
+        (_rescale_signal(score_stage_age(stage, days_in_stage), 10)),
+        (_rescale_signal(score_activity_velocity(), 10)),
+    ]
+
+    # 3 new activity-data signals
+    emails_out = summary.get("emails_outbound", 0)
+    emails_in = summary.get("emails_inbound", 0)
+    contact_count = summary.get("total_contacts", 0)
+    days_since_any = summary.get("days_since_any_activity", 999)
+
+    signals = raw_signals + [
+        _score_communication_balance(emails_out, emails_in),
+        _score_multithreading(contact_count),
+        _score_activity_momentum(days_since_any),
+    ]
+
+    total = sum(s.score for s in signals)
+    label = determine_health_label(total)
+    recommendation = build_recommendation(signals, total, stage)
+    action_required = any(s.label == "critical" for s in signals)
+
+    return DealHealthResult(
+        deal_id=deal_id,
+        deal_name=deal_name,
+        total_score=total,
+        health_label=label,
+        signals=signals,
+        recommendation=recommendation,
+        action_required=action_required,
     )

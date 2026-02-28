@@ -242,36 +242,82 @@ def detect_ghost_stakeholders(
 
 def _map_zoho_activity_to_item(raw: dict, act_type: str) -> ActivityItem:
     """Map a raw Zoho activity/email/note dict to ActivityItem."""
-    # Determine direction
+    # Determine direction — handle Zoho email 'sent' bool + string direction values
     direction_val = (raw.get("direction") or raw.get("type") or "").lower()
     if direction_val in ("incoming", "received", "inbound"):
         direction = "inbound"
     elif direction_val in ("outgoing", "sent", "outbound"):
         direction = "outbound"
+    elif act_type == "email":
+        # Zoho email_related_list: sent=True → we sent it (outbound), sent=False → inbound
+        direction = "outbound" if raw.get("sent", True) else "inbound"
     else:
         direction = "internal"
 
-    # Date field varies by Zoho endpoint
+    # Date field varies by Zoho endpoint (priority order)
     date = (
-        raw.get("activity_time")
-        or raw.get("sent_time")
+        raw.get("sent_time")          # emails
+        or raw.get("Call_Start_Time") # calls
+        or raw.get("Start_DateTime")  # meetings/events
+        or raw.get("activity_time")
         or raw.get("date")
-        or raw.get("created_time")
+        or raw.get("Created_Time")    # tasks, notes (Zoho capitalised)
+        or raw.get("created_time")    # normalised variant
         or ""
     )
 
-    # Participants
+    # Participants — handle both plain strings and Zoho nested dicts
     participants: list[str] = []
-    who = raw.get("from") or raw.get("owner") or ""
-    if who:
-        participants.append(who)
+
+    # Email: extract from 'from' dict or plain string
+    from_field = raw.get("from")
+    if isinstance(from_field, dict):
+        from_email = from_field.get("email") or from_field.get("name") or ""
+        if from_email:
+            participants.append(from_email)
+    elif isinstance(from_field, str) and from_field:
+        participants.append(from_field)
+
+    # Email 'to' list
+    for recipient in raw.get("to", []):
+        if isinstance(recipient, dict):
+            addr = recipient.get("email") or recipient.get("name") or ""
+        else:
+            addr = str(recipient)
+        if addr and addr not in participants:
+            participants.append(addr)
+
+    # Fallback: owner field, then pre-built participants list
+    if not participants:
+        owner = raw.get("owner") or ""
+        if isinstance(owner, dict):
+            owner = owner.get("name") or owner.get("email") or ""
+        if owner:
+            participants.append(str(owner))
+
     for extra in raw.get("participants", []):
         if isinstance(extra, str) and extra not in participants:
             participants.append(extra)
 
-    # Subject / summary
-    subject = raw.get("subject") or raw.get("description") or raw.get("note_title")
-    summary = raw.get("content") or raw.get("note_content") or raw.get("body")
+    # Subject — handle both cases (Zoho uses both capitalised and lowercase)
+    subject = (
+        raw.get("subject")       # emails (lowercase)
+        or raw.get("Subject")    # tasks / calls (capitalised)
+        or raw.get("Event_Title")  # meetings
+        or raw.get("Note_Title")
+        or raw.get("description")
+        or raw.get("note_title")
+    )
+
+    # Summary / body
+    summary = (
+        raw.get("content")
+        or raw.get("note_content")
+        or raw.get("Note_Content")
+        or raw.get("body")
+        or raw.get("Description")
+        or raw.get("description")
+    )
     if summary and len(summary) > 200:
         summary = summary[:200] + "…"
 
@@ -289,7 +335,7 @@ def _map_zoho_activity_to_item(raw: dict, act_type: str) -> ActivityItem:
 
 async def get_deal_activity_feed(
     deal_id: str,
-    zoho_headers: dict,
+    access_token: str,    # FIXED: was zoho_headers: dict — wrong type and wrong arg order
     stage: str,
     deal_age_days: int,
     is_demo: bool = False,
@@ -310,52 +356,36 @@ async def get_deal_activity_feed(
             items.append(_map_zoho_activity_to_item(act, act_type))
 
     else:
-        from services.zoho_client import (
-            fetch_deal_activities_closed,
-            fetch_deal_emails,
-            fetch_deal_notes,
-            fetch_deal_contact_roles,
-        )
-        import asyncio
+        from services.zoho_client import get_all_activity_for_deal
 
-        results = await asyncio.gather(
-            fetch_deal_activities_closed(deal_id, zoho_headers),
-            fetch_deal_emails(deal_id, zoho_headers),
-            fetch_deal_notes(deal_id, zoho_headers),
-            fetch_deal_contact_roles(deal_id, zoho_headers),
-            return_exceptions=True,
-        )
-
-        raw_acts = results[0] if not isinstance(results[0], Exception) else []
-        raw_emails = results[1] if not isinstance(results[1], Exception) else []
-        raw_notes = results[2] if not isinstance(results[2], Exception) else []
-        contacts_raw = results[3] if not isinstance(results[3], Exception) else []
+        bundle = await get_all_activity_for_deal(access_token, deal_id)
 
         items = []
         seen_ids: set[str] = set()
 
-        for act in raw_acts:
-            item = _map_zoho_activity_to_item(act, "call")
-            if item.id and item.id not in seen_ids:
-                seen_ids.add(item.id)
-                items.append(item)
-
-        for email in raw_emails:
+        for email in bundle.get("emails", []):
             item = _map_zoho_activity_to_item(email, "email")
-            if item.id and item.id not in seen_ids:
+            if item.id not in seen_ids:
                 seen_ids.add(item.id)
                 items.append(item)
 
-        for note in raw_notes:
+        for act in bundle.get("activities", []):
+            act_type = act.get("type") or (
+                "meeting" if act.get("Event_Title") or act.get("Start_DateTime") else "task"
+            )
+            item = _map_zoho_activity_to_item(act, act_type)
+            if item.id not in seen_ids:
+                seen_ids.add(item.id)
+                items.append(item)
+
+        for note in bundle.get("notes", []):
             item = _map_zoho_activity_to_item(note, "note")
-            if item.id and item.id not in seen_ids:
+            if item.id not in seen_ids:
                 seen_ids.add(item.id)
                 items.append(item)
 
-        contacts = [
-            {"name": c.get("name", ""), "email": c.get("email", ""), "role": c.get("role")}
-            for c in contacts_raw
-        ]
+        # contacts already normalised by get_contacts_for_deal: {id, email, name, role, title}
+        contacts = bundle.get("contacts", [])
 
     # Sort descending by date
     items.sort(key=lambda a: a.date or "", reverse=True)

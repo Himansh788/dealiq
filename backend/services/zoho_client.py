@@ -4,7 +4,7 @@ import logging
 import os
 import re
 from typing import Optional, Dict, Any, List
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from urllib.parse import quote
 
 logger = logging.getLogger(__name__)
@@ -480,3 +480,176 @@ async def fetch_deal_emails(access_token: str, deal_id: str) -> list:
         list({e.get("direction", "?") for e in contact_emails}),
     )
     return contact_emails
+
+
+async def get_contacts_for_deal(access_token: str, deal_id: str) -> list:
+    """
+    Fetch contact roles for a deal, including the Contact record id.
+    More reliable than fetch_deal_contact_roles for getting Contact IDs used in email lookup.
+    Returns list of { id, email, name, role, title }.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(
+                f"{ZOHO_API_BASE}/Deals/{deal_id}/Contact_Roles",
+                headers={"Authorization": f"Zoho-oauthtoken {access_token}"},
+                params={
+                    "fields": "Email,First_Name,Last_Name,Title,Contact_Role",
+                    "per_page": 20,
+                },
+            )
+        if resp.status_code != 200:
+            logger.info("get_contacts_for_deal: deal=%s status=%s", deal_id, resp.status_code)
+            return []
+        contacts = resp.json().get("data", [])
+        result = []
+        for c in contacts:
+            role = c.get("Contact_Role", "")
+            if isinstance(role, dict):
+                role = role.get("name", "")
+            result.append({
+                "id": c.get("id", ""),
+                "email": c.get("Email", ""),
+                "name": f'{c.get("First_Name", "")} {c.get("Last_Name", "")}'.strip(),
+                "role": role,
+                "title": c.get("Title", ""),
+            })
+        logger.info("get_contacts_for_deal: deal=%s count=%d", deal_id, len(result))
+        return result
+    except Exception as e:
+        logger.warning("get_contacts_for_deal: deal=%s error: %s", deal_id, e)
+        return []
+
+
+async def fetch_deal_calls(access_token: str, deal_id: str) -> list:
+    """
+    Fetch calls linked to a deal from Zoho CRM.
+    Returns list of call dicts with injected type='call' and normalized direction.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(
+                f"{ZOHO_API_BASE}/Calls",
+                headers={"Authorization": f"Zoho-oauthtoken {access_token}"},
+                params={
+                    "criteria": f"(What_Id:equals:{deal_id})",
+                    "fields": "Subject,Direction,Duration_in_seconds,Call_Start_Time,Created_Time,Description",
+                    "per_page": 20,
+                },
+            )
+        if resp.status_code == 204:
+            return []
+        if not resp.is_success:
+            logger.info("fetch_deal_calls: deal=%s status=%s", deal_id, resp.status_code)
+            return []
+        calls = resp.json().get("data", [])
+        result = []
+        for raw in calls:
+            raw["type"] = "call"
+            raw["direction"] = "outbound" if raw.get("Direction") == "Outbound" else "inbound"
+            result.append(raw)
+        logger.info("fetch_deal_calls: deal=%s count=%d", deal_id, len(result))
+        return result
+    except Exception as e:
+        logger.warning("fetch_deal_calls: deal=%s error: %s", deal_id, e)
+        return []
+
+
+async def get_all_activity_for_deal(access_token: str, deal_id: str) -> dict:
+    """
+    Unified activity bundle: emails (deal+contacts), activities, notes, calls, summary stats.
+    Each external call is fault-tolerant — failures degrade gracefully to empty lists.
+    """
+    now = datetime.now(timezone.utc)
+
+    # Step 1: parallel fetch
+    results = await asyncio.gather(
+        get_contacts_for_deal(access_token, deal_id),
+        fetch_deal_emails(access_token, deal_id),
+        fetch_deal_activities_closed(access_token, deal_id),
+        fetch_deal_notes(access_token, deal_id),
+        fetch_deal_calls(access_token, deal_id),
+        return_exceptions=True,
+    )
+
+    contacts = results[0] if not isinstance(results[0], Exception) else []
+    deal_emails = results[1] if not isinstance(results[1], Exception) else []
+    activities_dict = results[2] if not isinstance(results[2], Exception) else {}
+    notes = results[3] if not isinstance(results[3], Exception) else []
+    calls = results[4] if not isinstance(results[4], Exception) else []
+
+    # Step 2: per-contact emails (Contact_Roles IDs are more reliable than /Contacts fallback)
+    contact_emails: list = []
+    for c in contacts[:3]:  # cap 3 to stay within rate limits
+        cid = c.get("id")
+        if not cid:
+            continue
+        try:
+            c_mails = await _fetch_emails_for_record("Contacts", cid, access_token)
+            contact_emails.extend(c_mails)
+        except Exception as e:
+            logger.warning("get_all_activity_for_deal: contact email fetch id=%s: %s", cid, e)
+
+    # Step 3: merge + deduplicate emails by message_id
+    seen_emails: dict = {}
+    for e in deal_emails + contact_emails:
+        mid = e.get("message_id") or e.get("id", "")
+        if mid and mid not in seen_emails:
+            seen_emails[mid] = e
+    merged_emails = sorted(seen_emails.values(), key=lambda e: e.get("sent_time", ""), reverse=True)
+
+    # Step 4: combine activities (tasks + meetings + calls)
+    tasks = activities_dict.get("tasks", []) if isinstance(activities_dict, dict) else []
+    meetings = activities_dict.get("meetings", []) if isinstance(activities_dict, dict) else []
+    all_activities = tasks + meetings + calls
+
+    # Step 5: summary stats
+    def _email_is_inbound(e: dict) -> bool:
+        d = (e.get("direction") or e.get("type") or "").lower()
+        if d in ("incoming", "received", "inbound"):
+            return True
+        if d in ("outgoing", "sent", "outbound"):
+            return False
+        # Zoho: sent=True means WE sent it
+        return not e.get("sent", True)
+
+    def _days_since_str(date_str) -> int:
+        if not date_str:
+            return 999
+        try:
+            dt = datetime.fromisoformat(str(date_str).replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return (now - dt).days
+        except Exception:
+            return 999
+
+    inbound = [e for e in merged_emails if _email_is_inbound(e)]
+    last_email = merged_emails[0].get("sent_time") if merged_emails else None
+    last_inbound = inbound[0].get("sent_time") if inbound else None
+    act_dates = [
+        a.get("Call_Start_Time") or a.get("Created_Time", "")
+        for a in all_activities
+        if a.get("Call_Start_Time") or a.get("Created_Time")
+    ]
+    last_activity = max(act_dates) if act_dates else None
+
+    return {
+        "deal_id": deal_id,
+        "contacts": contacts,
+        "emails": merged_emails,
+        "activities": all_activities,
+        "notes": notes,
+        "summary": {
+            "total_emails": len(merged_emails),
+            "total_activities": len(all_activities),
+            "total_contacts": len(contacts),
+            "emails_inbound": len(inbound),
+            "emails_outbound": len(merged_emails) - len(inbound),
+            "last_email_date": last_email,
+            "last_inbound_email_date": last_inbound,
+            "last_activity_date": last_activity,
+            "days_since_last_inbound": _days_since_str(last_inbound),
+            "days_since_any_activity": _days_since_str(last_email or last_activity),
+        },
+    }
