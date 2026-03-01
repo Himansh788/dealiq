@@ -1,7 +1,7 @@
 # DealIQ — Revenue Without Guesswork
 
-> AI-powered deal clarity system for B2B SaaS revenue teams  
-> Hackathon Submission | 2025
+> AI-powered deal intelligence platform for B2B SaaS revenue teams
+> Full-stack monorepo: React 18 frontend + Python FastAPI backend
 
 ---
 
@@ -9,342 +9,392 @@
 
 DealIQ sits between your CRM and your communication stack and answers the question CRMs can't: **is this deal actually progressing, or quietly dying?**
 
-Four features:
-1. **Deal Health Score** — 0-100 score per deal based on 6 communication signals
-2. **Narrative Mismatch Detection** — AI compares call transcripts to follow-up emails and flags what was promised vs. what was written
-3. **Discount Heat Map** — tracks discount pressure across an email thread
-4. **Advance / Close / Kill** — decision-forcing surface for stalled deals
+### Core Features
+
+| Feature | Description |
+|---------|-------------|
+| **Deal Health Score** | 9-signal, 0–100 score per deal (recency, velocity, stakeholder depth, engagement, discount pressure, and more) |
+| **Activity Intelligence** | Engagement velocity scoring, ghost stakeholder detection, team activity summary |
+| **AI Sales Rep** | Next Best Action → approve → draft email → approve → send. Objection handler included. |
+| **Pre-Call Intelligence Brief** | AI-generated call prep: key risks, stakeholder map, suggested questions |
+| **Narrative Mismatch Checker** | Compares call transcripts to follow-up emails and flags promise/commitment gaps |
+| **Live Email Coach** | Real-time coaching as the rep types an email (debounced, keystroke-driven) |
+| **Ask DealIQ** | 4-tab AI Q&A panel: open Q&A chat, MEDDIC analysis, Deal Brief, Follow-up Email generator |
+| **Context Engine** | Rules-based rep style analyser + AI transcript pre-processing for all email generation |
+| **Deal Autopsy** | AI post-mortem triggered when a deal is killed |
+| **Advance / Close / Kill** | Decision-forcing surface for stalled deals with supporting signal evidence |
+| **AI Forecast** | Pipeline narrative + at-risk deal rescue recommendations + rep coaching |
+| **Smart Trackers** | Buying signal and risk signal detection |
+| **Call Coaching** | Real-time coaching panel |
+| **Alerts Digest** | Prioritised deal alerts across the pipeline |
 
 ---
 
 ## Architecture
 
 ```
-Lovable.dev (React frontend)
-        ↓ REST API
-FastAPI (Python backend) — Railway / Render
-        ↓              ↓
-Zoho CRM API      Anthropic Claude API
-(OAuth2)          (Haiku model)
+React 18 + TypeScript + Shadcn UI (Vite)
+           ↓ REST API
+FastAPI (Python) — localhost:8000
+     ↓                    ↓
+CRM Adapter Layer      Groq API (LLaMA models)
+  ├── Zoho CRM         llama-3.3-70b-versatile (quality)
+  └── Demo Mode        llama-3.1-8b-instant (speed)
+```
+
+### CRM Adapter Layer
+
+The backend uses an abstraction layer so switching CRM providers requires no route changes:
+
+```
+CRMFactory.get_adapter(token)
+  ├── ZohoAdapter   → real Zoho CRM API (OAuth2)
+  └── DemoAdapter   → SIMULATED_DEALS in-memory data
 ```
 
 ---
 
-## 🚀 Quick Start (Local)
+## Quick Start (Local)
 
-### Step 1 — Clone the repo
+### Step 1 — Clone
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/dealiq.git
+git clone https://github.com/himansh788/dealiq.git
 cd dealiq
 ```
 
-### Step 2 — Backend setup
+### Step 2 — Backend
 
 ```bash
 cd backend
 python -m venv venv
-source venv/bin/activate       # Windows: venv\Scripts\activate
+source venv/bin/activate        # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 cp .env.example .env
-# Edit .env and fill in your keys (see Key Setup below)
-python main.py
+# Fill in your keys (see Key Setup below)
+uvicorn main:app --reload
 ```
 
-Backend runs at: `http://localhost:8000`  
-Swagger docs at: `http://localhost:8000/docs`
+Backend: `http://localhost:8000`
+Swagger docs: `http://localhost:8000/docs`
 
-### Step 3 — Test without any API keys (Demo Mode)
+### Step 3 — Frontend
 
-Without filling in any env vars, you can test using demo endpoints:
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Frontend: `http://localhost:5173`
+
+### Step 4 — Test without any API keys (Demo Mode)
 
 ```bash
 # Get a demo session token
 curl http://localhost:8000/auth/demo-session
 
-# Run the demo mismatch (no auth needed)
-curl http://localhost:8000/analysis/mismatch/demo
+# Use DEMO_MODE as the bearer token for all API calls
+# No Zoho account or Groq key required — all data is simulated
 ```
 
 ---
 
-## 🔑 Key Setup
+## Key Setup
 
-### 1. Anthropic API Key (Free $5 credit)
-1. Sign up at https://console.anthropic.com
-2. Go to API Keys → Create Key
-3. Add to `.env`: `ANTHROPIC_API_KEY=sk-ant-...`
+### 1. Groq API Key (AI inference)
 
-### 2. Zoho CRM OAuth2
+1. Sign up at https://console.groq.com
+2. Create an API key
+3. Add to `.env`: `GROQ_API_KEY=gsk_...`
 
-> **India users:** Use `zoho.in` domains  
-> **Everyone else:** Use `zoho.com` domains
+### 2. Zoho CRM OAuth2 (optional — demo mode works without it)
+
+> India users: use `zoho.in` domains. Everyone else: `zoho.com`
 
 1. Go to **https://api-console.zoho.in** (or `.com`)
-2. Click **Add Client** → Choose **Server-based Applications**
+2. Add Client → Server-based Applications
 3. Fill in:
-   - Client Name: `DealIQ`
-   - Homepage URL: `http://localhost:3000`
-   - Authorized Redirect URIs: `http://localhost:8000/auth/callback`
-4. Copy Client ID and Client Secret to `.env`
-5. **Also update** `zoho_client.py` line 10-11:
-   - India: keep `zoho.in` (default)
-   - USA/EU: change to `zoho.com`
+   - Homepage URL: `http://localhost:5173`
+   - Redirect URI: `http://localhost:8000/auth/callback`
+4. Copy Client ID + Secret to `.env`
 
-### 3. Zoho Free CRM Setup (if you don't have deals yet)
-1. Sign up at https://www.zoho.com/crm/
-2. Free plan supports 3 users and full API access
-3. Add a few test deals in the Deals module
-4. The OAuth scope in `zoho_client.py` will request read access to Deals, Contacts, Activities
+### .env reference
+
+```env
+GROQ_API_KEY=gsk_...
+
+ZOHO_CLIENT_ID=...
+ZOHO_CLIENT_SECRET=...
+ZOHO_REDIRECT_URI=http://localhost:8000/auth/callback
+ZOHO_REGION=in            # or com
+
+FRONTEND_URL=http://localhost:5173
+
+# Optional — only if using DB-backed features (transcript storage, email extractions)
+DATABASE_URL=postgresql+asyncpg://...
+```
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 dealiq/
 ├── backend/
-│   ├── main.py                     # FastAPI app entry point
+│   ├── main.py                          # FastAPI app — registers all routers
 │   ├── routers/
-│   │   ├── auth.py                 # Zoho OAuth2 login, callback, demo session
-│   │   ├── deals.py                # List deals, health scores, pipeline metrics
-│   │   └── analysis.py             # Mismatch, discount, ACK endpoints
+│   │   ├── auth.py                      # Zoho OAuth2 + demo session
+│   │   ├── deals.py                     # List deals, metrics
+│   │   ├── health.py                    # Deal health signals
+│   │   ├── analysis.py                  # Mismatch, email-coach, autopsy, ACK, discount
+│   │   ├── ai_rep.py                    # NBA, draft-email, objection, call-brief
+│   │   ├── activities.py                # Activity feed + team summary
+│   │   ├── ask.py                       # Ask DealIQ (auth-required, 7 routes)
+│   │   ├── ask_demo.py                  # Ask DealIQ (demo mode, 5 routes)
+│   │   ├── forecast.py                  # AI pipeline forecast
+│   │   ├── alerts.py                    # Alerts digest
+│   │   ├── signals.py                   # Buying signal detection
+│   │   ├── trackers.py                  # Smart trackers
+│   │   └── coaching.py                  # Call coaching
 │   ├── services/
-│   │   ├── zoho_client.py          # Zoho CRM API wrapper
-│   │   ├── claude_client.py        # Anthropic Claude API calls
-│   │   ├── health_scorer.py        # 6-signal health scoring engine
-│   │   └── demo_data.py            # Simulated deals + demo transcript/email
+│   │   ├── context_engine.py            # RepStyle + DealContext, rules-based analyser, transcript pre-processing
+│   │   ├── email_generator.py           # 2-pass email generation with commitment coverage check
+│   │   ├── ai_rep.py                    # NBA, objection, call-brief logic
+│   │   ├── ask_dealiq_service.py        # Ask Q&A engine (deal Q&A, MEDDIC, brief, follow-up email)
+│   │   ├── ask_dealiq_prompts.py        # All Ask DealIQ AI prompts + PRESET_QUESTIONS
+│   │   ├── ask_demo_data.py             # Demo transcript/emails for Ask feature
+│   │   ├── ai_router_ask.py             # Groq wrapper for Ask tasks
+│   │   ├── activity_intelligence.py     # Engagement velocity scoring + ghost detection
+│   │   ├── health_scorer.py             # 9-signal health scorer (score_deal_with_activities)
+│   │   ├── deal_autopsy.py              # Post-mortem generation
+│   │   ├── email_coach.py               # Real-time email coaching
+│   │   ├── claude_client.py             # Mismatch + discount + insights
+│   │   ├── deal_timeline.py             # Deal event timeline
+│   │   ├── smart_tracker.py             # Smart tracker logic
+│   │   ├── signal_detector.py           # Buying/risk signal detection
+│   │   ├── transcript_analyzer.py       # Transcript analysis
+│   │   ├── email_analyzer.py            # Email thread analysis
+│   │   ├── alerts_digest.py             # Alerts digest generation
+│   │   ├── ai_forecast_narrative.py     # Forecast narrative generation
+│   │   ├── crm_adapter.py               # CRM adapter base interface
+│   │   ├── crm_factory.py               # CRM adapter factory (Zoho or Demo)
+│   │   ├── crm_errors.py                # Shared CRM error types
+│   │   ├── zoho_adapter.py              # Zoho CRM adapter implementation
+│   │   ├── demo_adapter.py              # Demo mode adapter implementation
+│   │   ├── zoho_client.py               # Raw Zoho API client
+│   │   └── demo_data.py                 # SIMULATED_DEALS + SIMULATED_ACTIVITIES + SIMULATED_EMAILS
 │   ├── models/
-│   │   └── schemas.py              # Pydantic schemas
+│   │   ├── schemas.py                   # Core Pydantic schemas
+│   │   ├── activity_schemas.py          # Activity feed schemas
+│   │   ├── coaching_schemas.py          # Coaching schemas
+│   │   └── tracker_schemas.py           # Tracker schemas
 │   ├── requirements.txt
 │   └── .env.example
+├── frontend/
+│   ├── src/
+│   │   ├── pages/
+│   │   │   ├── Login.tsx                # Zoho OAuth + demo login
+│   │   │   ├── Dashboard.tsx            # Pipeline table + filters + deal panel
+│   │   │   ├── Home.tsx                 # AI to-dos: greeting + metrics + priority deals
+│   │   │   ├── ForecastPage.tsx         # AI forecast + rescue opps + rep coaching
+│   │   │   ├── AskDealIQPage.tsx        # Full Ask DealIQ page with deal selector
+│   │   │   ├── AlertsPage.tsx           # Alerts digest
+│   │   │   ├── TrackersPage.tsx         # Smart trackers
+│   │   │   └── TrendsPage.tsx           # (coming soon)
+│   │   ├── components/
+│   │   │   ├── DealDetailPanel.tsx      # Main slide-out panel (10 accordion sections)
+│   │   │   ├── NavBar.tsx               # Shared top nav (alerts bell, Cmd+K, user)
+│   │   │   ├── CommandPalette.tsx       # Cmd+K search across deals + navigation
+│   │   │   ├── PipelineQABar.tsx        # Pipeline-level Q&A bar
+│   │   │   ├── layout/
+│   │   │   │   ├── AppLayout.tsx        # Root layout: Sidebar + main content
+│   │   │   │   └── Sidebar.tsx          # 60px icon-only sidebar nav
+│   │   │   ├── deal/
+│   │   │   │   ├── DealTimeline.tsx     # Deal event timeline
+│   │   │   │   ├── HealthBreakdown.tsx  # 9-signal health display
+│   │   │   │   ├── ActivityFeedPanel.tsx # Engagement velocity + ghost alerts
+│   │   │   │   ├── AIRepPanel.tsx       # NBA → approve → email draft → approve
+│   │   │   │   ├── CallBriefPanel.tsx   # Pre-call intelligence brief
+│   │   │   │   ├── MismatchChecker.tsx  # Narrative check + live email coach
+│   │   │   │   ├── TrackerPanel.tsx     # Smart trackers
+│   │   │   │   ├── AckSection.tsx       # Advance/Close/Kill + autopsy on kill
+│   │   │   │   ├── AutopsyPanel.tsx     # Deal post-mortem
+│   │   │   │   ├── AskDealIQPanel.tsx   # 4-tab Ask panel
+│   │   │   │   └── CoachingPanel.tsx    # Call coaching
+│   │   │   └── email/
+│   │   │       └── EmailComposer.tsx    # AI email composer dialog
+│   │   └── lib/
+│   │       └── api.ts                   # All API calls (typed)
+│   └── package.json
 ├── README.md
 └── .gitignore
 ```
 
 ---
 
-## 🔌 API Reference
+## API Reference
 
 ### Authentication
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/auth/login` | Get Zoho OAuth2 URL |
 | GET | `/auth/callback` | OAuth2 callback handler |
-| GET | `/auth/demo-session` | Get demo session (no Zoho needed) |
+| GET | `/auth/demo-session` | Get demo session token (no Zoho needed) |
 
 ### Deals
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/deals/` | List all deals with health scores |
+| GET | `/deals/` | List all deals |
 | GET | `/deals/metrics` | Pipeline summary metrics |
-| GET | `/deals/{id}/health` | Full health breakdown for one deal |
+| GET | `/deals/{id}/health` | 9-signal health breakdown |
+| GET | `/deals/{id}/timeline` | Deal event timeline |
+
+### AI Sales Rep
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/ai-rep/nba` | Generate Next Best Action |
+| POST | `/ai-rep/approve-action` | Log action approval |
+| POST | `/ai-rep/draft-email` | Generate email draft |
+| POST | `/ai-rep/approve-email` | Log email approval |
+| POST | `/ai-rep/handle-objection` | Generate objection response |
+| POST | `/ai-rep/call-brief` | Generate pre-call intelligence brief |
 
 ### Analysis
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/analysis/mismatch` | Check transcript vs email for mismatches |
-| GET | `/analysis/mismatch/demo` | Demo mismatch (no auth) |
-| POST | `/analysis/discount` | Analyse email thread for discount pressure |
-| GET | `/analysis/ack/{deal_id}` | Get Advance/Close/Kill recommendation |
-| POST | `/analysis/ack/{deal_id}/decide` | Log rep's ACK decision |
+| POST | `/analysis/mismatch` | Transcript vs email mismatch check |
+| POST | `/analysis/email-coach` | Real-time email coaching |
+| POST | `/analysis/autopsy` | Deal post-mortem generation |
+| GET | `/analysis/ack/{deal_id}` | Advance/Close/Kill recommendation |
+| POST | `/analysis/discount` | Email thread discount pressure analysis |
 
-**All endpoints except `/auth/*` and `/analysis/mismatch/demo` require:**
+### Activity Intelligence
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/activities/{deal_id}` | Activity feed + engagement score + ghost stakeholders |
+| GET | `/activities/team-summary` | Rep activity summary (5-min server cache) |
+
+### Ask DealIQ
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/ask/deal` | Ask anything about a specific deal |
+| POST | `/ask/meddic` | MEDDIC analysis for a deal |
+| POST | `/ask/brief` | Generate deal brief |
+| POST | `/ask/follow-up-email` | Generate contextual follow-up email |
+| POST | `/ask/pipeline` | Ask across the full pipeline |
+| GET | `/ask/presets` | Get preset question library |
+| POST | `/ask/demo/*` | Same endpoints, demo mode (no auth) |
+
+### Other
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/forecast` | AI pipeline forecast narrative |
+| GET | `/alerts/digest` | Prioritised alerts digest |
+| GET | `/signals/{deal_id}` | Buying/risk signal detection |
+| GET | `/trackers/{deal_id}` | Smart tracker status |
+
+**All endpoints except `/auth/*` and demo variants require:**
 ```
-Authorization: Bearer <base64_session_token>
-```
-
----
-
-## 🎨 Frontend — Lovable.dev Setup
-
-### Step 1 — Create new project at lovable.dev
-
-### Step 2 — Paste this prompt to generate the full UI:
-
----
-
-**LOVABLE PROMPT — PASTE THIS EXACTLY:**
-
-```
-Build a B2B SaaS dashboard called "DealIQ" with the tagline "Revenue without guesswork."
-
-Tech: React, Tailwind CSS, shadcn/ui. Dark theme preferred (slate-900 background, white text).
-
-The app has these pages/views:
-
----
-
-PAGE 1: Login Screen
-- Centered card with DealIQ logo (use a simple bar chart icon in blue)
-- Tagline: "Revenue without guesswork."
-- One primary button: "Login with Zoho CRM" (blue, full width)
-- Smaller text link below: "Try demo without login →"
-- On "Login with Zoho CRM": call GET /auth/login, redirect to returned auth_url
-- On "Try demo": call GET /auth/demo-session, store session in localStorage, navigate to dashboard
-- On page load, check URL for ?session= param (OAuth callback) and store it, then redirect to /dashboard
-- Also check for ?error= param and show error toast
-
----
-
-PAGE 2: Dashboard (main view after login)
-
-Header bar:
-- DealIQ logo left
-- "Demo Mode" badge (orange pill) if session is demo
-- User email/name from session (top right)
-- Logout button
-
-Summary cards row (4 cards):
-- Total Deals (number)
-- Pipeline Value (formatted as $X.XM or $XXK)
-- Avg Health Score (number with color: green ≥75, yellow ≥50, red <50)
-- Deals Needing Action (red number with warning icon)
-Fetch these from GET /deals/metrics
-
-Below: Deals Table
-Columns: Deal Name | Company | Stage | Amount | Health Score | Status | Action
-- Health Score shown as colored pill: green (healthy), yellow (at_risk), orange (critical), red (zombie)
-- Status label matches health_label
-- Action button: "Analyse" (opens Deal Detail panel)
-- Sort by health score ascending by default (worst first)
-Fetch from GET /deals/
-
----
-
-PAGE 3: Deal Detail Panel (slide-in from right, overlay)
-
-Opens when "Analyse" is clicked on any deal row.
-
-Section 1 — Health Score Breakdown
-- Large score number (0-100) with a circular progress indicator colored by health
-- Six signal rows, each showing: signal name | score bar | label (good/warn/critical) | detail text
-- Recommendation box at bottom (highlighted if action_required)
-Fetch from GET /deals/{id}/health
-
-Section 2 — Advance / Close / Kill
-- Show recommendation card: "Advance" (green) | "Escalate" (orange) | "Kill" (red)
-- Show supporting signals as bullet points
-- Three action buttons: [Advance] [Escalate] [Kill] — clicking logs the decision
-Fetch from GET /analysis/ack/{deal_id}
-
-Section 3 — Narrative Mismatch Checker
-- Two text areas side by side: "Call Transcript" (left) | "Email Draft" (right)
-- Each has a "Load Demo" button that pre-fills with sample data
-- Big button: "Check Before Sending" (runs POST /analysis/mismatch)
-- Results appear below as warning cards:
-  - Each card shows: category badge | description text | severity icon | suggested fix
-  - Health impact shown as "-X points" in red
-  - If clean: green checkmark with "No mismatches found"
-
----
-
-State management: Use React Context or Zustand for session state.
-API base URL: read from environment variable VITE_API_URL (default: http://localhost:8000)
-Show loading spinners while fetching. Show error toasts on API failures.
-Make it look polished and professional — this is a hackathon demo for judges.
+Authorization: Bearer <session_token>
 ```
 
----
-
-### Step 3 — Add your API URL in Lovable
-
-After generating, find where environment variables are set and add:
-```
-VITE_API_URL=http://localhost:8000
-```
-
-For production (after deploying backend to Railway):
-```
-VITE_API_URL=https://your-backend.up.railway.app
-```
+Use `DEMO_MODE` as the token to activate demo mode with simulated data.
 
 ---
 
-## 🚢 Deployment (Free)
+## Deal Detail Panel — 10 Sections
 
-### Backend → Railway.app
+The slide-out panel that opens per deal has 10 accordion sections:
 
-```bash
-# Install Railway CLI
-npm install -g @railway/cli
-railway login
-cd backend
-railway init
-railway up
-```
-
-Set environment variables in Railway dashboard under Variables:
-- `ANTHROPIC_API_KEY`
-- `ZOHO_CLIENT_ID`
-- `ZOHO_CLIENT_SECRET`
-- `ZOHO_REDIRECT_URI` → set to `https://YOUR-BACKEND.up.railway.app/auth/callback`
-- `FRONTEND_URL` → set to your Lovable app URL
-
-**Important:** After deploying backend, update your Zoho app's redirect URI to the Railway URL.
-
-### Frontend → Lovable handles this automatically
-
-Just set `VITE_API_URL` to your Railway backend URL in Lovable's settings.
+| # | Section | Icon | Description |
+|---|---------|------|-------------|
+| 1 | Deal Timeline | Clock | Chronological deal event history |
+| 2 | Health Score Breakdown | Activity | 9 signals with scores and recommendations |
+| 3 | Activity Feed | Zap (blue) | Engagement velocity, ghost stakeholder alerts, activity log |
+| 4 | AI Sales Rep | Brain | NBA → approve → email draft → approve → send |
+| 5 | Pre-Call Intelligence Brief | Phone | AI-generated call prep brief |
+| 6 | Narrative Check + Email Coach | GitMerge | Mismatch detection + live email coaching |
+| 7 | Smart Trackers | ScanSearch | Buying signal and risk tracker status |
+| 8 | Advance / Close / Kill | Layers | Decision surface + autopsy on kill |
+| 9 | Call Coaching | GraduationCap (cyan) | Real-time coaching feedback |
+| 10 | Ask DealIQ | Sparkles (violet) | 4-tab AI Q&A: chat, MEDDIC, brief, follow-up email |
 
 ---
 
-## 🎯 Hackathon Demo Walkthrough
-
-**For judges with no Zoho account:**
-
-1. Open the app → click "Try demo without login"
-2. Dashboard loads with 6 pre-scored deals (showing all 4 health states)
-3. Click "Analyse" on FinanceFlow deal (red/zombie — worst deal)
-4. Show health breakdown — all 6 signals with explanations
-5. Show ACK recommendation → "Kill" with supporting evidence
-6. Switch to Acme Corp deal → click Narrative Mismatch section
-7. Click "Load Demo" in both text areas → click "Check Before Sending"
-8. Watch 3 mismatch flags appear: missing 12% discount, missing 3-week timeline, missing March 7th call
-9. Show health score drop visually
-10. Click "Add to email" on each flag
-
-**Total demo time: ~5 minutes**
-
----
-
-## Health Scoring Model
+## Health Scoring Model (9 Signals)
 
 | Signal | Max Score | Data Source |
 |--------|-----------|-------------|
-| Next Step Defined | 20 | CRM description / notes |
-| Buyer Response Recency | 20 | Last activity timestamp |
-| Stakeholder Depth | 20 | Contact count + economic buyer flag |
-| Discount Pattern | 15 | Note/email analysis |
+| Next Step Defined | 15 | CRM description / notes |
+| Buyer Response Recency | 15 | Last activity timestamp |
+| Stakeholder Depth | 15 | Contact count + economic buyer flag |
+| Discount Pattern | 10 | Note/email analysis |
 | Stage Velocity | 15 | Stage age vs. benchmark |
 | Interaction Quality | 10 | Activity count + recency |
+| Engagement Velocity | 5 | Activity trend (accelerating/decelerating) |
+| Ghost Stakeholder Risk | 5 | Stakeholder silence detection |
+| Multi-thread Score | 10 | Contact breadth across deal |
 | **Total** | **100** | |
 
-Score thresholds: Healthy ≥75 | At Risk ≥50 | Critical ≥25 | Zombie <25
+Score thresholds: **Healthy ≥75** | **At Risk ≥50** | **Critical ≥25** | **Zombie <25**
 
 ---
 
-## What's Simulated vs. Real
+## AI Models
 
-| Feature | In Demo | In Production |
-|---------|---------|---------------|
-| Deal data | Hardcoded 6 deals | Live Zoho CRM |
-| Health scoring | Rules-based (real logic) | Same + more signals |
-| Mismatch detection | Live Claude API | Live Claude API |
-| Discount analysis | Live Claude API | Live Claude API |
-| ACK decisions | Logged locally | Written back to Zoho |
-| Auth | Demo bypass + real OAuth | Real OAuth only |
+| Task | Model | Reason |
+|------|-------|--------|
+| Ask Q&A, MEDDIC, Deal Brief | `llama-3.3-70b-versatile` | Quality — needs reasoning depth |
+| Email drafting, pipeline questions | `llama-3.1-8b-instant` | Speed — latency-sensitive |
+| Email coaching (real-time) | `llama-3.1-8b-instant` | Debounced, must be fast |
+| NBA, call brief, objection | `llama-3.3-70b-versatile` | Quality — sales-critical output |
 
----
-
-## Built With
-
-- **FastAPI** — Python backend
-- **Anthropic Claude Haiku** — AI analysis (cheapest, fastest model)
-- **Zoho CRM API** — Deal data source
-- **Lovable.dev** — Frontend generation
-- **Railway** — Backend hosting
+All AI calls use `GROQ_API_KEY` via the Groq API.
 
 ---
 
-*DealIQ is an early concept. The problem is real. The gap is genuine. The approach is worth testing.*
+## Demo Mode
+
+Use token `DEMO_MODE` to run the full app without Zoho or a database.
+
+Demo deals available:
+- `sim_001` — Acme Corp (healthy deal)
+- `sim_002` — Globex Inc (at risk)
+- `sim_003` — Initech (critical)
+- `sim_004` — FinanceFlow (zombie — best for autopsy demo)
+
+Demo endpoints also available at `/ask/demo/*`, `/ai-rep/demo-*`, `/analysis/*/demo`.
+
+---
+
+## Demo Walkthrough (5 minutes)
+
+1. Open app → "Try demo without login"
+2. Dashboard loads with 4 pre-scored deals across all health states
+3. Click into **FinanceFlow** (red/zombie)
+   - Health Breakdown: all 9 signals with explanations
+   - ACK: "Kill" recommendation with supporting evidence
+   - Trigger autopsy → AI post-mortem generates
+4. Switch to **Acme Corp** → Narrative Mismatch section
+   - Load demo transcript + email draft → "Check Before Sending"
+   - 3 mismatch flags: missing discount commitment, timeline, follow-up date
+5. Open Activity Feed: engagement velocity score + ghost stakeholder alerts
+6. Open Ask DealIQ tab → MEDDIC tab → "Run MEDDIC Analysis"
+7. Open AI Sales Rep → generate NBA → approve → draft email → copy
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Frontend | React 18, TypeScript, Vite, Tailwind CSS, Shadcn UI |
+| Backend | Python, FastAPI, Pydantic v2, SQLAlchemy (async) |
+| AI Inference | Groq API (LLaMA 3.1/3.3) |
+| CRM | Zoho CRM (OAuth2) + Demo mode |
+| Database | PostgreSQL (async via asyncpg) — optional for demo |
+
+---
+
+*DealIQ is in active development. The problem is real. The gap is genuine.*
