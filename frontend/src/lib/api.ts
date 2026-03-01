@@ -208,4 +208,46 @@ export const api = {
 
   getTeamActivitySummary: () =>
     fetchWithTimeout(`${API_URL}/activities/team-summary`, { headers: authHeaders() }).then(handleResponse),
+
+  // ── Ask DealIQ ───────────────────────────────────────────────────────────────
+  getAskPresets: () =>
+    fetchWithTimeout(`${API_URL}/ask/presets`, { headers: authHeaders() }).then(handleResponse),
+
+  askDeal: (dealId: string, question: string) =>
+    fetchWithTimeout(`${API_URL}/ask/deal`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ deal_id: dealId, question }),
+    }).then(handleResponse),
+
+  askMeddic: (dealId: string) =>
+    fetchWithTimeout(`${API_URL}/ask/deal/meddic`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ deal_id: dealId }),
+    }).then(handleResponse),
+
+  askBrief: (dealId: string) =>
+    fetchWithTimeout(`${API_URL}/ask/deal/brief`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ deal_id: dealId }),
+    }).then(handleResponse),
+
+  askFollowUpEmail: (
+    dealId: string,
+    options?: { tone_override?: string; additional_context?: string }
+  ) =>
+    fetchWithTimeout(`${API_URL}/ask/deal/follow-up-email`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ deal_id: dealId, ...options }),
+    }).then(handleResponse),
+
+  askPipeline: (question: string, filters?: Record<string, any>) =>
+    fetchWithTimeout(`${API_URL}/ask/pipeline`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ question, filters: filters ?? null }),
+    }).then(handleResponse),
 };

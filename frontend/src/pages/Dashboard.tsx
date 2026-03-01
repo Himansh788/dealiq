@@ -25,6 +25,7 @@ import DealDetailPanel from "@/components/DealDetailPanel";
 import AlertsDigestPanel from "@/components/AlertsDigestPanel";
 import BuyingSignalPanel from "@/components/BuyingSignalPanel";
 import NavBar from "@/components/NavBar";
+import PipelineQABar from "@/components/PipelineQABar";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -438,6 +439,11 @@ export default function Dashboard() {
             )}
           </div>
         )}
+
+        {/* ── Pipeline Q&A ── */}
+        <div className="animate-slide-up" style={{ animationDelay: "165ms" }}>
+          <PipelineQABar onSelectDeal={(id) => setSelectedDealId(id)} />
+        </div>
 
         {/* ── Deal Pipeline Table ── */}
         <Card className="overflow-hidden border-border/40 bg-card/60 animate-slide-up" style={{ animationDelay: "180ms" }}>

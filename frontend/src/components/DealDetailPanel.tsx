@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { Brain, Clock, Phone, Activity, GitMerge, Layers, ScanSearch, GraduationCap, Zap } from "lucide-react";
+import { Brain, Clock, Phone, Activity, GitMerge, Layers, ScanSearch, GraduationCap, Zap, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
 import HealthBreakdown from "./deal/HealthBreakdown";
@@ -13,6 +13,7 @@ import CallBriefPanel from "./deal/CallBriefPanel";
 import TrackerPanel from "./deal/TrackerPanel";
 import CoachingPanel from "./deal/CoachingPanel";
 import ActivityFeedPanel from "./deal/ActivityFeedPanel";
+import AskDealIQPanel from "./deal/AskDealIQPanel";
 
 interface Props {
   dealId: string | null;
@@ -58,6 +59,7 @@ const SECTION_STYLES = {
   trackers:   { icon: ScanSearch, label: "Smart Trackers",                    iconColor: "text-primary",    activeBorder: "border-l-primary/50" },
   ack:        { icon: Layers,       label: "Advance / Close / Kill",            iconColor: "text-health-red",  activeBorder: "border-l-health-red/50" },
   coaching:   { icon: GraduationCap, label: "Call Coaching",                    iconColor: "text-cyan-400",    activeBorder: "border-l-cyan-400/50" },
+  ask:        { icon: Sparkles,      label: "Ask DealIQ",                        iconColor: "text-violet-400",  activeBorder: "border-l-violet-400/50" },
 } as const;
 
 type SectionKey = keyof typeof SECTION_STYLES;
@@ -161,6 +163,7 @@ export default function DealDetailPanel({
                     {key === "trackers"    && <TrackerPanel dealId={dealId} />}
                     {key === "ack"         && <AckSection dealId={dealId} />}
                     {key === "coaching"    && <CoachingPanel dealId={dealId} repName={repName} />}
+                    {key === "ask"         && <AskDealIQPanel dealId={dealId} dealName={dealName} />}
                   </AccordionContent>
                 </AccordionItem>
               ))}
