@@ -87,7 +87,7 @@ class EmailGenerator:
             result = await ai_router.generate_email_draft(
                 system_prompt=CONTEXT_EMAIL_SYSTEM_PROMPT,
                 context=f"{prompt_context}\n\nINSTRUCTION: {instruction}",
-                max_tokens=1200,
+                max_tokens=2000,
             )
         except Exception as exc:
             _log.error("Context email generation failed: %s", exc)

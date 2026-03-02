@@ -78,8 +78,13 @@ def score_next_step(next_step: Optional[str]) -> HealthSignal:
         )
 
 
-def score_response_recency(days_since_response: Optional[int]) -> HealthSignal:
-    """Signal 2: How recently did the buyer respond?"""
+LATE_STAGE_LENIENT = {"Negotiation/Review", "Value Proposition", "Id. Decision Makers",
+                      "Contract Sent", "Evaluation", "Sales Approved Deal"}
+
+
+def score_response_recency(days_since_response: Optional[int], stage: str = "") -> HealthSignal:
+    """Signal 2: How recently did the buyer respond?
+    Later-stage deals (negotiation, evaluation) tolerate longer response gaps."""
     if days_since_response is None:
         return HealthSignal(
             name="Buyer Response Recency",
@@ -88,17 +93,21 @@ def score_response_recency(days_since_response: Optional[int]) -> HealthSignal:
             label="warn",
             detail="No response date recorded. Cannot measure buyer engagement."
         )
+    lenient = stage in LATE_STAGE_LENIENT
     if days_since_response <= 3:
         score, label = 20, "good"
         detail = f"Buyer responded {days_since_response} day(s) ago — actively engaged."
     elif days_since_response <= 7:
-        score, label = 15, "good"
+        score, label = 20 if lenient else 15, "good"
         detail = f"Buyer last responded {days_since_response} days ago — within normal range."
     elif days_since_response <= 14:
-        score, label = 8, "warn"
+        score, label = 15 if lenient else 8, "good" if lenient else "warn"
         detail = f"No buyer response in {days_since_response} days. Follow up with a specific question."
+    elif days_since_response <= 21:
+        score, label = 10 if lenient else 5, "warn"
+        detail = f"{days_since_response} days without buyer response. This deal may be stalling."
     elif days_since_response <= 30:
-        score, label = 3, "critical"
+        score, label = 5 if lenient else 3, "warn" if lenient else "critical"
         detail = f"{days_since_response} days without buyer response. This deal may be stalling."
     else:
         score, label = 0, "critical"
@@ -118,7 +127,7 @@ def score_stakeholder_depth(contact_count: int, economic_buyer_engaged: bool) ->
         return HealthSignal(name="Stakeholder Depth", score=10, max_score=20, label="warn",
                             detail=f"{contact_count} contacts involved but economic buyer not confirmed.")
     else:
-        return HealthSignal(name="Stakeholder Depth", score=4, max_score=20, label="critical",
+        return HealthSignal(name="Stakeholder Depth", score=8, max_score=20, label="warn",
                             detail="Only one contact engaged. Economic buyer unreached — high single-thread risk.")
 
 
@@ -186,11 +195,11 @@ def score_activity_velocity(activities: Optional[List[ActivityItem]] = None) -> 
 
 
 def determine_health_label(score: int) -> str:
-    if score >= 75:
+    if score >= 65:
         return "healthy"
-    elif score >= 50:
+    elif score >= 45:
         return "at_risk"
-    elif score >= 25:
+    elif score >= 20:
         return "critical"
     else:
         return "zombie"
@@ -290,7 +299,7 @@ def score_deal(
 
     signals = [
         score_next_step(next_step),
-        score_response_recency(days_since_buyer_response),
+        score_response_recency(days_since_buyer_response, stage),
         score_stakeholder_depth(contact_count, economic_buyer_engaged),
         score_discount_pattern(discount_mention_count),
         score_stage_age(stage, days_in_stage),
@@ -383,7 +392,7 @@ def score_deal_with_activities(deal_data: Dict[str, Any], activity_data: dict) -
     # Existing 6 signals, rescaled to new max weights
     raw_signals = [
         (_rescale_signal(score_next_step(next_step), 15)),
-        score_response_recency(days_since_inbound),             # stays 20
+        score_response_recency(days_since_inbound, stage),      # stays 20
         (_rescale_signal(score_stakeholder_depth(
             deal_data.get("contact_count", 1),
             deal_data.get("economic_buyer_engaged", False),

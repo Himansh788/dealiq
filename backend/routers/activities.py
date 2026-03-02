@@ -104,7 +104,9 @@ async def get_activity_feed(
     Demo mode: uses SIMULATED_ACTIVITIES. Real mode: fetches from Zoho in parallel.
     """
     session = _decode_session(authorization)
-    is_demo = _is_demo(session)
+    # Treat sim_xxx IDs as demo regardless of token — happens when browser retains
+    # a demo deal ID after the user re-authenticates with real Zoho credentials.
+    is_demo = _is_demo(session) or deal_id.startswith("sim_")
 
     if is_demo:
         # Find deal metadata for stage + age

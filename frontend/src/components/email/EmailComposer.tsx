@@ -124,6 +124,7 @@ export default function EmailComposer({ open, dealId, dealName, contact, onClose
   const copyEmail = () => {
     navigator.clipboard.writeText(`Subject: ${subject}\n\n${body}`);
     toast({ title: "Email copied to clipboard", description: "Paste it into your email client to send." });
+    onClose();
   };
 
   return (
@@ -255,7 +256,7 @@ export default function EmailComposer({ open, dealId, dealName, contact, onClose
                 className="bg-primary hover:bg-primary/90 font-semibold h-8 text-xs px-4"
               >
                 <Copy className="mr-1.5 h-3.5 w-3.5" />
-                Copy &amp; Close
+                Copy &amp; Send
               </Button>
               <Button
                 variant="outline"
@@ -267,15 +268,7 @@ export default function EmailComposer({ open, dealId, dealName, contact, onClose
                 <Sparkles className="mr-1.5 h-3.5 w-3.5 text-violet-400" />
                 Regenerate
               </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="ml-auto h-8 text-xs text-muted-foreground"
-                onClick={onClose}
-              >
-                Discard
-              </Button>
-              <p className="text-[10px] text-muted-foreground/50">
+              <p className="ml-auto text-[10px] text-muted-foreground/50">
                 ✦ Email is not sent — copy and send from your inbox
               </p>
             </div>

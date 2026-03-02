@@ -82,11 +82,13 @@ async def generate_email_draft(
     context: str,
     max_tokens: int = 1024,
 ) -> Dict[str, Any]:
-    """Route email generation to fast model (cheaper, adequate for structured output)."""
+    """Route email generation to fast model (cheaper, adequate for structured output).
+    response_format=json_object enforces valid JSON and prevents parse errors."""
     response = await _get_client().chat.completions.create(
         model=MODEL_FAST,
         max_tokens=max_tokens,
         temperature=0.2,
+        response_format={"type": "json_object"},
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": context},
@@ -105,6 +107,7 @@ async def ask_pipeline_question(
         model=MODEL_FAST,
         max_tokens=max_tokens,
         temperature=0.1,
+        response_format={"type": "json_object"},
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},

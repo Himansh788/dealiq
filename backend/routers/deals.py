@@ -357,8 +357,9 @@ async def get_pipeline_metrics(authorization: str = Header(...)):
 async def get_deal_health(deal_id: str, authorization: str = Header(...)):
     """Get full health score breakdown for a single deal."""
     session = _decode_session(authorization)
+    demo = _is_demo(session) or deal_id.startswith("sim_")
 
-    if _is_demo(session):
+    if demo:
         raw_list = [d for d in SIMULATED_DEALS if d["id"] == deal_id]
         if not raw_list:
             raise HTTPException(status_code=404, detail="Deal not found")
@@ -373,7 +374,7 @@ async def get_deal_health(deal_id: str, authorization: str = Header(...)):
 
     # Fetch activity bundle — async, non-blocking, failure-safe
     activity_data = None
-    if _is_demo(session):
+    if demo:
         from services.demo_data import get_demo_activity_data
         activity_data = get_demo_activity_data(deal_id)
     else:
@@ -395,7 +396,7 @@ async def get_deal_health(deal_id: str, authorization: str = Header(...)):
 async def get_deal_timeline(deal_id: str, authorization: str = Header(...)):
     """Build a full activity timeline for a deal."""
     session = _decode_session(authorization)
-    simulated = _is_demo(session)
+    simulated = _is_demo(session) or deal_id.startswith("sim_")
 
     from services.deal_timeline import build_timeline, generate_timeline_narrative
     from datetime import timedelta

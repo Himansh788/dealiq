@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
-import { useNavigate, useLocation, Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import {
-  BarChart3, ScanSearch, Radar, TrendingUp, LogOut, Search,
+  BarChart3, LogOut, Search,
   ChevronDown, Settings,
 } from "lucide-react";
 import {
@@ -9,7 +9,6 @@ import {
   DropdownMenuSeparator, DropdownMenuTrigger, DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu";
 import { useSession } from "@/contexts/SessionContext";
-import { cn } from "@/lib/utils";
 import { AlertsBell } from "@/components/AlertsDigestPanel";
 import CommandPalette from "@/components/CommandPalette";
 
@@ -38,7 +37,6 @@ export default function NavBar({
 }: NavBarProps) {
   const { session, logout, isDemo } = useSession();
   const navigate  = useNavigate();
-  const location  = useLocation();
   const [cmdOpen, setCmdOpen] = useState(false);
 
   const userInitials = (session?.display_name ?? "U")
@@ -62,16 +60,6 @@ export default function NavBar({
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, []);
-
-  function navLinkClass(path: string) {
-    const isActive = location.pathname === path;
-    return cn(
-      "relative flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium transition-all duration-150 select-none",
-      isActive
-        ? "border-primary/50 bg-primary/10 text-primary"
-        : "border-primary/30 text-primary/70 hover:bg-primary/10 hover:border-primary/50 hover:text-primary"
-    );
-  }
 
   return (
     <>
@@ -108,33 +96,6 @@ export default function NavBar({
                 ⌘K
               </kbd>
             </button>
-
-            {/* Smart Trackers */}
-            <Link to="/trackers" className={navLinkClass("/trackers")}>
-              <ScanSearch className="h-3.5 w-3.5" />
-              Smart Trackers
-              {location.pathname === "/trackers" && (
-                <span className="absolute -bottom-px left-0 right-0 h-0.5 rounded-full bg-primary" />
-              )}
-            </Link>
-
-            {/* Signal Radar — overlay panel, no route */}
-            <button
-              onClick={onOpenSignal}
-              className="flex items-center gap-1.5 rounded-md border border-health-orange/30 px-3 py-1.5 text-sm font-medium text-health-orange/80 transition-all duration-150 hover:border-health-orange/50 hover:bg-health-orange/10 hover:text-health-orange"
-            >
-              <Radar className="h-3.5 w-3.5" />
-              Signal Radar
-            </button>
-
-            {/* AI Forecast */}
-            <Link to="/forecast" className={navLinkClass("/forecast")}>
-              <TrendingUp className="h-3.5 w-3.5" />
-              AI Forecast
-              {location.pathname === "/forecast" && (
-                <span className="absolute -bottom-px left-0 right-0 h-0.5 rounded-full bg-primary" />
-              )}
-            </Link>
 
             {/* Alerts bell with badge */}
             <AlertsBell onClick={onOpenDigest} criticalCount={digestCriticalCount} />

@@ -49,6 +49,9 @@ interface Deal {
   health_score: number;
   health_label: string;
   owner?: string;
+  last_activity_time?: string;
+  next_step?: string;
+  discount_mention_count?: number;
 }
 
 interface RepActivity {
@@ -100,6 +103,18 @@ function dealInitialClass(label: string): string {
     case "zombie":   return "bg-health-red/15 text-health-red";
     default:         return "bg-secondary text-muted-foreground";
   }
+}
+
+function getDealWhyLine(deal: Deal): string | null {
+  if (deal.health_label === "healthy") return null;
+  const daysSince = deal.last_activity_time
+    ? Math.floor((Date.now() - new Date(deal.last_activity_time).getTime()) / 86400000)
+    : null;
+  if (daysSince !== null && daysSince > 30) return `No contact in ${daysSince} days`;
+  if (!deal.next_step) return "No next step defined";
+  if (daysSince !== null && daysSince > 14) return `${daysSince} days since last touch`;
+  if ((deal.discount_mention_count ?? 0) >= 3) return "Discount pressure — multiple requests";
+  return null;
 }
 
 function stagePillClass(stage: string): string {
@@ -579,7 +594,9 @@ export default function Dashboard() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredDeals.map((deal) => (
+                    {filteredDeals.map((deal) => {
+                      const whyLine = getDealWhyLine(deal);
+                      return (
                       <TableRow
                         key={deal.id}
                         onClick={() => setSelectedDealId(deal.id)}
@@ -606,6 +623,11 @@ export default function Dashboard() {
                               <p className="mt-0.5 truncate text-xs text-muted-foreground/60">
                                 {deal.company}
                               </p>
+                              {whyLine && (
+                                <p className="mt-0.5 truncate text-[10px] text-muted-foreground/45 italic">
+                                  {whyLine}
+                                </p>
+                              )}
                             </div>
                           </div>
                         </TableCell>
@@ -659,7 +681,8 @@ export default function Dashboard() {
                           )} />
                         </TableCell>
                       </TableRow>
-                    ))}
+                    );
+                    })}
                   </TableBody>
                 </Table>
 
