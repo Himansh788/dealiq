@@ -5,8 +5,6 @@ import {
   LayoutDashboard,
   Mail,
   Sparkles,
-  TrendingUp,
-  Bell,
   Settings,
   LogOut,
 } from "lucide-react";
@@ -21,12 +19,10 @@ import { useSession } from "@/contexts/SessionContext";
 // ── Nav config ────────────────────────────────────────────────────────────────
 
 const TOP_NAV = [
-  { icon: Home,            label: "Home",       path: "/home" },
+  { icon: Home,            label: "My Day",     path: "/home" },
   { icon: LayoutDashboard, label: "Deals",      path: "/dashboard" },
-  { icon: Mail,            label: "Emails",     path: "/emails" },
-  { icon: Sparkles,        label: "Ask DealIQ", path: "/ask" },
-  { icon: TrendingUp,      label: "Trends",     path: "/trends" },
-  { icon: Bell,            label: "Alerts",     path: "/alerts" },
+  { icon: Mail,            label: "Email",      path: "/emails" },
+  { icon: Sparkles,        label: "Ask AI",     path: "/ask" },
 ] as const;
 
 // ── Nav Item ─────────────────────────────────────────────────────────────────

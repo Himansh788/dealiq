@@ -8,3 +8,4 @@ sqlalchemy[asyncio]>=2.0
 asyncpg
 alembic
 tiktoken  # token counting for Ask DealIQ context assembly
+apscheduler>=3.10.0  # daily morning scan scheduler

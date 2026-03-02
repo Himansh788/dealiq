@@ -254,6 +254,54 @@ class EmailExtraction(Base):
 
 
 # ---------------------------------------------------------------------------
+# meeting_log
+# ---------------------------------------------------------------------------
+
+class MeetingLog(Base):
+    __tablename__ = "meeting_log"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        server_default=func.gen_random_uuid(),
+    )
+    calendar_event_id: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True)
+    deal_id: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    attendees: Mapped[list[Any]] = mapped_column(JSON, nullable=False, default=list)
+    duration_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    quick_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sentiment: Mapped[str | None] = mapped_column(String(20), nullable=True)  # great/ok/concern
+    topics_confirmed: Mapped[list[Any]] = mapped_column(JSON, nullable=False, default=list)
+    ai_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    action_items: Mapped[list[Any]] = mapped_column(JSON, nullable=False, default=list)
+    crm_updates_applied: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    follow_up_email_draft: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+# ---------------------------------------------------------------------------
+# pending_crm_update
+# ---------------------------------------------------------------------------
+
+class PendingCrmUpdate(Base):
+    __tablename__ = "pending_crm_update"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        server_default=func.gen_random_uuid(),
+    )
+    deal_id: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    field_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    old_value: Mapped[str | None] = mapped_column(Text, nullable=True)
+    new_value: Mapped[str] = mapped_column(Text, nullable=False)
+    confidence: Mapped[str] = mapped_column(String(20), nullable=False)  # high/medium/low
+    source: Mapped[str] = mapped_column(String(50), nullable=False)  # meeting/email/daily_scan
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")  # pending/approved/rejected
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+# ---------------------------------------------------------------------------
 # audit_log
 # ---------------------------------------------------------------------------
 

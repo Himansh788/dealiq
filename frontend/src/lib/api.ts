@@ -250,4 +250,84 @@ export const api = {
       headers: authHeaders(),
       body: JSON.stringify({ question, filters: filters ?? null }),
     }).then(handleResponse),
+
+  // ── Actions (Today's AI action queue) ────────────────────────────────────
+  getTodayActions: () =>
+    fetchWithTimeout(`${API_URL}/actions/today`, { headers: authHeaders() }).then(handleResponse),
+
+  executeAction: (id: string, payload: Record<string, any>) =>
+    fetchWithTimeout(`${API_URL}/actions/${id}/execute`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify(payload),
+    }).then(handleResponse),
+
+  dismissAction: (id: string) =>
+    fetchWithTimeout(`${API_URL}/actions/${id}/dismiss`, {
+      method: "POST",
+      headers: authHeaders(),
+    }).then(handleResponse),
+
+  snoozeAction: (id: string) =>
+    fetchWithTimeout(`${API_URL}/actions/${id}/snooze`, {
+      method: "POST",
+      headers: authHeaders(),
+    }).then(handleResponse),
+
+  // ── Meeting ───────────────────────────────────────────────────────────────
+  getMeetingPrep: (dealId: string) =>
+    fetchWithTimeout(`${API_URL}/meeting/prep/${dealId}`, { headers: authHeaders() }).then(handleResponse),
+
+  submitPostMeeting: (payload: {
+    deal_id: string;
+    sentiment: string;
+    topics_confirmed?: string[];
+    quick_notes?: string;
+    duration_minutes?: number;
+    attendees?: Record<string, any>[];
+    calendar_event_id?: string;
+  }) =>
+    fetchWithTimeout(`${API_URL}/meeting/ended`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify(payload),
+    }).then(handleResponse),
+
+  getPendingCrmUpdates: () =>
+    fetchWithTimeout(`${API_URL}/meeting/pending-updates`, { headers: authHeaders() }).then(handleResponse),
+
+  approveCrmUpdate: (id: string) =>
+    fetchWithTimeout(`${API_URL}/meeting/approve-update/${id}`, {
+      method: "POST",
+      headers: authHeaders(),
+    }).then(handleResponse),
+
+  rejectCrmUpdate: (id: string) =>
+    fetchWithTimeout(`${API_URL}/meeting/reject-update/${id}`, {
+      method: "POST",
+      headers: authHeaders(),
+    }).then(handleResponse),
+
+  getMeetingHistory: (dealId: string) =>
+    fetchWithTimeout(`${API_URL}/meeting/history/${dealId}`, { headers: authHeaders() }).then(handleResponse),
+
+  // ── Email Intel ───────────────────────────────────────────────────────────
+  getEmailThread: (dealId: string) =>
+    fetchWithTimeout(`${API_URL}/email-intel/threads/${dealId}`, { headers: authHeaders() }).then(handleResponse),
+
+  // ── Google Auth ───────────────────────────────────────────────────────────
+  getGoogleAuthStatus: () =>
+    fetchWithTimeout(`${API_URL}/google-auth/status`, { headers: authHeaders() }).then(handleResponse),
+
+  connectGoogle: () =>
+    fetchWithTimeout(`${API_URL}/google-auth/connect`, {
+      method: "POST",
+      headers: authHeaders(),
+    }).then(handleResponse),
+
+  disconnectGoogle: () =>
+    fetchWithTimeout(`${API_URL}/google-auth/disconnect`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    }).then(handleResponse),
 };

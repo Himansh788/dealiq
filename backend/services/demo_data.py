@@ -861,6 +861,156 @@ def get_demo_activity_data(deal_id: str) -> dict:
     }
 
 
+# ── Demo: Today's Actions (for /actions/today in DEMO_MODE) ──────────────────
+
+DEMO_TODAY_ACTIONS = [
+    {
+        "id": "act_001",
+        "type": "overdue_close",
+        "deal_id": "sim_004",
+        "deal_name": "FinanceFlow — Platform License",
+        "company": "FinanceFlow Corp",
+        "amount": 120000,
+        "stage": "Negotiation/Review",
+        "urgency_score": 95,
+        "context": "Close date passed 5 days ago. No activity for 34 days. Deal at risk of being lost.",
+        "suggested_action": "Send a direct re-engagement with a revised close timeline. Ask for a decision by EOW.",
+        "draft": "Hi Amir, I wanted to reach out directly — I noticed we've been quiet for a few weeks and the close date has passed. I understand budget timelines shift. I'd like to propose a brief 15-minute call this week to understand where things stand and whether there's a path forward that works for your team. Happy to adjust the terms if that helps. Would Thursday or Friday work?",
+    },
+    {
+        "id": "act_002",
+        "type": "silent_deal",
+        "deal_id": "sim_002",
+        "deal_name": "TechStart Inc — Growth Tier",
+        "company": "TechStart Inc",
+        "amount": 36000,
+        "stage": "Proposal/Price Quote",
+        "urgency_score": 80,
+        "context": "No response in 19 days. You've sent 3 follow-ups. Prospect evaluated 2 competitors.",
+        "suggested_action": "Change the approach — stop following up on the proposal. Reframe around their business outcome.",
+        "draft": "Hi Priya, I'll keep this brief — I know you've had the proposal for a while. Rather than ask if you've reviewed it, I wanted to share one thing: one of our customers in a similar stage-count situation saw a 3-week reduction in their forecast cycle within 30 days of going live. Worth 20 minutes if pipeline predictability is still on your radar. Completely understand if the timing isn't right.",
+    },
+    {
+        "id": "act_003",
+        "type": "missed_followup",
+        "deal_id": "sim_001",
+        "deal_name": "Acme Corp — Enterprise Plan",
+        "company": "Acme Corporation",
+        "amount": 84000,
+        "stage": "Negotiation/Review",
+        "urgency_score": 75,
+        "context": "You committed to sending revised contract Thursday March 6. Pricing deadline is April 7.",
+        "suggested_action": "Send the revised contract with DPA addendum. Reference the April 7 pricing deadline.",
+        "draft": "Hi David, as promised — attaching the revised contract with the 12% early-commit discount locked in until April 7th. I've also included a Data Processing Agreement (DPA) as a standalone addendum addressing the data residency question from your CTO. All data is processed and stored in India by default, with EU/US region options available on Enterprise. Would it help to set up a quick call with our legal team and yours to clear the remaining redlines? We can usually turn those around in 48 hours.",
+    },
+    {
+        "id": "act_004",
+        "type": "no_next_step",
+        "deal_id": "sim_006",
+        "deal_name": "LogiCo — Teams License",
+        "company": "LogiCo Inc",
+        "amount": 18000,
+        "stage": "Proposal/Price Quote",
+        "urgency_score": 60,
+        "context": "Proposal sent 11 days ago. Prospect raised price objection. No next step defined.",
+        "suggested_action": "Acknowledge the price concern. Offer a revised number for annual commit and propose a call with the CFO.",
+        "draft": "Hi Vikram, I've been thinking about your feedback on the pricing — you're right that $18K is a stretch for a 50-person team. I can offer $14,400/year (20% off) for an annual commitment signed before March 31st. That's our best startup rate and would give you the full platform. Would it make sense to jump on a quick call with you and Priya to walk through the ROI numbers? I can usually make that case in 15 minutes. Let me know what works.",
+    },
+    {
+        "id": "act_005",
+        "type": "opportunity",
+        "deal_id": "sim_005",
+        "deal_name": "HealthTech Solutions — Annual",
+        "company": "HealthTech Solutions",
+        "amount": 28000,
+        "stage": "Value Proposition",
+        "urgency_score": 50,
+        "context": "CFO engaged and requested formal proposal. Buyer asked about Epic integration and HIPAA. High-momentum deal.",
+        "suggested_action": "Send 3-year enterprise proposal with HIPAA and Epic integration details before end of week.",
+        "draft": "Hi Neha, following up on our conversation — excited to put together the 3-year enterprise proposal for you. On your two questions: (1) Epic integration — yes, we support Epic via HL7 FHIR API. Our team handles the setup end-to-end, typically 5 business days post-onboarding. (2) HIPAA — we are HIPAA compliant and will include a Business Associate Agreement (BAA) with the contract. I'll have the full proposal with 3-year pricing and ROI projections in your inbox by Thursday. Would week of the 16th work for the Sarah call?",
+    },
+    {
+        "id": "act_006",
+        "type": "silent_deal",
+        "deal_id": "sim_003",
+        "deal_name": "GlobalRetail — Starter Pack",
+        "company": "GlobalRetail Ltd",
+        "amount": 12000,
+        "stage": "Needs Analysis",
+        "urgency_score": 30,
+        "context": "Discovery call scheduled for today. Two stakeholders confirmed. Strong early signals.",
+        "suggested_action": "Prep call agenda. Focus on manual reporting pain and IT integration concerns.",
+        "draft": "",
+    },
+]
+
+
+# ── Demo: Pending CRM Updates (for /meeting/pending-updates in DEMO_MODE) ─────
+
+DEMO_PENDING_UPDATES = [
+    {
+        "id": "upd_001",
+        "deal_id": "sim_001",
+        "deal_name": "Acme Corp — Enterprise Plan",
+        "field_name": "Stage",
+        "old_value": "Negotiation/Review",
+        "new_value": "Contract Sent",
+        "confidence": "medium",
+        "source": "meeting",
+        "created_at": _days_ago(1),
+        "context": "AI inferred from meeting notes: contract was sent. Confidence medium — no explicit stage change stated.",
+    },
+    {
+        "id": "upd_002",
+        "deal_id": "sim_001",
+        "deal_name": "Acme Corp — Enterprise Plan",
+        "field_name": "Next_Step",
+        "old_value": "Send revised contract by Thursday, March 6",
+        "new_value": "Await legal review feedback by March 15. Follow up if no response.",
+        "confidence": "medium",
+        "source": "meeting",
+        "created_at": _days_ago(1),
+        "context": "AI extracted from post-meeting notes. David mentioned legal review underway.",
+    },
+]
+
+
+# ── Demo: Meeting History (for /meeting/history/{deal_id} in DEMO_MODE) ───────
+
+DEMO_MEETING_HISTORY = {
+    "sim_001": [
+        {
+            "id": "mtg_001",
+            "sentiment": "ok",
+            "ai_summary": "Contract review call with David Kim (VP Procurement) and Lisa Park (CTO). Legal team has raised redlines around liability cap and auto-renewal. Procurement requires 2-week minimum review period. Pricing deadline extended to April 7th.",
+            "action_items": [
+                "Send revised contract with DPA addendum",
+                "Offer joint call with legal teams to accelerate review",
+                "Confirm April 7 as hard pricing deadline in writing",
+            ],
+            "topics_confirmed": ["Contract redlines", "Pricing deadline", "Data residency", "DPA requirement"],
+            "duration_minutes": 45,
+            "created_at": _days_ago(7),
+        }
+    ],
+    "sim_005": [
+        {
+            "id": "mtg_002",
+            "sentiment": "great",
+            "ai_summary": "CFO alignment call — Priya (CFO) and Neha (VP Sales) both attended. ROI model well received. Payback period resonated. Buyer requested formal 3-year enterprise proposal and confirmed she would champion with CRO Sarah. Epic + HIPAA are the two remaining blockers.",
+            "action_items": [
+                "Send 3-year enterprise proposal by Thursday",
+                "Include HIPAA BAA and Epic integration spec sheet",
+                "Schedule Sarah (CRO) call for week of March 16",
+            ],
+            "topics_confirmed": ["ROI model", "3-year pricing", "Epic integration", "HIPAA compliance"],
+            "duration_minutes": 30,
+            "created_at": _days_ago(2),
+        }
+    ],
+}
+
+
 TRACKER_DEMO_TRANSCRIPT = """
 [Discovery & Proposal Call — LogiCo Supply Chain | March 4, 2026 | 10:00 AM IST]
 [Rep: Maya Patel (DealIQ) | Buyer: Vikram Singh, Head of Operations | 38 minutes]

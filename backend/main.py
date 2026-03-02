@@ -6,6 +6,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from routers import auth, deals, analysis, ai_rep, forecast, alerts, signals, trackers, coaching, activities, health
 from routers.ask import router as ask_router
 from routers.ask_demo import router as ask_demo_router
+from routers.google_auth import router as google_auth_router
+from routers.actions import router as actions_router
+from routers.meeting import router as meeting_router
+from routers.email_intel import router as email_intel_router
 import uvicorn
 
 app = FastAPI(
@@ -35,12 +39,39 @@ app.include_router(activities.router, prefix="/activities", tags=["Activities"])
 app.include_router(health.router, tags=["Health"])
 app.include_router(ask_router)
 app.include_router(ask_demo_router)
+app.include_router(google_auth_router, prefix="/google-auth", tags=["google-auth"])
+app.include_router(google_auth_router, prefix="/auth/google", tags=["google-auth"], include_in_schema=False)
+app.include_router(actions_router, prefix="/actions", tags=["actions"])
+app.include_router(meeting_router, prefix="/meeting", tags=["meeting"])
+app.include_router(email_intel_router, prefix="/email-intel", tags=["email-intel"])
 
 
 @app.on_event("startup")
 async def startup_event():
     from database.init_db import create_tables
     await create_tables()
+
+    from apscheduler.schedulers.asyncio import AsyncIOScheduler
+    from apscheduler.triggers.cron import CronTrigger
+
+    async def _morning_scan_job():
+        """APScheduler job: run morning scan at 7 AM and log results."""
+        import logging
+        logger = logging.getLogger("dealiq.scheduler")
+        logger.info("Morning scan starting")
+        try:
+            from database.connection import get_db
+            from services.daily_scanner import run_morning_scan
+            async for db in get_db():
+                actions = await run_morning_scan(deals=[], db=db, generate_drafts=False)
+                logger.info("Morning scan complete", extra={"action_count": len(actions)})
+                break
+        except Exception as e:
+            logger.exception("Morning scan failed: %s", e)
+
+    scheduler = AsyncIOScheduler()
+    scheduler.add_job(_morning_scan_job, CronTrigger(hour=7, minute=0))
+    scheduler.start()
 
 
 @app.get("/")

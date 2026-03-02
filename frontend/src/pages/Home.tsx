@@ -12,45 +12,40 @@ import {
   Mail,
   Sparkles,
   AlertTriangle,
-  TrendingUp,
-  DollarSign,
-  Activity,
   CheckCircle,
   Clock,
   Zap,
+  ChevronRight,
+  X,
+  AlarmClockOff,
+  Database,
 } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-interface Deal {
+interface Action {
   id: string;
+  type: string;
+  deal_id: string;
   deal_name: string;
   company: string;
+  amount: number;
   stage: string;
-  amount: number;
-  health_score: number;
-  health_label: string;
-  owner?: string;
+  urgency_score: number;
+  context: string;
+  suggested_action: string;
+  draft?: string;
 }
 
-interface Metrics {
-  total_deals: number;
-  total_value: number;
-  average_health_score: number;
-  at_risk_count: number;
-  critical_count: number;
-  deals_needing_action: number;
-}
-
-interface Todo {
-  dealId: string;
-  dealName: string;
-  company: string;
-  health: string;
-  score: number;
-  amount: number;
-  action: string;
-  priority: "high" | "medium" | "low";
+interface PendingUpdate {
+  id: string;
+  deal_id: string;
+  deal_name?: string;
+  field_name: string;
+  old_value?: string;
+  new_value: string;
+  confidence: string;
+  context?: string;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -67,92 +62,70 @@ function formatCurrency(val: number): string {
   return `$${val}`;
 }
 
-function scoreColor(score: number) {
-  if (score >= 75) return "text-health-green";
-  if (score >= 50) return "text-health-yellow";
-  if (score >= 25) return "text-health-orange";
-  return "text-health-red";
+function urgencyLabel(score: number): "URGENT" | "ACTION NEEDED" | "OPPORTUNITY" {
+  if (score >= 80) return "URGENT";
+  if (score >= 50) return "ACTION NEEDED";
+  return "OPPORTUNITY";
 }
 
-const ACTION_MAP: Record<string, string> = {
-  critical: "Urgent: send a recovery email to re-engage stakeholders",
-  at_risk:  "Re-engage the champion before this goes quiet",
-  watching: "Confirm next step and keep momentum",
-  healthy:  "Keep momentum — prepare for stage advancement",
-};
-
-const PRIORITY_MAP: Record<string, "high" | "medium" | "low"> = {
-  critical: "high",
-  at_risk:  "medium",
-  watching: "low",
-  healthy:  "low",
-};
-
-function buildTodos(deals: Deal[]): Todo[] {
-  return deals
-    .filter((d) => d.health_label === "critical" || d.health_label === "at_risk" || d.health_label === "watching")
-    .map((d) => ({
-      dealId:   d.id,
-      dealName: d.deal_name,
-      company:  d.company,
-      health:   d.health_label,
-      score:    d.health_score,
-      amount:   d.amount,
-      action:   ACTION_MAP[d.health_label] ?? "Review deal status",
-      priority: PRIORITY_MAP[d.health_label] ?? "low",
-    }))
-    .sort((a, b) => {
-      const prio: Record<string, number> = { high: 0, medium: 1, low: 2 };
-      return (prio[a.priority] ?? 3) - (prio[b.priority] ?? 3);
-    })
-    .slice(0, 12);
-}
-
-const PRIORITY_STYLE: Record<string, string> = {
-  high:   "border-health-red/30 bg-health-red/5",
-  medium: "border-health-orange/30 bg-health-orange/5",
-  low:    "border-border/30 bg-card/60",
-};
-
-const HEALTH_BADGE: Record<string, string> = {
-  critical: "border-health-red/30 text-health-red bg-health-red/10",
-  at_risk:  "border-health-orange/30 text-health-orange bg-health-orange/10",
-  watching: "border-health-yellow/30 text-health-yellow bg-health-yellow/10",
-  healthy:  "border-health-green/30 text-health-green bg-health-green/10",
-};
-
-const QUICK_LINKS = [
-  { href: "/dashboard", icon: TrendingUp,    label: "Pipeline",   desc: "All deals" },
-  { href: "/ask",       icon: Sparkles,      label: "Ask DealIQ", desc: "Q&A engine" },
-  { href: "/alerts",    icon: AlertTriangle, label: "Alerts",     desc: "Digest feed" },
-  { href: "/forecast",  icon: Clock,         label: "Forecast",   desc: "Revenue view" },
-] as const;
+const URGENCY_CONFIG = {
+  URGENT:        { cardClass: "border-health-red/30 bg-health-red/5",      dotClass: "bg-health-red",    badgeClass: "text-health-red bg-health-red/10 border-health-red/30" },
+  "ACTION NEEDED": { cardClass: "border-health-orange/30 bg-health-orange/5", dotClass: "bg-health-orange", badgeClass: "text-health-orange bg-health-orange/10 border-health-orange/30" },
+  OPPORTUNITY:   { cardClass: "border-health-green/30 bg-health-green/5",  dotClass: "bg-health-green",  badgeClass: "text-health-green bg-health-green/10 border-health-green/30" },
+} as const;
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function Home() {
   const { session } = useSession();
   const { toast } = useToast();
-  const [deals,    setDeals]    = useState<Deal[]>([]);
-  const [metrics,  setMetrics]  = useState<Metrics | null>(null);
-  const [loading,  setLoading]  = useState(true);
-  const [composer, setComposer] = useState<{ dealId: string; dealName: string } | null>(null);
 
-  const todos = buildTodos(deals);
+  const [actions, setActions] = useState<Action[]>([]);
+  const [pendingUpdates, setPendingUpdates] = useState<PendingUpdate[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+  const [composer, setComposer] = useState<{ dealId: string; dealName: string; draft?: string } | null>(null);
 
   useEffect(() => {
-    Promise.all([api.getAllDeals(), api.getMetrics()])
-      .then(([dealsData, metricsData]) => {
-        setDeals(Array.isArray(dealsData) ? dealsData : []);
-        setMetrics(metricsData);
+    Promise.all([api.getTodayActions(), api.getPendingCrmUpdates()])
+      .then(([actionsData, updatesData]) => {
+        setActions(actionsData.actions ?? []);
+        setPendingUpdates(updatesData.updates ?? []);
       })
       .catch((err: Error) =>
-        toast({ title: "Failed to load pipeline", description: err.message, variant: "destructive" })
+        toast({ title: "Failed to load actions", description: err.message, variant: "destructive" })
       )
       .finally(() => setLoading(false));
   }, []);
 
+  const visibleActions = actions.filter((a) => !dismissed.has(a.id));
+  const urgentActions = visibleActions.filter((a) => a.urgency_score >= 80);
+  const otherActions = visibleActions.filter((a) => a.urgency_score < 80);
+  const atRiskValue = visibleActions.reduce((sum, a) => sum + (a.amount || 0), 0);
+
   const displayName = session?.display_name ?? "there";
+
+  async function handleDismiss(id: string) {
+    setDismissed((prev) => new Set([...prev, id]));
+    await api.dismissAction(id).catch(() => null);
+  }
+
+  async function handleSnooze(id: string) {
+    setDismissed((prev) => new Set([...prev, id]));
+    await api.snoozeAction(id).catch(() => null);
+    toast({ title: "Snoozed 24h", description: "Action will reappear tomorrow." });
+  }
+
+  async function handleApproveUpdate(id: string) {
+    await api.approveCrmUpdate(id).catch(() => null);
+    setPendingUpdates((prev) => prev.filter((u) => u.id !== id));
+    toast({ title: "CRM updated", description: "Field update applied to Zoho." });
+  }
+
+  async function handleRejectUpdate(id: string) {
+    await api.rejectCrmUpdate(id).catch(() => null);
+    setPendingUpdates((prev) => prev.filter((u) => u.id !== id));
+  }
 
   return (
     <>
@@ -165,10 +138,8 @@ export default function Home() {
               <h1 className="text-lg font-semibold text-foreground">{greeting(displayName)}</h1>
               <p className="text-xs text-muted-foreground mt-0.5">
                 {loading
-                  ? "Loading pipeline…"
-                  : todos.length > 0
-                    ? `${todos.length} action${todos.length !== 1 ? "s" : ""} need your attention today`
-                    : "Pipeline looks healthy — no urgent actions"}
+                  ? "Loading your day…"
+                  : `${visibleActions.length} action${visibleActions.length !== 1 ? "s" : ""} today · ${formatCurrency(atRiskValue)} at risk${pendingUpdates.length > 0 ? ` · ${pendingUpdates.length} CRM update${pendingUpdates.length !== 1 ? "s" : ""} pending` : ""}`}
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -182,72 +153,99 @@ export default function Home() {
 
         <div className="max-w-5xl mx-auto px-6 py-6 space-y-6">
 
-          {/* ── Metrics strip ── */}
-          {loading ? (
-            <div className="grid grid-cols-3 gap-3">
-              {[0, 1, 2].map((i) => <Skeleton key={i} className="h-16 rounded-xl" />)}
-            </div>
-          ) : metrics && (
-            <div className="grid grid-cols-3 gap-3">
-              <MetricCard
-                icon={DollarSign}
-                label="Pipeline value"
-                value={formatCurrency(metrics.total_value)}
-                iconClass="text-primary bg-primary/10"
-              />
-              <MetricCard
-                icon={AlertTriangle}
-                label="At risk / Critical"
-                value={`${(metrics.at_risk_count ?? 0) + (metrics.critical_count ?? 0)} deals`}
-                iconClass="text-health-orange bg-health-orange/10"
-              />
-              <MetricCard
-                icon={Activity}
-                label="Needs action"
-                value={`${metrics.deals_needing_action ?? 0} deals`}
-                iconClass="text-health-yellow bg-health-yellow/10"
-              />
-            </div>
-          )}
-
-          {/* ── To-do list ── */}
-          <section>
-            <div className="flex items-center gap-2 mb-3">
-              <Zap className="h-4 w-4 text-violet-400" />
-              <h2 className="text-sm font-semibold text-foreground">Today's Actions</h2>
-              {!loading && (
-                <span className="ml-auto text-[10px] text-muted-foreground/60">
-                  Sorted by urgency
-                </span>
-              )}
-            </div>
-
-            {loading ? (
-              <div className="space-y-2">
-                {[...Array(5)].map((_, i) => <Skeleton key={i} className="h-16 w-full rounded-xl" />)}
+          {/* ── Pending CRM Updates Banner ── */}
+          {!loading && pendingUpdates.length > 0 && (
+            <section>
+              <div className="flex items-center gap-2 mb-2">
+                <Database className="h-4 w-4 text-blue-400" />
+                <h2 className="text-sm font-semibold text-foreground">CRM Updates Awaiting Approval</h2>
+                <Badge variant="outline" className="ml-auto text-[10px] h-4 px-1.5 text-blue-400 border-blue-400/30 bg-blue-400/10">
+                  {pendingUpdates.length} pending
+                </Badge>
               </div>
-            ) : todos.length === 0 ? (
-              <div className="flex flex-col items-center gap-2 rounded-xl border border-border/30 bg-card/40 px-6 py-10">
-                <CheckCircle className="h-8 w-8 text-health-green" />
-                <p className="text-sm font-medium text-foreground">All clear — pipeline looks healthy!</p>
-                <p className="text-xs text-muted-foreground">No critical or at-risk deals need attention right now.</p>
-              </div>
-            ) : (
               <div className="space-y-2">
-                {todos.map((todo) => (
-                  <TodoRow
-                    key={todo.dealId}
-                    todo={todo}
-                    onEmail={() => setComposer({ dealId: todo.dealId, dealName: todo.dealName })}
-                  />
+                {pendingUpdates.map((u) => (
+                  <div
+                    key={u.id}
+                    className="flex items-center gap-3 rounded-xl border border-blue-400/20 bg-blue-400/5 px-4 py-3"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-foreground">
+                        {u.deal_name || u.deal_id} — <span className="font-normal text-muted-foreground">{u.field_name}</span>
+                      </p>
+                      <p className="text-[11px] text-muted-foreground mt-0.5">
+                        {u.old_value ? <><span className="line-through">{u.old_value}</span> → </> : ""}{u.new_value}
+                      </p>
+                      {u.context && <p className="text-[10px] text-muted-foreground/60 mt-0.5">{u.context}</p>}
+                    </div>
+                    <Badge variant="outline" className="text-[10px] h-4 px-1.5 shrink-0 capitalize text-muted-foreground">
+                      {u.confidence}
+                    </Badge>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="shrink-0 h-6 px-2 text-[11px] border-health-green/40 text-health-green hover:bg-health-green/10"
+                      onClick={() => handleApproveUpdate(u.id)}
+                    >
+                      Apply
+                    </Button>
+                    <button
+                      className="text-muted-foreground/40 hover:text-muted-foreground shrink-0"
+                      onClick={() => handleRejectUpdate(u.id)}
+                      aria-label="Reject update"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
                 ))}
               </div>
-            )}
-          </section>
+            </section>
+          )}
 
-          {/* ── Quick links ── */}
-          <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            {QUICK_LINKS.map(({ href, icon: Icon, label, desc }) => (
+          {/* ── Urgent Actions ── */}
+          {loading ? (
+            <div className="space-y-2">
+              {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-20 w-full rounded-xl" />)}
+            </div>
+          ) : visibleActions.length === 0 ? (
+            <div className="flex flex-col items-center gap-2 rounded-xl border border-border/30 bg-card/40 px-6 py-10">
+              <CheckCircle className="h-8 w-8 text-health-green" />
+              <p className="text-sm font-medium text-foreground">All clear — pipeline looks healthy!</p>
+              <p className="text-xs text-muted-foreground">No critical or at-risk deals need attention right now.</p>
+            </div>
+          ) : (
+            <>
+              {urgentActions.length > 0 && (
+                <ActionSection
+                  title="URGENT"
+                  dotClass={URGENCY_CONFIG.URGENT.dotClass}
+                  actions={urgentActions}
+                  onEmail={(a) => setComposer({ dealId: a.deal_id, dealName: a.deal_name, draft: a.draft })}
+                  onDismiss={handleDismiss}
+                  onSnooze={handleSnooze}
+                />
+              )}
+
+              {otherActions.length > 0 && (
+                <ActionSection
+                  title="ACTION NEEDED"
+                  dotClass={URGENCY_CONFIG["ACTION NEEDED"].dotClass}
+                  actions={otherActions}
+                  onEmail={(a) => setComposer({ dealId: a.deal_id, dealName: a.deal_name, draft: a.draft })}
+                  onDismiss={handleDismiss}
+                  onSnooze={handleSnooze}
+                />
+              )}
+            </>
+          )}
+
+          {/* ── Quick Links ── */}
+          <section className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            {[
+              { href: "/dashboard", icon: AlertTriangle, label: "Pipeline",   desc: "All deals" },
+              { href: "/ask",       icon: Sparkles,      label: "Ask AI",     desc: "Deal Q&A engine" },
+              { href: "/settings",  icon: Clock,         label: "Integrations", desc: "Connect Google & Zoho" },
+            ].map(({ href, icon: Icon, label, desc }) => (
               <Link
                 key={href}
                 to={href}
@@ -280,68 +278,111 @@ export default function Home() {
 
 // ── Sub-components ─────────────────────────────────────────────────────────────
 
-function MetricCard({
-  icon: Icon,
-  label,
-  value,
-  iconClass,
+function ActionSection({
+  title,
+  dotClass,
+  actions,
+  onEmail,
+  onDismiss,
+  onSnooze,
 }: {
-  icon: React.ElementType;
-  label: string;
-  value: string;
-  iconClass: string;
+  title: string;
+  dotClass: string;
+  actions: Action[];
+  onEmail: (a: Action) => void;
+  onDismiss: (id: string) => void;
+  onSnooze: (id: string) => void;
 }) {
   return (
-    <div className="flex items-center gap-3 rounded-xl border border-border/30 bg-card/60 px-4 py-3">
-      <div className={cn("flex h-8 w-8 items-center justify-center rounded-lg shrink-0", iconClass)}>
-        <Icon className="h-4 w-4" />
+    <section>
+      <div className="flex items-center gap-2 mb-2">
+        <Zap className="h-3.5 w-3.5 text-muted-foreground/60" />
+        <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", dotClass)} />
+        <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">{title}</span>
       </div>
-      <div className="min-w-0">
-        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60 truncate">{label}</p>
-        <p className="text-sm font-bold text-foreground">{value}</p>
+      <div className="space-y-2">
+        {actions.map((action) => (
+          <ActionCard
+            key={action.id}
+            action={action}
+            onEmail={() => onEmail(action)}
+            onDismiss={() => onDismiss(action.id)}
+            onSnooze={() => onSnooze(action.id)}
+          />
+        ))}
       </div>
-    </div>
+    </section>
   );
 }
 
-function TodoRow({ todo, onEmail }: { todo: Todo; onEmail: () => void }) {
+function ActionCard({
+  action,
+  onEmail,
+  onDismiss,
+  onSnooze,
+}: {
+  action: Action;
+  onEmail: () => void;
+  onDismiss: () => void;
+  onSnooze: () => void;
+}) {
+  const label = urgencyLabel(action.urgency_score);
+  const cfg = URGENCY_CONFIG[label];
+
   return (
     <div className={cn(
-      "flex items-center gap-4 rounded-xl border px-4 py-3 transition-colors",
-      PRIORITY_STYLE[todo.priority]
+      "rounded-xl border px-4 py-3 transition-colors",
+      cfg.cardClass,
     )}>
-      {/* Score ring */}
-      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-2 border-border/30 bg-background">
-        <span className={cn("text-[11px] font-bold tabular-nums", scoreColor(todo.score))}>
-          {todo.score}
-        </span>
-      </div>
-
-      {/* Deal info */}
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 flex-wrap">
-          <p className="text-sm font-semibold text-foreground truncate">{todo.dealName}</p>
-          <Badge
-            variant="outline"
-            className={cn("text-[10px] h-4 px-1.5 capitalize shrink-0", HEALTH_BADGE[todo.health])}
-          >
-            {todo.health.replace("_", " ")}
-          </Badge>
-          <span className="text-[10px] text-muted-foreground/50 shrink-0">{formatCurrency(todo.amount)}</span>
+      {/* Top row: deal name + amount + dismiss */}
+      <div className="flex items-start gap-3">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="text-sm font-semibold text-foreground truncate">{action.deal_name}</p>
+            <span className="text-[10px] text-muted-foreground/50 shrink-0">{action.company}</span>
+            <span className="text-[10px] text-muted-foreground/50 shrink-0">{formatCurrency(action.amount)}</span>
+            <Badge variant="outline" className={cn("text-[10px] h-4 px-1.5 shrink-0", cfg.badgeClass)}>
+              {action.stage}
+            </Badge>
+          </div>
+          {/* AI context */}
+          <p className="text-xs text-muted-foreground mt-1">{action.context}</p>
+          {/* Suggested action */}
+          <p className="text-[11px] text-foreground/70 mt-0.5 flex items-start gap-1">
+            <ChevronRight className="h-3 w-3 mt-0.5 shrink-0 text-muted-foreground/40" />
+            {action.suggested_action}
+          </p>
         </div>
-        <p className="text-xs text-muted-foreground mt-0.5">{todo.action}</p>
+
+        {/* Dismiss button */}
+        <button
+          className="text-muted-foreground/30 hover:text-muted-foreground shrink-0 mt-0.5"
+          onClick={onDismiss}
+          aria-label="Dismiss"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
       </div>
 
-      {/* Action button */}
-      <Button
-        size="sm"
-        variant="outline"
-        className="shrink-0 h-7 px-3 text-xs border-border/50 hover:border-primary/40 hover:text-primary"
-        onClick={onEmail}
-      >
-        <Mail className="mr-1.5 h-3 w-3" />
-        Write email
-      </Button>
+      {/* Action buttons */}
+      <div className="flex items-center gap-2 mt-3">
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 px-3 text-xs border-border/50 hover:border-primary/40 hover:text-primary"
+          onClick={onEmail}
+        >
+          <Mail className="mr-1.5 h-3 w-3" />
+          {action.draft ? "Review Draft" : "Draft Email"}
+        </Button>
+        <button
+          className="text-[11px] text-muted-foreground/50 hover:text-muted-foreground flex items-center gap-1"
+          onClick={onSnooze}
+        >
+          <AlarmClockOff className="h-3 w-3" />
+          Snooze
+        </button>
+      </div>
     </div>
   );
 }
