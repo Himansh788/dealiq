@@ -97,21 +97,23 @@ def _normalise_zoho_email(raw: dict) -> dict:
         status = "delivered"
 
     # Prefer the enriched full-body fields set by _fetch_emails_for_record
-    body_full = raw.get("body_full") or raw.get("content") or raw.get("description") or raw.get("summary") or ""
+    html_content = raw.get("html_content") or ""  # raw HTML — frontend renders via DOMPurify
+    body_full    = raw.get("body_full") or raw.get("content") or raw.get("description") or raw.get("summary") or ""
     body_preview = raw.get("body_preview") or raw.get("snippet") or body_full[:300]
-    snippet = body_preview[:300].strip() if body_preview else ""
+    snippet      = body_preview[:300].strip() if body_preview else ""
 
     return {
         "subject":      raw.get("subject") or raw.get("Subject") or "(no subject)",
         "from":         _addr(raw.get("from") or raw.get("From") or raw.get("sender")),
         "to":           _addr_list(raw.get("to") or raw.get("To") or []),
-        "date":         raw.get("sent_time") or raw.get("date") or raw.get("Created_Time") or "",
+        "date":         raw.get("sent_time") or raw.get("time") or raw.get("date") or raw.get("Created_Time") or "",
         "snippet":      snippet,
         "body_preview": snippet,
         "body_full":    body_full,
+        "html_content": html_content,
         "status":       status,
         "direction":    status,
-        "sent_at":      raw.get("sent_time") or raw.get("date") or "",
+        "sent_at":      raw.get("sent_time") or raw.get("time") or raw.get("date") or "",
         "thread_id":    raw.get("thread_id") or raw.get("message_id") or "",
         "message_id":   raw.get("message_id") or raw.get("id") or "",
     }
@@ -175,17 +177,29 @@ def _group_into_threads(emails: list[dict]) -> list[dict]:
 
 # ── AI analysis ───────────────────────────────────────────────────────────────
 
-_ANALYSIS_SYSTEM = """You are a sales intelligence AI. Analyse this email thread for a B2B sales deal.
-Return ONLY valid JSON in this exact shape:
+_ANALYSIS_SYSTEM = """You are a sales intelligence assistant analyzing email threads for a B2B sales rep.
+Be specific and actionable. Use names, companies, and exact details from the thread.
+Do NOT say vague things like "follow up with the client" — say exactly who, what, and when.
+
+Return ONLY valid JSON in this exact shape (no markdown, no explanation):
 {
-  "summary": "2-3 sentence plain-English summary of what was discussed",
-  "next_step": "single most important action the rep should take now",
-  "commitments": ["list of promises made by either party"],
-  "open_questions": ["unanswered questions or blockers"],
-  "sentiment": "positive|neutral|negative|mixed",
-  "sentiment_progression": "improving|stable|declining",
-  "key_topics": ["price", "legal", "timeline", ...],
-  "deadlines": ["any dates or deadlines mentioned"]
+  "summary": "2-3 sentence executive summary of where this deal stands. Be specific — mention real names, companies, and what was actually discussed or agreed.",
+  "sentiment": "positive|neutral|negative|at_risk",
+  "momentum": "accelerating|steady|stalling|gone_cold",
+  "next_step": "One specific, concrete action the rep should take RIGHT NOW. Include who to contact, what to say or ask, and ideally by when. Example: 'Email Darryl (CEO) today to confirm call times — he asked for 2-3 options between 9-12pm UK time.'",
+  "commitments": [
+    {"by": "person name or company", "what": "the specific promise or commitment", "deadline": "date string or null", "status": "pending|overdue|fulfilled"}
+  ],
+  "open_questions": ["Specific unanswered question or unresolved blocker from the thread"],
+  "deadlines": [
+    {"what": "what is due", "date": "date string", "urgency": "high|medium|low"}
+  ],
+  "buying_signals": ["Specific positive indicator from the thread — quote or paraphrase real content"],
+  "risk_signals": ["Specific concern or negative indicator — be concrete, not generic"],
+  "key_contacts": [
+    {"name": "Full Name", "role": "Job title or role in deal", "email": "email if mentioned", "engagement": "high|medium|low"}
+  ],
+  "relationship_map": "One paragraph describing who introduced whom, who are the decision makers vs champions vs potential blockers, and the relationship dynamics."
 }"""
 
 
@@ -193,8 +207,8 @@ async def _analyse_thread(thread_text: str, deal_name: str) -> dict | None:
     """Send combined thread text to Groq and return structured analysis."""
     try:
         from services.ai_router_ask import generate_structured_analysis
-        prompt = f"Deal: {deal_name}\n\n--- EMAIL THREAD ---\n{thread_text[:6000]}"
-        return await generate_structured_analysis(_ANALYSIS_SYSTEM, prompt, max_tokens=800)
+        prompt = f"Deal: {deal_name}\n\n--- EMAIL THREAD ---\n{thread_text[:8000]}"
+        return await generate_structured_analysis(_ANALYSIS_SYSTEM, prompt, max_tokens=1200)
     except Exception as e:
         logger.warning("Thread AI analysis failed: %s", e)
         return None
