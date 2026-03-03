@@ -5,6 +5,7 @@ import base64
 import json
 import logging
 from datetime import datetime, timezone
+import httpx
 
 logger = logging.getLogger(__name__)
 from services.zoho_client import (
@@ -293,8 +294,13 @@ async def list_deals(
                 )
                 raw_deals = [map_zoho_deal(r) for r in records]
                 logger.info("list_deals search: zoho returned %d records more_records=%s", len(raw_deals), more_records_from_zoho)
+            except httpx.HTTPStatusError as exc:
+                logger.warning("list_deals search: zoho %s — %s", exc.response.status_code, exc.response.text[:300])
+                if exc.response.status_code == 400:
+                    raise HTTPException(status_code=400, detail="Search query invalid, try a simpler term")
+                raise HTTPException(status_code=502, detail=f"Zoho search failed: {exc.response.status_code}")
             except Exception as exc:
-                logger.error("list_deals search: zoho search failed: %s", exc, exc_info=True)
+                logger.error("list_deals search: unexpected error: %s", exc, exc_info=True)
                 raise HTTPException(status_code=502, detail=f"Zoho search failed: {exc}")
 
         # Search results are NOT filtered by quarter/stage — user is searching by name

@@ -111,6 +111,12 @@ async def fetch_deals(access_token: str, page: int = 1, per_page: int = 50) -> L
         return resp.json().get("data", [])
 
 
+def _sanitize_search(term: str) -> str:
+    """Strip whitespace and remove characters that would break Zoho criteria syntax."""
+    import re
+    return re.sub(r"[():,]", "", term).strip()
+
+
 async def search_deals(
     access_token: str,
     search: str,
@@ -118,29 +124,39 @@ async def search_deals(
     per_page: int = 15,
 ) -> tuple[List[Dict[str, Any]], bool]:
     """
-    Search Zoho Deals by name using the search criteria API.
-    Returns (records, more_records) — Zoho doesn't expose a total count for searches.
+    Search Zoho Deals using the v6 /Deals/search endpoint with the `word` param.
+
+    Uses `word` (full-text / partial match across all deal fields) instead of
+    `criteria` — the criteria `contains` operator is not supported on v6 and
+    returns INVALID_QUERY; `starts_with` is supported but only prefix-matches
+    a single field.  `word` is the correct param for a search-box experience.
+
+    Returns (records, more_records).  204 No Content → ([], False).
     """
     fields = (
         "Deal_Name,Stage,Amount,Closing_Date,Account_Name,"
         "Owner,Last_Activity_Time,Created_Time,Modified_Time,Probability,Description,Next_Step"
     )
+    safe_term = _sanitize_search(search)
+    if not safe_term:
+        return [], False
+
     async with httpx.AsyncClient() as client:
         resp = await client.get(
             f"{ZOHO_API_V6}/Deals/search",
             headers={"Authorization": f"Zoho-oauthtoken {access_token}"},
             params={
-                "criteria": f"(Deal_Name:contains:{search})",
+                "word": safe_term,
                 "fields": fields,
                 "page": page,
                 "per_page": per_page,
             },
         )
-        logger.info("search_deals: status=%s url=%s", resp.status_code, resp.url)
+        logger.info("search_deals: status=%s word=%r url=%s", resp.status_code, safe_term, resp.url)
         if resp.status_code == 204:
             return [], False
         if not resp.is_success:
-            logger.warning("search_deals: non-2xx response body=%s", resp.text[:500])
+            logger.warning("search_deals: non-2xx body=%s", resp.text[:500])
             resp.raise_for_status()
         data = resp.json()
         records = data.get("data", [])
