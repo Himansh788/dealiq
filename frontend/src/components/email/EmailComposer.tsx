@@ -14,7 +14,6 @@ import { cn } from "@/lib/utils";
 import {
   Sparkles,
   Copy,
-  X,
   CheckCircle,
   AlertTriangle,
   ArrowRight,
@@ -144,9 +143,7 @@ export default function EmailComposer({ open, dealId, dealName, contact, onClose
               AI generated
             </Badge>
           </div>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors">
-            <X className="h-4 w-4" />
-          </button>
+          {/* Removed manual X button — DialogContent already renders one */}
         </DialogHeader>
 
         {/* ── Body (flex row) ── */}
