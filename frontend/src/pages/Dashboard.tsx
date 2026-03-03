@@ -95,7 +95,8 @@ function healthDotColor(score: number) {
 
 function healthStatusLabel(score: number) {
   if (score >= 75) return "Healthy pipeline";
-  if (score >= 50) return "At risk — needs attention";
+  if (score >= 50) return "Good — monitor key deals";
+  if (score >= 25) return "At Risk — monitor closely";
   return "Critical — immediate action";
 }
 
@@ -119,15 +120,20 @@ function dealInitialClass(label: string): string {
   }
 }
 
-function getDealWhyLine(deal: Deal): string | null {
+function getDealWhyLine(deal: Deal): { text: string; colorClass: string } | null {
   if (deal.health_label === "healthy") return null;
   const daysSince = deal.last_activity_time
     ? Math.floor((Date.now() - new Date(deal.last_activity_time).getTime()) / 86400000)
     : null;
-  if (daysSince !== null && daysSince > 30) return `No contact in ${daysSince} days`;
-  if (!deal.next_step) return "No next step defined";
-  if (daysSince !== null && daysSince > 14) return `${daysSince} days since last touch`;
-  if ((deal.discount_mention_count ?? 0) >= 3) return "Discount pressure — multiple requests";
+  if (daysSince !== null && daysSince < 7)
+    return { text: "Contacted recently ✓", colorClass: "text-health-green" };
+  if (daysSince !== null && daysSince > 90)
+    return { text: `No contact in ${daysSince} days ⚠`, colorClass: "text-health-red" };
+  if (daysSince !== null && daysSince > 30)
+    return { text: `No contact in ${daysSince} days`, colorClass: "text-health-yellow" };
+  if (!deal.next_step) return { text: "No next step defined", colorClass: "text-muted-foreground/45" };
+  if (daysSince !== null && daysSince > 14) return { text: `${daysSince} days since last touch`, colorClass: "text-muted-foreground/45" };
+  if ((deal.discount_mention_count ?? 0) >= 3) return { text: "Discount pressure — multiple requests", colorClass: "text-health-orange" };
   return null;
 }
 
@@ -318,9 +324,14 @@ export default function Dashboard() {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalDeals, setTotalDeals]   = useState(0);
   const [totalPages, setTotalPages]   = useState(1);
-  const [hasNext, setHasNext]         = useState(false);
-  const [hasPrev, setHasPrev]         = useState(false);
   const PER_PAGE = 15;
+
+  // Derived — don't rely solely on API flags; compute locally as reliable fallback
+  const hasPrev = currentPage > 1;
+  const hasNext = currentPage < totalPages;
+
+  // Ref to scroll the deal table into view on page change
+  const dealTableRef = useRef<HTMLDivElement>(null);
 
   // Filter state
   const [searchName, setSearchName]         = useState("");
@@ -398,10 +409,10 @@ export default function Dashboard() {
           discount_mention_count: d.discount_mention_count ?? 0,
         }));
         setAllDeals(mapped);
-        setTotalDeals(data.total ?? mapped.length);
-        setTotalPages(data.total_pages ?? (Math.ceil((data.total ?? mapped.length) / PER_PAGE) || 1));
-        setHasNext(data.has_next ?? false);
-        setHasPrev(data.has_prev ?? false);
+        const apiTotal = data.total ?? mapped.length;
+        const apiPages = data.total_pages ?? (Math.ceil(apiTotal / PER_PAGE) || 1);
+        setTotalDeals(apiTotal);
+        setTotalPages(apiPages);
       })
       .catch((err: unknown) => {
         if (cancelled) return;
@@ -409,9 +420,7 @@ export default function Dashboard() {
         if (err instanceof Error && err.name === "AbortError") return;
         setAllDeals(DEMO_DEALS);
         setTotalDeals(DEMO_DEALS.length);
-        setTotalPages(Math.ceil(DEMO_DEALS.length / PER_PAGE));
-        setHasNext(false);
-        setHasPrev(false);
+        setTotalPages(Math.ceil(DEMO_DEALS.length / PER_PAGE) || 1);
       })
       .finally(() => { if (!cancelled) setLoadingDeals(false); });
 
@@ -478,9 +487,32 @@ export default function Dashboard() {
     setFilterHealth("all");
   };
 
-  // Pagination — driven by server-side totals
+  // Pagination helpers
   const startItem = (currentPage - 1) * PER_PAGE + 1;
   const endItem   = Math.min(currentPage * PER_PAGE, totalDeals);
+
+  function goToPage(pg: number) {
+    const clamped = Math.max(1, Math.min(pg, totalPages));
+    if (clamped === currentPage) return;
+    setCurrentPage(clamped);
+    // Scroll to the top of the deal table, not the whole page
+    requestAnimationFrame(() => {
+      dealTableRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
+
+  // Build page number array with ellipsis gaps: [1] ... [4][5][6] ... [10]
+  function buildPageList(current: number, total: number): (number | "...")[] {
+    if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+    const pages: (number | "...")[] = [];
+    const addPage = (p: number) => { if (!pages.includes(p)) pages.push(p); };
+    addPage(1);
+    if (current > 3) pages.push("...");
+    for (let p = Math.max(2, current - 2); p <= Math.min(total - 1, current + 2); p++) addPage(p);
+    if (current < total - 2) pages.push("...");
+    addPage(total);
+    return pages;
+  }
 
   const selectedDeal = allDeals.find(d => d.id === selectedDealId);
 
@@ -568,7 +600,9 @@ export default function Dashboard() {
       icon: AlertTriangle,
       format: (v: number) => String(v),
       isAlert: true,
-      subtext: metrics ? `(${metrics.deals_needing_action} of ${metrics.total_deals} deals)` : null,
+      subtext: metrics
+        ? `${metrics.deals_needing_action} of ${metrics.total_deals} deals · health < 50 or 30d no activity`
+        : null,
     },
   ];
 
@@ -654,7 +688,7 @@ export default function Dashboard() {
         {/* ── Health breakdown pills ── */}
         {metrics && !loadingMetrics && (
           <div className="flex flex-wrap gap-2 animate-fade-in" style={{ animationDelay: "220ms" }}>
-            {HEALTH_PILLS.map(pill => {
+            {HEALTH_PILLS.filter(pill => (metrics[pill.metricKey] ?? 0) > 0).map(pill => {
               const isActive = filterHealth === pill.key;
               return (
                 <button
@@ -687,7 +721,7 @@ export default function Dashboard() {
         </div>
 
         {/* ── Deal Pipeline Table ── */}
-        <Card className="overflow-hidden border-border/40 bg-card/60 animate-slide-up" style={{ animationDelay: "180ms" }} data-tour="deals-table">
+        <Card ref={dealTableRef} className="overflow-hidden border-border/40 bg-card/60 animate-slide-up" style={{ animationDelay: "180ms" }} data-tour="deals-table">
 
           {/* Table header / filters */}
           <div className="p-5 pb-4 space-y-3.5">
@@ -829,8 +863,26 @@ export default function Dashboard() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
+                    {(() => {
+                      // Warn if 5+ deals share identical non-zero scores — likely a scoring bug
+                      const scoreCounts: Record<number, number> = {};
+                      filteredAndSortedDeals.forEach(d => { if (d.health_score > 0) scoreCounts[d.health_score] = (scoreCounts[d.health_score] ?? 0) + 1; });
+                      Object.entries(scoreCounts).forEach(([score, count]) => {
+                        if (count >= 5) console.warn(`[DealIQ] ${count} deals share health_score=${score} — possible scoring bug`);
+                      });
+                      return null;
+                    })()}
                     {filteredAndSortedDeals.map((deal, idx) => {
                       const whyLine = getDealWhyLine(deal);
+                      const scoreBarColor =
+                        deal.health_score >= 75 ? "bg-health-green" :
+                        deal.health_score >= 50 ? "bg-health-yellow" :
+                        deal.health_score >= 25 ? "bg-health-orange" :
+                        "bg-health-red";
+                      const scoreLabel =
+                        deal.health_score >= 75 ? "Healthy" :
+                        deal.health_score >= 50 ? "At Risk" :
+                        deal.health_score >= 25 ? "Critical" : "Zombie";
                       return (
                         <TableRow
                           key={deal.id}
@@ -861,8 +913,8 @@ export default function Dashboard() {
                                   {deal.company}
                                 </p>
                                 {whyLine && (
-                                  <p className="mt-0.5 truncate text-[10px] text-muted-foreground/45 italic">
-                                    {whyLine}
+                                  <p className={cn("mt-0.5 truncate text-[10px] italic", whyLine.colorClass)}>
+                                    {whyLine.text}
                                   </p>
                                 )}
                               </div>
@@ -891,10 +943,19 @@ export default function Dashboard() {
                             </span>
                           </TableCell>
 
-                          {/* Health Ring */}
+                          {/* Health Score */}
                           <TableCell className="py-3.5 text-center">
-                            <div className="flex justify-center">
+                            <div
+                              className="flex flex-col items-center gap-0.5"
+                              title={`Health Score: ${deal.health_score}/100 — ${scoreLabel}`}
+                            >
                               <HealthRing score={deal.health_score} />
+                              <div className="w-full h-1 max-w-[40px] rounded-full bg-border/40 overflow-hidden">
+                                <div
+                                  className={cn("h-full rounded-full transition-all", scoreBarColor)}
+                                  style={{ width: `${Math.max(deal.health_score, 2)}%` }}
+                                />
+                              </div>
                             </div>
                           </TableCell>
 
@@ -923,40 +984,58 @@ export default function Dashboard() {
                   </TableBody>
                 </Table>
 
-                {/* Pagination — driven by server-side totals */}
-                {!hasActiveFilters && (hasPrev || hasNext) && (
+                {/* Pagination */}
+                {!hasActiveFilters && totalPages > 1 && (
                   <div className="flex items-center justify-between border-t border-border/20 px-6 py-4">
-                    <p className="text-xs text-muted-foreground/50">
-                      Page {currentPage} of {totalPages}
-                      {totalDeals > 0 && ` · ${startItem}–${endItem} of ${totalDeals}`}
+                    {/* Left: range label */}
+                    <p className="text-sm text-muted-foreground/50 tabular-nums">
+                      {loadingDeals
+                        ? "Loading…"
+                        : `Showing ${startItem}–${endItem} of ${totalDeals} deals`}
                     </p>
+
+                    {/* Right: page buttons */}
                     <div className="flex items-center gap-1">
-                      <Button variant="outline" size="sm"
-                        onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                        disabled={!hasPrev}
-                        className="h-8 border-border/40 px-3 text-xs">
-                        Previous
-                      </Button>
-                      {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                        const start = Math.max(1, Math.min(currentPage - 2, totalPages - 4));
-                        return start + i;
-                      }).map(pg => (
-                        <Button
-                          key={pg}
-                          variant={pg === currentPage ? "default" : "outline"}
-                          size="sm"
-                          onClick={() => setCurrentPage(pg)}
-                          className={cn("h-8 w-8 p-0 text-xs", pg !== currentPage && "border-border/40")}
-                        >
-                          {pg}
-                        </Button>
-                      ))}
-                      <Button variant="outline" size="sm"
-                        onClick={() => setCurrentPage(p => p + 1)}
-                        disabled={!hasNext}
-                        className="h-8 border-border/40 px-3 text-xs">
-                        Next
-                      </Button>
+                      {/* Prev */}
+                      <button
+                        onClick={() => goToPage(currentPage - 1)}
+                        disabled={!hasPrev || loadingDeals}
+                        className="px-3 py-1 rounded text-sm bg-secondary/60 text-muted-foreground border border-border/40 transition-colors duration-150 hover:bg-secondary hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed"
+                      >
+                        ← Prev
+                      </button>
+
+                      {/* Page number buttons with ellipsis */}
+                      {buildPageList(currentPage, totalPages).map((pg, i) =>
+                        pg === "..." ? (
+                          <span key={`ellipsis-${i}`} className="px-2 py-1 text-sm text-muted-foreground/40 select-none">
+                            …
+                          </span>
+                        ) : (
+                          <button
+                            key={pg}
+                            onClick={() => goToPage(pg)}
+                            disabled={loadingDeals}
+                            className={cn(
+                              "px-3 py-1 rounded text-sm font-medium transition-colors duration-150 min-w-[32px]",
+                              pg === currentPage
+                                ? "bg-primary text-primary-foreground"
+                                : "bg-secondary/60 text-muted-foreground border border-border/40 hover:bg-secondary hover:text-foreground disabled:opacity-30"
+                            )}
+                          >
+                            {pg}
+                          </button>
+                        )
+                      )}
+
+                      {/* Next */}
+                      <button
+                        onClick={() => goToPage(currentPage + 1)}
+                        disabled={!hasNext || loadingDeals}
+                        className="px-3 py-1 rounded text-sm bg-secondary/60 text-muted-foreground border border-border/40 transition-colors duration-150 hover:bg-secondary hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed"
+                      >
+                        Next →
+                      </button>
                     </div>
                   </div>
                 )}
@@ -977,7 +1056,10 @@ export default function Dashboard() {
                   <h2 className="text-sm font-semibold text-foreground">Team Activity — Last 7 Days</h2>
                   {teamSummary && (
                     <p className="text-xs text-muted-foreground/60">
-                      Team avg: {teamSummary.team_avg_deals_touched_7d} deals touched · Health avg: {Math.round(teamSummary.team_avg_health_score)}
+                      Team avg: {teamSummary.team_avg_deals_touched_7d} deals touched
+                      {teamSummary.team_avg_health_score > 0
+                        ? ` · Health avg: ${Math.round(teamSummary.team_avg_health_score)}`
+                        : " · Health avg: calculating…"}
                     </p>
                   )}
                 </div>
@@ -1034,24 +1116,31 @@ export default function Dashboard() {
                           <span className="text-xs text-muted-foreground"> / {rep.deals_active}</span>
                         </div>
                         <div className="text-center">
-                          <span className={cn("text-sm font-bold tabular-nums", scoreColor(rep.avg_health_score))}>
-                            {Math.round(rep.avg_health_score)}
-                          </span>
+                          {rep.avg_health_score > 0 ? (
+                            <span className={cn("text-sm font-bold tabular-nums", scoreColor(rep.avg_health_score))}>
+                              {Math.round(rep.avg_health_score)}
+                            </span>
+                          ) : (
+                            <span className="text-xs text-muted-foreground/40">—</span>
+                          )}
                         </div>
                         <div className="text-right">
                           <span className="text-sm font-semibold tabular-nums text-foreground/80">
                             {formatCurrency(rep.total_pipeline_value)}
                           </span>
                         </div>
-                        <div className="flex items-center justify-end gap-1">
+                        <div
+                          className="flex items-center justify-end gap-1"
+                          title="Active = touched 50%+ of their deals this week"
+                        >
                           {rep.activity_trend === "active" && (
-                            <><TrendingUp className="h-3.5 w-3.5 text-health-green" /><span className="text-xs text-health-green font-medium">Active</span></>
+                            <><TrendingUp className="h-3.5 w-3.5 text-health-green" /><span className="text-xs text-health-green font-medium">↗ Active</span></>
                           )}
                           {rep.activity_trend === "slowing" && (
-                            <><Minus className="h-3.5 w-3.5 text-health-yellow" /><span className="text-xs text-health-yellow font-medium">Slowing</span></>
+                            <><Minus className="h-3.5 w-3.5 text-health-yellow" /><span className="text-xs text-health-yellow font-medium">→ Slowing</span></>
                           )}
                           {rep.activity_trend === "inactive" && (
-                            <><TrendingDown className="h-3.5 w-3.5 text-health-red" /><span className="text-xs text-health-red font-medium">Inactive ⚠</span></>
+                            <><TrendingDown className="h-3.5 w-3.5 text-health-red" /><span className="text-xs text-health-red font-medium">↘ Inactive</span></>
                           )}
                         </div>
                       </div>
@@ -1068,19 +1157,21 @@ export default function Dashboard() {
       </main>
 
       {/* ── Floating Action Button — Check Email Before Sending ── */}
-      <div
-        className="fixed bottom-6 right-6 z-30"
-        data-tour="mismatch-fab"
-      >
-        <button
-          onClick={openMismatchForMostAtRisk}
-          className="group flex items-center gap-2.5 rounded-full border border-amber-500/40 bg-card px-4 py-3 text-sm font-semibold text-amber-400 shadow-xl shadow-black/30 transition-all duration-200 hover:border-amber-500/70 hover:bg-amber-500/10 hover:shadow-amber-900/20"
+      {allDeals.length > 0 && (
+        <div
+          className="fixed bottom-6 right-6 z-30 mb-0 sm:mb-0"
+          data-tour="mismatch-fab"
         >
-          <ClipboardCheck className="h-4 w-4 shrink-0 transition-transform group-hover:scale-110" />
-          <span className="hidden sm:inline">📋 Check Email Before Sending →</span>
-          <span className="sm:hidden">📋 Check Email</span>
-        </button>
-      </div>
+          <button
+            onClick={openMismatchForMostAtRisk}
+            className="group flex items-center gap-2.5 rounded-full border border-amber-500/40 bg-card px-4 py-3 text-sm font-semibold text-amber-400 shadow-xl shadow-black/30 transition-all duration-200 hover:border-amber-500/70 hover:bg-amber-500/10 hover:shadow-amber-900/20"
+          >
+            <ClipboardCheck className="h-4 w-4 shrink-0 transition-transform group-hover:scale-110" />
+            <span className="hidden sm:inline">📋 Check Email Before Sending</span>
+            <span className="sm:hidden">📋</span>
+          </button>
+        </div>
+      )}
 
       {/* ── Panels ── */}
       <DealDetailPanel

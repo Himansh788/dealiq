@@ -407,8 +407,10 @@ def build_team_summary(deals: list[dict], is_demo: bool = False) -> TeamActivity
     """
     Compute rep-level activity summary from deal objects.
     Uses last_activity_time already present — no extra Zoho calls.
+    Health scores are computed via score_deal_from_zoho when not pre-cached on the deal.
     """
     from datetime import timedelta
+    from services.health_scorer import score_deal_from_zoho
 
     now = datetime.now(timezone.utc)
     seven_days_ago = now - timedelta(days=7)
@@ -432,7 +434,14 @@ def build_team_summary(deals: list[dict], is_demo: bool = False) -> TeamActivity
         rep_map[owner]["deals_active"] += 1
         rep_map[owner]["pipeline_value"] += float(deal.get("amount", 0) or 0)
 
+        # Prefer a pre-computed score; fall back to scoring the deal on the fly.
         health = deal.get("health_score") or deal.get("total_score") or 0
+        if not health:
+            try:
+                result = score_deal_from_zoho(deal)
+                health = result.total_score
+            except Exception:
+                health = 0
         if health:
             rep_map[owner]["health_scores"].append(int(health))
 

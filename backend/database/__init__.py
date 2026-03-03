@@ -1,5 +1,18 @@
 from database.connection import get_db, check_db_health, async_engine, AsyncSessionLocal
-from database.models import Base, Deal, HealthScore, Decision, Email, EmailAnalysis, Transcript, AuditLog
+from database.models import (
+    Base,
+    Deal,
+    HealthScore,
+    Decision,
+    Email,
+    EmailAnalysis,
+    Transcript,
+    TranscriptSummary,
+    EmailExtraction,
+    MeetingLog,
+    PendingCrmUpdate,
+    AuditLog,
+)
 
 __all__ = [
     "get_db",
@@ -13,5 +26,9 @@ __all__ = [
     "Email",
     "EmailAnalysis",
     "Transcript",
+    "TranscriptSummary",
+    "EmailExtraction",
+    "MeetingLog",
+    "PendingCrmUpdate",
     "AuditLog",
 ]

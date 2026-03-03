@@ -5,7 +5,9 @@ groq>=0.11.0
 pydantic==2.10.4
 python-dotenv==1.0.1
 sqlalchemy[asyncio]>=2.0
-asyncpg
+aiomysql          # async MySQL driver for SQLAlchemy async engine
+pymysql           # sync MySQL driver — used by create_db.py setup script
+cryptography      # required by pymysql for caching_sha2_password auth
 alembic
 tiktoken  # token counting for Ask DealIQ context assembly
 apscheduler>=3.10.0  # daily morning scan scheduler

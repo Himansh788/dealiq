@@ -8,13 +8,17 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    JSON,          # works with MySQL 5.7+ natively
     Numeric,
     String,
     Text,
     func,
 )
-from sqlalchemy.dialects.postgresql import JSON, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+
+def _new_uuid() -> str:
+    return str(uuid.uuid4())
 
 
 class Base(DeclarativeBase):
@@ -28,10 +32,10 @@ class Base(DeclarativeBase):
 class Deal(Base):
     __tablename__ = "deals"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    id: Mapped[str] = mapped_column(
+        String(36),
         primary_key=True,
-        server_default=func.gen_random_uuid(),
+        default=_new_uuid,
     )
     zoho_id: Mapped[str | None] = mapped_column(String(50), unique=True, nullable=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -57,13 +61,13 @@ class Deal(Base):
 class HealthScore(Base):
     __tablename__ = "health_scores"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    id: Mapped[str] = mapped_column(
+        String(36),
         primary_key=True,
-        server_default=func.gen_random_uuid(),
+        default=_new_uuid,
     )
-    deal_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    deal_id: Mapped[str] = mapped_column(
+        String(36),
         ForeignKey("deals.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
@@ -77,8 +81,8 @@ class HealthScore(Base):
     deal: Mapped["Deal"] = relationship(back_populates="health_scores")
 
     __table_args__ = (
-        # Fast trend queries: latest score for a deal first
-        Index("ix_health_scores_deal_scored_at", "deal_id", scored_at.desc()),
+        # Fast trend queries: latest score per deal
+        Index("ix_health_scores_deal_scored_at", "deal_id", "scored_at"),
     )
 
 
@@ -89,13 +93,13 @@ class HealthScore(Base):
 class Decision(Base):
     __tablename__ = "decisions"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    id: Mapped[str] = mapped_column(
+        String(36),
         primary_key=True,
-        server_default=func.gen_random_uuid(),
+        default=_new_uuid,
     )
-    deal_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    deal_id: Mapped[str] = mapped_column(
+        String(36),
         ForeignKey("deals.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
@@ -115,13 +119,13 @@ class Decision(Base):
 class Email(Base):
     __tablename__ = "emails"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    id: Mapped[str] = mapped_column(
+        String(36),
         primary_key=True,
-        server_default=func.gen_random_uuid(),
+        default=_new_uuid,
     )
-    deal_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True),
+    deal_id: Mapped[str | None] = mapped_column(
+        String(36),
         ForeignKey("deals.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
@@ -149,13 +153,13 @@ class Email(Base):
 class EmailAnalysis(Base):
     __tablename__ = "email_analyses"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    id: Mapped[str] = mapped_column(
+        String(36),
         primary_key=True,
-        server_default=func.gen_random_uuid(),
+        default=_new_uuid,
     )
-    email_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    email_id: Mapped[str] = mapped_column(
+        String(36),
         ForeignKey("emails.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
@@ -175,13 +179,13 @@ class EmailAnalysis(Base):
 class Transcript(Base):
     __tablename__ = "transcripts"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    id: Mapped[str] = mapped_column(
+        String(36),
         primary_key=True,
-        server_default=func.gen_random_uuid(),
+        default=_new_uuid,
     )
-    deal_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    deal_id: Mapped[str] = mapped_column(
+        String(36),
         ForeignKey("deals.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
@@ -203,13 +207,13 @@ class Transcript(Base):
 class TranscriptSummary(Base):
     __tablename__ = "transcript_summaries"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    id: Mapped[str] = mapped_column(
+        String(36),
         primary_key=True,
-        server_default=func.gen_random_uuid(),
+        default=_new_uuid,
     )
-    transcript_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True),
+    transcript_id: Mapped[str | None] = mapped_column(
+        String(36),
         ForeignKey("transcripts.id", ondelete="CASCADE"),
         nullable=True,
         index=True,
@@ -234,13 +238,13 @@ class TranscriptSummary(Base):
 class EmailExtraction(Base):
     __tablename__ = "email_extractions"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    id: Mapped[str] = mapped_column(
+        String(36),
         primary_key=True,
-        server_default=func.gen_random_uuid(),
+        default=_new_uuid,
     )
-    email_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True),
+    email_id: Mapped[str | None] = mapped_column(
+        String(36),
         ForeignKey("emails.id", ondelete="CASCADE"),
         nullable=True,
         index=True,
@@ -260,10 +264,10 @@ class EmailExtraction(Base):
 class MeetingLog(Base):
     __tablename__ = "meeting_log"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    id: Mapped[str] = mapped_column(
+        String(36),
         primary_key=True,
-        server_default=func.gen_random_uuid(),
+        default=_new_uuid,
     )
     calendar_event_id: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True)
     deal_id: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
@@ -286,10 +290,10 @@ class MeetingLog(Base):
 class PendingCrmUpdate(Base):
     __tablename__ = "pending_crm_update"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    id: Mapped[str] = mapped_column(
+        String(36),
         primary_key=True,
-        server_default=func.gen_random_uuid(),
+        default=_new_uuid,
     )
     deal_id: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     field_name: Mapped[str] = mapped_column(String(100), nullable=False)
@@ -308,13 +312,13 @@ class PendingCrmUpdate(Base):
 class AuditLog(Base):
     __tablename__ = "audit_log"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    id: Mapped[str] = mapped_column(
+        String(36),
         primary_key=True,
-        server_default=func.gen_random_uuid(),
+        default=_new_uuid,
     )
     user_email: Mapped[str] = mapped_column(String(255), nullable=False)
-    deal_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True, index=True)
+    deal_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     action: Mapped[str] = mapped_column(String(100), nullable=False)
     detail: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)

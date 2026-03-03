@@ -6,6 +6,13 @@ logger = logging.getLogger(__name__)
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 
+# Normalise the driver token so the async engine always gets aiomysql,
+# regardless of whether the .env says pymysql or aiomysql.
+# pymysql is sync-only; create_async_engine requires aiomysql.
+if DATABASE_URL and "mysql+pymysql://" in DATABASE_URL:
+    DATABASE_URL = DATABASE_URL.replace("mysql+pymysql://", "mysql+aiomysql://")
+    logger.debug("Normalised DATABASE_URL driver: pymysql -> aiomysql")
+
 # ---------------------------------------------------------------------------
 # Engine + session factory — only created when DATABASE_URL is present.
 # If DATABASE_URL is not set, all DB helpers return None/False gracefully
@@ -23,6 +30,7 @@ if DATABASE_URL:
             DATABASE_URL,
             echo=False,           # flip to True for SQL query logging during dev
             pool_pre_ping=True,   # detect stale connections before use
+            pool_recycle=3600,    # recycle connections every hour (important for MySQL)
             pool_size=10,
             max_overflow=20,
         )
@@ -33,7 +41,7 @@ if DATABASE_URL:
             class_=AsyncSession,
         )
 
-        logger.info("PostgreSQL async engine created — pool_size=10, max_overflow=20")
+        logger.info("MySQL async engine created — pool_size=10, max_overflow=20")
     except Exception as exc:
         logger.warning("Failed to create DB engine: %s — running without database", exc)
         async_engine = None

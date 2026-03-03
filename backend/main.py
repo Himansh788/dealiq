@@ -1,5 +1,5 @@
 from dotenv import load_dotenv
-load_dotenv()
+load_dotenv(override=True)  # override=True ensures .env wins over any OS-level env vars
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -53,8 +53,12 @@ async def startup_event():
     try:
         from database.init_db import create_tables
         await create_tables()
+        logger.info("✓ MySQL connected and tables ready")
     except Exception as e:
-        logger.warning("DB init skipped (no Postgres?): %s", e)
+        logger.warning("MySQL connection failed: %s", e)
+        logger.warning("  Check: is MySQL running? Is password correct?")
+        logger.warning("  Hint: mysql+aiomysql://root:PASSWORD@localhost:3306/dealiq")
+        logger.warning("  App will run in stateless / demo mode")
 
     try:
         from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -98,6 +102,21 @@ def debug_routes():
 @app.get("/health")
 def health_check():
     return {"status": "healthy"}
+
+
+@app.get("/health/db")
+async def health_db():
+    """Check MySQL connectivity. Returns connected/disconnected + error detail."""
+    try:
+        from sqlalchemy import text
+        from database.connection import async_engine
+        if async_engine is None:
+            return {"status": "disconnected", "error": "DATABASE_URL not set"}
+        async with async_engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+        return {"status": "connected", "db": "mysql"}
+    except Exception as e:
+        return {"status": "disconnected", "error": str(e)}
 
 
 if __name__ == "__main__":
