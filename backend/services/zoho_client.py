@@ -110,6 +110,40 @@ async def fetch_deals(access_token: str, page: int = 1, per_page: int = 50) -> L
         return resp.json().get("data", [])
 
 
+async def search_deals(
+    access_token: str,
+    search: str,
+    page: int = 1,
+    per_page: int = 15,
+) -> tuple[List[Dict[str, Any]], bool]:
+    """
+    Search Zoho Deals by name using the search criteria API.
+    Returns (records, more_records) — Zoho doesn't expose a total count for searches.
+    """
+    fields = (
+        "Deal_Name,Stage,Amount,Closing_Date,Account_Name,"
+        "Owner,Last_Activity_Time,Created_Time,Modified_Time,Probability,Description,Next_Step"
+    )
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            f"{ZOHO_API_BASE}/Deals/search",
+            headers={"Authorization": f"Zoho-oauthtoken {access_token}"},
+            params={
+                "criteria": f"(Deal_Name:contains:{search})",
+                "fields": fields,
+                "page": page,
+                "per_page": per_page,
+            },
+        )
+        if resp.status_code == 204:
+            return [], False
+        resp.raise_for_status()
+        data = resp.json()
+        records = data.get("data", [])
+        more_records = data.get("info", {}).get("more_records", False)
+        return records, more_records
+
+
 async def fetch_deal_notes(access_token: str, deal_id: str) -> List[Dict[str, Any]]:
     """Fetch notes attached to a specific deal."""
     async with httpx.AsyncClient() as client:

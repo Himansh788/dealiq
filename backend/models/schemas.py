@@ -46,6 +46,9 @@ class Deal(BaseModel):
 class DealList(BaseModel):
     deals: List[Deal]
     total: int
+    total_pages: int = 1
+    has_next: bool = False
+    has_prev: bool = False
     simulated: bool = False  # True if using demo data
 
 

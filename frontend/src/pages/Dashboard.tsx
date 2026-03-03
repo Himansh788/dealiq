@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   AlertTriangle, Activity, DollarSign, Users, Search, X, Filter,
@@ -317,10 +317,14 @@ export default function Dashboard() {
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
   const [totalDeals, setTotalDeals]   = useState(0);
-  const PER_PAGE = 20;
+  const [totalPages, setTotalPages]   = useState(1);
+  const [hasNext, setHasNext]         = useState(false);
+  const [hasPrev, setHasPrev]         = useState(false);
+  const PER_PAGE = 15;
 
   // Filter state
-  const [searchName, setSearchName]     = useState("");
+  const [searchName, setSearchName]         = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [filterOwner, setFilterOwner]   = useState("all");
   const [filterStage, setFilterStage]   = useState("all");
   const [filterHealth, setFilterHealth] = useState("all");
@@ -356,27 +360,48 @@ export default function Dashboard() {
     return () => { cancelled = true; controller.abort(); };
   }, [session, navigate]);
 
-  // Load all deals once
+  // Debounce search input — 300ms after typing stops, update debouncedSearch and reset to page 1
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    searchDebounceRef.current = setTimeout(() => {
+      setDebouncedSearch(searchName);
+      setCurrentPage(1);
+    }, 300);
+    return () => {
+      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    };
+  }, [searchName]);
+
+  // Load deals — re-fetches on page change or search change
   useEffect(() => {
     if (!session) return;
+    const controller = new AbortController();
     let cancelled = false;
     setLoadingDeals(true);
 
-    api.getAllDeals()
-      .then((list: any[]) => {
+    api.getDealsPage(currentPage, PER_PAGE, debouncedSearch || undefined, controller.signal)
+      .then((data: any) => {
         if (cancelled) return;
+        const list: any[] = data.deals ?? data ?? [];
         const mapped: Deal[] = list.map((d: any) => ({
-          id:           d.id,
-          deal_name:    d.name ?? d.deal_name ?? "Unnamed Deal",
-          company:      d.account_name ?? d.company ?? "—",
-          stage:        d.stage ?? "Unknown",
-          amount:       d.amount ?? 0,
-          health_score: d.health_score ?? 0,
-          health_label: d.health_label ?? "critical",
-          owner:        typeof d.owner === "object" ? d.owner?.name : d.owner ?? "—",
+          id:                   d.id,
+          deal_name:            d.name ?? d.deal_name ?? "Unnamed Deal",
+          company:              d.account_name || d.company || "—",
+          stage:                d.stage ?? "Unknown",
+          amount:               d.amount ?? 0,
+          health_score:         d.health_score ?? 0,
+          health_label:         d.health_label ?? "critical",
+          owner:                typeof d.owner === "object" ? d.owner?.name : d.owner || "—",
+          last_activity_time:   d.last_activity_time,
+          next_step:            d.next_step ?? undefined,
+          discount_mention_count: d.discount_mention_count ?? 0,
         }));
         setAllDeals(mapped);
-        setTotalDeals(mapped.length);
+        setTotalDeals(data.total ?? mapped.length);
+        setTotalPages(data.total_pages ?? Math.ceil((data.total ?? mapped.length) / PER_PAGE) || 1);
+        setHasNext(data.has_next ?? false);
+        setHasPrev(data.has_prev ?? false);
       })
       .catch((err: unknown) => {
         if (cancelled) return;
@@ -384,11 +409,15 @@ export default function Dashboard() {
         if (err instanceof Error && err.name === "AbortError") return;
         setAllDeals(DEMO_DEALS);
         setTotalDeals(DEMO_DEALS.length);
+        setTotalPages(Math.ceil(DEMO_DEALS.length / PER_PAGE));
+        setHasNext(false);
+        setHasPrev(false);
       })
       .finally(() => { if (!cancelled) setLoadingDeals(false); });
 
-    return () => { cancelled = true; };
-  }, [session]);
+    return () => { cancelled = true; controller.abort(); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session, currentPage, debouncedSearch]);
 
   // Load team activity summary (lazy, low priority)
   // Also exposed as fetchTeamSummary for the manual refresh button.
@@ -422,11 +451,10 @@ export default function Dashboard() {
     return stages.sort();
   }, [allDeals]);
 
-  // Client-side filtering + sorting
+  // Client-side filtering (owner/stage/health) + sorting.
+  // Search is server-side — never filter by searchName here.
   const filteredAndSortedDeals = useMemo(() => {
     const filtered = allDeals.filter(deal => {
-      if (searchName && !deal.deal_name.toLowerCase().includes(searchName.toLowerCase()) &&
-          !deal.company.toLowerCase().includes(searchName.toLowerCase())) return false;
       if (filterOwner !== "all" && deal.owner !== filterOwner) return false;
       if (filterStage !== "all" && deal.stage !== filterStage) return false;
       if (filterHealth !== "all" && deal.health_label !== filterHealth) return false;
@@ -436,18 +464,23 @@ export default function Dashboard() {
     return [...filtered].sort((a, b) =>
       sortAsc ? b.health_score - a.health_score : a.health_score - b.health_score
     );
-  }, [allDeals, searchName, filterOwner, filterStage, filterHealth, sortAsc]);
+  }, [allDeals, filterOwner, filterStage, filterHealth, sortAsc]);
 
-  const hasActiveFilters = searchName || filterOwner !== "all" || filterStage !== "all" || filterHealth !== "all";
+  // hasActiveFilters excludes searchName — search is server-side so pagination still shows
+  const hasActiveFilters = filterOwner !== "all" || filterStage !== "all" || filterHealth !== "all";
 
   const clearFilters = () => {
-    setSearchName(""); setFilterOwner("all"); setFilterStage("all"); setFilterHealth("all");
+    setSearchName("");
+    setDebouncedSearch("");
+    setCurrentPage(1);
+    setFilterOwner("all");
+    setFilterStage("all");
+    setFilterHealth("all");
   };
 
-  // Pagination
-  const totalPages = Math.ceil(totalDeals / PER_PAGE);
-  const startItem  = (currentPage - 1) * PER_PAGE + 1;
-  const endItem    = Math.min(currentPage * PER_PAGE, totalDeals);
+  // Pagination — driven by server-side totals
+  const startItem = (currentPage - 1) * PER_PAGE + 1;
+  const endItem   = Math.min(currentPage * PER_PAGE, totalDeals);
 
   const selectedDeal = allDeals.find(d => d.id === selectedDealId);
 
@@ -890,34 +923,37 @@ export default function Dashboard() {
                   </TableBody>
                 </Table>
 
-                {/* Pagination */}
-                {!hasActiveFilters && totalPages > 1 && (
+                {/* Pagination — driven by server-side totals */}
+                {!hasActiveFilters && (hasPrev || hasNext) && (
                   <div className="flex items-center justify-between border-t border-border/20 px-6 py-4">
-                    <p className="text-xs text-muted-foreground/50">Page {currentPage} of {totalPages}</p>
+                    <p className="text-xs text-muted-foreground/50">
+                      Page {currentPage} of {totalPages}
+                      {totalDeals > 0 && ` · ${startItem}–${endItem} of ${totalDeals}`}
+                    </p>
                     <div className="flex items-center gap-1">
                       <Button variant="outline" size="sm"
                         onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                        disabled={currentPage === 1}
+                        disabled={!hasPrev}
                         className="h-8 border-border/40 px-3 text-xs">
                         Previous
                       </Button>
                       {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
                         const start = Math.max(1, Math.min(currentPage - 2, totalPages - 4));
                         return start + i;
-                      }).map(page => (
+                      }).map(pg => (
                         <Button
-                          key={page}
-                          variant={page === currentPage ? "default" : "outline"}
+                          key={pg}
+                          variant={pg === currentPage ? "default" : "outline"}
                           size="sm"
-                          onClick={() => setCurrentPage(page)}
-                          className={cn("h-8 w-8 p-0 text-xs", page !== currentPage && "border-border/40")}
+                          onClick={() => setCurrentPage(pg)}
+                          className={cn("h-8 w-8 p-0 text-xs", pg !== currentPage && "border-border/40")}
                         >
-                          {page}
+                          {pg}
                         </Button>
                       ))}
                       <Button variant="outline" size="sm"
-                        onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                        disabled={currentPage === totalPages}
+                        onClick={() => setCurrentPage(p => p + 1)}
+                        disabled={!hasNext}
                         className="h-8 border-border/40 px-3 text-xs">
                         Next
                       </Button>

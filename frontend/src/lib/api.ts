@@ -125,8 +125,13 @@ export const api = {
   getDeals: (signal?: AbortSignal) =>
     fetchWithTimeout(`${API_URL}/deals/?per_page=20&page=1`, { headers: authHeaders(), signal }).then(handleResponse),
 
-  getDealsPage: (page: number, perPage: number = 20, signal?: AbortSignal) =>
-    fetchWithTimeout(`${API_URL}/deals/?page=${page}&per_page=${perPage}`, { headers: authHeaders(), signal }).then(handleResponse),
+  getDealsPage: (page: number, perPage: number = 15, search?: string, signal?: AbortSignal) => {
+    const url = new URL(`${API_URL}/deals/`);
+    url.searchParams.set("page", String(page));
+    url.searchParams.set("per_page", String(perPage));
+    if (search) url.searchParams.set("search", search);
+    return fetchWithTimeout(url.toString(), { headers: authHeaders(), signal }).then(handleResponse);
+  },
 
   // Fetches a capped first page of deals for deal-selector dropdowns.
   // Uses dedup so concurrent callers (e.g. EmailTimelinePage + AskDealIQPage

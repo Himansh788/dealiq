@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 from services.zoho_client import (
-    fetch_deals, map_zoho_deal, fetch_single_deal,
+    fetch_deals, map_zoho_deal, fetch_single_deal, search_deals,
     fetch_deal_activities_closed, fetch_deal_contact_roles, fetch_deal_emails,
 )
 from services.health_scorer import score_deal_from_zoho
@@ -113,7 +113,11 @@ def _enrich_deal(raw: dict, activities: dict = None, contact_roles: list = None)
         except Exception:
             return None
 
-    raw["days_in_stage"] = _days_since(raw.get("created_time"))
+    # Use modified_time as proxy for stage-change time (a stage change always bumps modified_time).
+    # Falls back to last_activity_time then created_time if modified_time is absent.
+    raw["days_in_stage"] = _days_since(
+        raw.get("modified_time") or raw.get("last_activity_time") or raw.get("created_time")
+    )
     raw["last_activity_days"] = _days_since(raw.get("last_activity_time"))
     raw["days_since_buyer_response"] = raw["last_activity_days"]
 
@@ -253,17 +257,88 @@ async def _fetch_all_zoho_deals(access_token: str) -> list:
 async def list_deals(
     authorization: str = Header(...),
     page: int = Query(default=1, ge=1),
-    per_page: int = Query(default=200, le=500),
+    per_page: int = Query(default=15, le=200),
+    search: Optional[str] = Query(default=None, max_length=200),
 ):
     """
-    Returns active current-quarter deals only.
-    Excludes dead stages. Sorted worst health first.
-    total reflects filtered count so frontend knows when to stop paginating.
+    Returns active current-quarter deals, paginated.
+    When search is provided, queries Zoho's search criteria API by Deal_Name.
+    total, total_pages, has_next, has_prev let the frontend render pagination correctly.
     """
     session = _decode_session(authorization)
     simulated = _is_demo(session)
     quarter_start, quarter_end = get_current_quarter_range()
 
+    more_records_from_zoho = False  # only relevant for server-side search path
+
+    if search:
+        # ── Server-side search path ──────────────────────────────────────────
+        if simulated:
+            term = search.lower()
+            raw_deals = [
+                r for r in SIMULATED_DEALS
+                if term in (r.get("name") or "").lower()
+                or term in (r.get("account_name") or "").lower()
+            ]
+        else:
+            try:
+                records, more_records_from_zoho = await search_deals(
+                    session["access_token"], search, page=page, per_page=per_page
+                )
+                raw_deals = [map_zoho_deal(r) for r in records]
+            except Exception:
+                raw_deals = []
+                simulated = True
+
+        # Apply stage/date filter to search results
+        active_raw = [r for r in raw_deals if is_active_deal(r, quarter_start, quarter_end)]
+
+        # Score and enrich
+        scored: List[Deal] = []
+        for raw in active_raw:
+            _enrich_deal(raw)
+            result = score_deal_from_zoho(raw)
+            scored.append(Deal(
+                id=raw["id"],
+                name=raw["name"],
+                stage=raw["stage"],
+                amount=raw.get("amount"),
+                closing_date=raw.get("closing_date"),
+                account_name=raw.get("account_name"),
+                owner=raw.get("owner"),
+                last_activity_time=raw.get("last_activity_time"),
+                created_time=raw.get("created_time"),
+                probability=raw.get("probability"),
+                health_score=result.total_score,
+                health_label=result.health_label,
+                days_in_stage=raw.get("days_in_stage"),
+                next_step=raw.get("next_step"),
+            ))
+        scored.sort(key=lambda d: d.health_score or 0)
+
+        # Zoho search doesn't return total count — approximate from known info
+        count_this_page = len(scored)
+        if simulated:
+            real_total = count_this_page
+            total_pages = max(1, -(-real_total // per_page))  # ceiling div
+            has_next = False
+        else:
+            # Best estimate: pages seen so far + (1 more if Zoho says more_records)
+            min_total = (page - 1) * per_page + count_this_page
+            real_total = min_total + (per_page if more_records_from_zoho else 0)
+            total_pages = max(page, page + (1 if more_records_from_zoho else 0))
+            has_next = more_records_from_zoho
+
+        return DealList(
+            deals=scored,
+            total=real_total,
+            total_pages=total_pages,
+            has_next=has_next,
+            has_prev=page > 1,
+            simulated=simulated,
+        )
+
+    # ── Full pipeline list path (no search) ───────────────────────────────────
     if simulated:
         raw_deals = SIMULATED_DEALS
     else:
@@ -273,14 +348,13 @@ async def list_deals(
             raw_deals = SIMULATED_DEALS
             simulated = True
 
-    # ── Filter ────────────────────────────────────────────────────────────────
     active_raw = [r for r in raw_deals if is_active_deal(r, quarter_start, quarter_end)]
 
-    # ── Score ─────────────────────────────────────────────────────────────────
-    scored: List[Deal] = []
+    scored_all: List[Deal] = []
     for raw in active_raw:
+        _enrich_deal(raw)
         result = score_deal_from_zoho(raw)
-        scored.append(Deal(
+        scored_all.append(Deal(
             id=raw["id"],
             name=raw["name"],
             stage=raw["stage"],
@@ -293,16 +367,25 @@ async def list_deals(
             probability=raw.get("probability"),
             health_score=result.total_score,
             health_label=result.health_label,
+            days_in_stage=raw.get("days_in_stage"),
             next_step=raw.get("next_step"),
         ))
 
-    scored.sort(key=lambda d: d.health_score or 0)
+    scored_all.sort(key=lambda d: d.health_score or 0)
 
-    real_total = len(scored)
+    real_total = len(scored_all)
+    total_pages = max(1, -(-real_total // per_page))  # ceiling div
     start = (page - 1) * per_page
-    page_deals = scored[start: start + per_page]
+    page_deals = scored_all[start: start + per_page]
 
-    return DealList(deals=page_deals, total=real_total, simulated=simulated)
+    return DealList(
+        deals=page_deals,
+        total=real_total,
+        total_pages=total_pages,
+        has_next=(page * per_page) < real_total,
+        has_prev=page > 1,
+        simulated=simulated,
+    )
 
 
 @router.get("/metrics", response_model=PipelineMetrics)

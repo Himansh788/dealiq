@@ -16,6 +16,12 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+try:
+    from dateutil import parser as dateutil_parser
+    _HAS_DATEUTIL = True
+except ImportError:
+    _HAS_DATEUTIL = False
+
 logger = logging.getLogger(__name__)
 
 
@@ -40,12 +46,32 @@ _STAGE_SEQUENCE: Dict[str, int] = {
     "Closed - Lost": 100,
 }
 
+# Workflow automation sources — their emails must NOT count toward rep
+# Communication Balance outbound score.
+_AUTOMATION_SOURCES = frozenset({"workflow", "mass_update", "automation", "blueprint"})
+
 
 def _parse_dt(s: Optional[str]) -> Optional[datetime]:
+    """Parse an ISO-8601 / Zoho timestamp into a timezone-aware UTC datetime.
+
+    Uses dateutil.parser when available for robustness against non-standard
+    Zoho timestamp variants (e.g. missing 'T', space separator, various tz
+    offsets).  Falls back to stdlib fromisoformat if dateutil is not installed.
+    Always converts to UTC so all date-math is apples-to-apples.
+    """
     if not s:
         return None
     try:
-        return datetime.fromisoformat(str(s).replace("Z", "+00:00"))
+        if _HAS_DATEUTIL:
+            dt = dateutil_parser.parse(str(s))
+        else:
+            dt = datetime.fromisoformat(str(s).replace("Z", "+00:00"))
+        # Normalise to UTC
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        else:
+            dt = dt.astimezone(timezone.utc)
+        return dt
     except Exception:
         return None
 
@@ -65,7 +91,6 @@ def _stage_position(stage_name: str, pick_list_values: List[dict]) -> int:
     Prefers sequence_number from pick_list_values (Zoho-configured order),
     falls back to _STAGE_SEQUENCE, then 50 (middle of pipeline).
     """
-    # Check pick_list_values for sequence_number matching this stage
     for plv in pick_list_values or []:
         if plv.get("display_value") == stage_name or plv.get("actual_value") == stage_name:
             seq = plv.get("sequence_number")
@@ -75,6 +100,42 @@ def _stage_position(stage_name: str, pick_list_values: List[dict]) -> int:
                 except (TypeError, ValueError):
                     pass
     return _STAGE_SEQUENCE.get(stage_name, 50)
+
+
+def _extract_value_dict(fh: Dict[str, Any]) -> Dict[str, Any]:
+    """Defensively extract the old/new value dict from a field_history entry.
+
+    Zoho sometimes uses '_value' (internal name) and sometimes 'value'.
+    Returns an empty dict if neither key is present.
+    """
+    return fh.get("_value") or fh.get("value") or {}
+
+
+def _parse_revenue_floats(fh: Dict[str, Any]) -> Optional[tuple]:
+    """Return (old_v, new_v) floats from a revenue field_history entry.
+
+    Priority: _value > actual_value (actual_value can carry unrelated numbers
+    like probability percentages that produce wrong deltas).
+    Returns None if parsing fails.
+    """
+    val = _extract_value_dict(fh)
+    # _value carries the display-accurate numbers; prefer it.
+    # actual_value is a fallback only when _value has no old/new keys.
+    actual = fh.get("actual_value") or {}
+    try:
+        raw_old = val.get("old") or actual.get("old") or 0
+        raw_new = val.get("new") or actual.get("new") or 0
+        return float(raw_old), float(raw_new)
+    except (TypeError, ValueError):
+        return None
+
+
+def compute_delta(old_v: float, new_v: float) -> float:
+    """Return the signed revenue change (new − old).
+
+    $400 → $1000 == +600.  Used in tests and in label generation.
+    """
+    return new_v - old_v
 
 
 def analyze_timeline(timeline_entries: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -88,6 +149,7 @@ def analyze_timeline(timeline_entries: List[Dict[str, Any]]) -> Dict[str, Any]:
         "last_email_subject": str | None,
         "last_email_sent_by": str | None,
         "days_since_last_email": int | None,
+        "outbound_email_count": int,   # rep-sent only (excludes workflow)
         "task_count": int,
         "revenue_changes": [...],
         "automation_events": [...],
@@ -110,6 +172,7 @@ def analyze_timeline(timeline_entries: List[Dict[str, Any]]) -> Dict[str, Any]:
     last_email_sent: Optional[str] = None
     last_email_subject: Optional[str] = None
     last_email_sent_by: Optional[str] = None
+    outbound_email_count: int = 0  # rep-sent emails only
 
     task_count = 0
     human_entries = 0
@@ -117,7 +180,6 @@ def analyze_timeline(timeline_entries: List[Dict[str, Any]]) -> Dict[str, Any]:
 
     logger.info("analyze_timeline: received %d entries", len(timeline_entries or []))
     if timeline_entries:
-        # Log first entry keys to confirm structure
         sample = timeline_entries[0]
         logger.info(
             "analyze_timeline: sample entry keys=%s action=%s source=%s",
@@ -132,16 +194,18 @@ def analyze_timeline(timeline_entries: List[Dict[str, Any]]) -> Dict[str, Any]:
         source = entry.get("source", "crm_ui")
         done_by = entry.get("done_by") or {}
         done_by_name = done_by.get("name", "Unknown")
+        # Null-guard record — direct deal-update events have record: null
         record = entry.get("record") or {}
         module = (record.get("module") or {}).get("api_name", "")
         record_name = record.get("name", "")
 
-        is_automation = source in ("workflow", "mass_update", "automation", "blueprint")
+        is_automation = source in _AUTOMATION_SOURCES
         if is_automation:
             automation_entries += 1
         else:
             human_entries += 1
 
+        # Null-guard field_history — non-update events return null not []
         field_history = entry.get("field_history") or []
 
         # ── Stage changes ──────────────────────────────────────────────────
@@ -149,7 +213,7 @@ def analyze_timeline(timeline_entries: List[Dict[str, Any]]) -> Dict[str, Any]:
             api_name = fh.get("api_name") or fh.get("field_label", "")
             if api_name not in ("Stage", "stage"):
                 continue
-            val = fh.get("_value") or {}
+            val = _extract_value_dict(fh)
             old_stage = val.get("old") or ""
             new_stage = val.get("new") or ""
             if not old_stage or not new_stage or old_stage == new_stage:
@@ -160,13 +224,14 @@ def analyze_timeline(timeline_entries: List[Dict[str, Any]]) -> Dict[str, Any]:
             new_pos = _stage_position(new_stage, pick_list_values)
             direction = "forward" if new_pos > old_pos else "backward"
 
-            # Colour codes from pick_list_values
             old_colour = next(
-                (p.get("colour_code", "") for p in pick_list_values if p.get("display_value") == old_stage or p.get("actual_value") == old_stage),
+                (p.get("colour_code", "") for p in pick_list_values
+                 if p.get("display_value") == old_stage or p.get("actual_value") == old_stage),
                 ""
             )
             new_colour = next(
-                (p.get("colour_code", "") for p in pick_list_values if p.get("display_value") == new_stage or p.get("actual_value") == new_stage),
+                (p.get("colour_code", "") for p in pick_list_values
+                 if p.get("display_value") == new_stage or p.get("actual_value") == new_stage),
                 ""
             )
 
@@ -187,29 +252,39 @@ def analyze_timeline(timeline_entries: List[Dict[str, Any]]) -> Dict[str, Any]:
             api_name = fh.get("api_name") or ""
             if api_name not in ("Expected_Revenue", "Amount", "Revenue"):
                 continue
-            val = fh.get("_value") or {}
-            actual = fh.get("actual_value") or {}
-            try:
-                old_v = float(actual.get("old") or val.get("old") or 0)
-                new_v = float(actual.get("new") or val.get("new") or 0)
-            except (TypeError, ValueError):
+            parsed = _parse_revenue_floats(fh)
+            if parsed is None:
                 continue
+            old_v, new_v = parsed
+            delta = compute_delta(old_v, new_v)
             revenue_changes.append({
                 "field": api_name,
                 "old_value": old_v,
                 "new_value": new_v,
-                "direction": "up" if new_v > old_v else "down",
+                "delta": delta,
+                "direction": "up" if delta > 0 else "down",
                 "changed_by": done_by_name,
                 "changed_at": audited_time,
                 "days_ago": _days_ago(_parse_dt(audited_time)),
             })
 
         # ── Email sent events ──────────────────────────────────────────────
-        if action in ("sent", "email_notification_sent") or (action == "added" and module == "Emails"):
+        # action: "sent"                      → rep manually sent an email
+        # action: "email_notification_sent"   → workflow / automation email
+        # action: "added" + module: "Emails"  → email logged against deal
+        #
+        # Only "sent" (rep emails) count toward outbound_email_count used in
+        # Communication Balance scoring.  Workflow emails are automation noise.
+        is_rep_email = (action == "sent") or (action == "added" and module == "Emails")
+        is_workflow_email = action == "email_notification_sent"
+
+        if is_rep_email or is_workflow_email:
             if last_email_sent is None or audited_time > last_email_sent:
                 last_email_sent = audited_time
                 last_email_subject = record_name or None
                 last_email_sent_by = done_by_name
+            if is_rep_email and not is_automation:
+                outbound_email_count += 1
 
         # ── Task events ────────────────────────────────────────────────────
         if module == "Tasks":
@@ -235,10 +310,8 @@ def analyze_timeline(timeline_entries: List[Dict[str, Any]]) -> Dict[str, Any]:
         days_since_last_email is not None and days_since_last_email <= 14
     )
 
-    # Forward = at least one forward stage change with no subsequent backward change
     stage_moving_forward = False
     if stage_progression:
-        # Look at the most recent stage change
         latest = max(stage_progression, key=lambda s: s.get("changed_at", ""))
         stage_moving_forward = latest["direction"] == "forward"
 
@@ -253,6 +326,7 @@ def analyze_timeline(timeline_entries: List[Dict[str, Any]]) -> Dict[str, Any]:
         "last_email_subject": last_email_subject,
         "last_email_sent_by": last_email_sent_by,
         "days_since_last_email": days_since_last_email,
+        "outbound_email_count": outbound_email_count,
         "task_count": task_count,
         "revenue_changes": revenue_changes,
         "automation_events": automation_events,
@@ -282,6 +356,7 @@ def enrich_timeline_events(
     New events come from v9 stage changes, revenue changes, automation entries, emails.
     """
     new_events: List[Dict[str, Any]] = []
+    _event_counter = 0  # used for synthetic IDs on null-id records
 
     for entry in raw_entries or []:
         action = entry.get("action", "")
@@ -289,11 +364,19 @@ def enrich_timeline_events(
         source = entry.get("source", "crm_ui")
         done_by = entry.get("done_by") or {}
         actor = done_by.get("name", "CRM")
+        # Null-guard record — direct deal-update events have record: null
         record = entry.get("record") or {}
         module = (record.get("module") or {}).get("api_name", "")
         record_name = record.get("name", "")
+        # Null-guard record.id — Zoho Email records have id: null
+        record_id = record.get("id")
+        if record_id is None:
+            _event_counter += 1
+            record_id = f"synthetic_{_event_counter}"
+
+        # Null-guard field_history — non-update events return null not []
         field_history = entry.get("field_history") or []
-        is_automation = source in ("workflow", "mass_update", "automation", "blueprint")
+        is_automation = source in _AUTOMATION_SOURCES
         dt = _parse_dt(audited_time)
 
         # Stage change events
@@ -301,7 +384,7 @@ def enrich_timeline_events(
             api_name = fh.get("api_name") or fh.get("field_label", "")
             if api_name not in ("Stage", "stage"):
                 continue
-            val = fh.get("_value") or {}
+            val = _extract_value_dict(fh)
             old_stage = val.get("old", "")
             new_stage = val.get("new", "")
             if not old_stage or not new_stage or old_stage == new_stage:
@@ -309,11 +392,13 @@ def enrich_timeline_events(
 
             pick_list_values = fh.get("pick_list_values") or []
             old_colour = next(
-                (p.get("colour_code", "") for p in pick_list_values if p.get("display_value") == old_stage or p.get("actual_value") == old_stage),
+                (p.get("colour_code", "") for p in pick_list_values
+                 if p.get("display_value") == old_stage or p.get("actual_value") == old_stage),
                 ""
             )
             new_colour = next(
-                (p.get("colour_code", "") for p in pick_list_values if p.get("display_value") == new_stage or p.get("actual_value") == new_stage),
+                (p.get("colour_code", "") for p in pick_list_values
+                 if p.get("display_value") == new_stage or p.get("actual_value") == new_stage),
                 ""
             )
             old_pos = _stage_position(old_stage, pick_list_values)
@@ -340,14 +425,13 @@ def enrich_timeline_events(
             api_name = fh.get("api_name") or ""
             if api_name not in ("Expected_Revenue", "Amount"):
                 continue
-            val = fh.get("_value") or {}
-            actual = fh.get("actual_value") or {}
-            try:
-                old_v = float(actual.get("old") or val.get("old") or 0)
-                new_v = float(actual.get("new") or val.get("new") or 0)
-            except (TypeError, ValueError):
+            parsed = _parse_revenue_floats(fh)
+            if parsed is None:
                 continue
-            direction = "up" if new_v > old_v else "down"
+            old_v, new_v = parsed
+            delta = compute_delta(old_v, new_v)
+            direction = "up" if delta > 0 else "down"
+            delta_abs = abs(delta)
             new_events.append({
                 "type": "revenue_change",
                 "label": f"Revenue updated: ${old_v:,.0f} → ${new_v:,.0f} {'▲' if direction == 'up' else '▼'}",
@@ -359,20 +443,33 @@ def enrich_timeline_events(
                 "revenue_direction": direction,
                 "old_value": old_v,
                 "new_value": new_v,
+                "delta": delta,
+                "delta_abs": delta_abs,
             })
 
-        # Email sent events
-        if action in ("sent", "email_notification_sent") or (action == "added" and module == "Emails"):
+        # Email events
+        # action: "sent"                    → rep email (human or via CRM send)
+        # action: "email_notification_sent" → workflow automation email
+        # action: "added" + Emails module   → email logged against deal
+        is_rep_email = (action == "sent") or (action == "added" and module == "Emails")
+        is_workflow_email = action == "email_notification_sent"
+
+        if is_rep_email or is_workflow_email:
             label = f"Email: {record_name}" if record_name else "Email sent"
+            # Only mark as "Automated" for workflow source — not just because it
+            # has is_automation set (a human could trigger a CRM-sent email).
+            is_automated_email = is_automation and is_workflow_email
             new_events.append({
                 "type": "email",
                 "label": label,
-                "detail": f"{'Automated' if is_automation else 'Sent'} by {actor}",
+                "detail": f"{'Automated' if is_automated_email else 'Sent'} by {actor}",
                 "datetime": audited_time,
                 "days_ago": _days_ago(dt),
                 "icon": "mail",
-                "is_automation": is_automation,
+                "is_automation": is_automated_email,
+                "is_rep_email": is_rep_email and not is_automation,
                 "email_subject": record_name,
+                "record_id": record_id,
             })
 
         # Task events (skip if already in existing events by proximity)
@@ -400,7 +497,7 @@ def enrich_timeline_events(
         if ev_dt is None:
             merged.append(ev)
             continue
-        # Skip if an existing event is within 60 seconds of same type
+        # Skip if an existing event is within 60 seconds (dedup by time proximity)
         duplicate = any(
             abs((ev_dt - ex_dt).total_seconds()) < 60
             for ex_dt in existing_datetimes
@@ -409,7 +506,7 @@ def enrich_timeline_events(
             merged.append(ev)
             existing_datetimes.add(ev_dt)
 
-    # Sort chronologically
+    # Sort chronologically (UTC-normalised datetimes, nulls sort to beginning)
     def _sort_key(e: dict):
         dt = _parse_dt(e.get("datetime"))
         return dt or datetime.min.replace(tzinfo=timezone.utc)

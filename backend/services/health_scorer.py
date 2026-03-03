@@ -377,11 +377,12 @@ def score_from_timeline(timeline_analysis: dict) -> Dict[str, Any]:
 
     # Stage Momentum (max 15 pts)
     stage_progression = timeline_analysis.get("stage_progression", [])
-    if not stage_progression:
+    n_transitions = len(stage_progression)
+    if n_transitions == 0:
         stage_momentum = HealthSignal(
             name="Stage Momentum",
-            score=8, max_score=15, label="warn",
-            detail="No stage history available from timeline."
+            score=0, max_score=15, label="insufficient_data",
+            detail="No stage transitions found. Cannot assess deal movement."
         )
     elif signals.get("stage_moving_forward"):
         stage_momentum = HealthSignal(
@@ -391,10 +392,11 @@ def score_from_timeline(timeline_analysis: dict) -> Dict[str, Any]:
         )
     else:
         latest = stage_progression[-1]
+        count_str = f"Only {n_transitions} stage transition{'s' if n_transitions != 1 else ''} found"
         stage_momentum = HealthSignal(
             name="Stage Momentum",
             score=0, max_score=15, label="critical",
-            detail=f"Stage regressed: {latest['old_stage']} → {latest['new_stage']}. Investigate immediately."
+            detail=f"Stage regressed: {latest['old_stage']} → {latest['new_stage']}. {count_str}. Investigate immediately."
         )
 
     # Email Recency (max 10 pts — bonus; used to override activity-based recency if better)
@@ -436,7 +438,7 @@ def score_from_timeline(timeline_analysis: dict) -> Dict[str, Any]:
     if total == 0:
         engagement = HealthSignal(
             name="Deal Engagement",
-            score=5, max_score=10, label="warn",
+            score=0, max_score=10, label="insufficient_data",
             detail="No timeline entries to assess engagement quality."
         )
     elif ratio >= 0.7:

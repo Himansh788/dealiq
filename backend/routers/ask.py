@@ -74,6 +74,34 @@ def _get_demo_emails(deal_id: str) -> list:
     return SIMULATED_EMAILS.get(deal_id, [])
 
 
+def _get_demo_contacts(deal_id: str) -> list:
+    """Return contacts list for a demo deal (from SIMULATED_ACTIVITIES)."""
+    from services.demo_data import SIMULATED_ACTIVITIES
+    bundle = SIMULATED_ACTIVITIES.get(deal_id, {})
+    return bundle.get("contacts", [])
+
+
+async def _resolve_primary_contact(session: dict, deal_id: str) -> Optional[dict]:
+    """
+    Return the primary contact (with a resolvable email) for a deal.
+    Demo mode: pull from SIMULATED_ACTIVITIES.
+    Real mode: call get_contacts_for_deal and pick first contact with an email.
+    Returns { name, email } or None.
+    """
+    if _is_demo(session):
+        contacts = _get_demo_contacts(deal_id)
+    else:
+        from services.zoho_client import get_contacts_for_deal
+        contacts = await get_contacts_for_deal(session["access_token"], deal_id)
+
+    for c in contacts:
+        email = (c.get("email") or "").strip()
+        name = (c.get("name") or "").strip()
+        if email:
+            return {"name": name or email, "email": email}
+    return None
+
+
 def _get_demo_transcript(deal_id: str) -> Optional[str]:
     from services.ask_demo_data import DEMO_TRANSCRIPT
     if deal_id in ("demo_1", "demo"):
@@ -320,6 +348,14 @@ async def deal_follow_up_email(
 
     session = _decode_session(authorization)
 
+    # Resolve primary contact first — fail fast if none has an email
+    recipient = await _resolve_primary_contact(session, request.deal_id)
+    if not recipient:
+        raise HTTPException(
+            status_code=400,
+            detail="No contact email found for this deal. Add a contact with an email address in your CRM."
+        )
+
     if _is_demo(session):
         deal = _get_demo_deal(request.deal_id)
         emails = _get_demo_emails(request.deal_id)
@@ -340,6 +376,7 @@ async def deal_follow_up_email(
     return {
         **result,
         "deal_id": request.deal_id,
+        "recipient": recipient,
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }
 

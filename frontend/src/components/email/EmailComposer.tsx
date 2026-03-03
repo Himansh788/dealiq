@@ -58,6 +58,7 @@ interface EmailDraft {
   health_impact?: string;
   context_meta?: ContextMeta;
   commitment_coverage?: CommitmentCoverage[];
+  recipient?: { name: string; email: string };
 }
 
 interface Props {
@@ -76,6 +77,20 @@ const ENGAGEMENT_DOT: Record<string, string> = {
   quiet:       "bg-health-yellow",
   disengaged:  "bg-health-red",
 };
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+/** Extract a readable message from a FastAPI error or generic Error. */
+function extractErrorDetail(err: unknown): string {
+  if (!(err instanceof Error)) return "Please try again.";
+  try {
+    const parsed = JSON.parse(err.message);
+    if (parsed?.detail) return String(parsed.detail);
+  } catch {
+    // not JSON — use message as-is if it looks human-readable
+  }
+  return err.message || "Please try again.";
+}
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
@@ -99,8 +114,8 @@ export default function EmailComposer({ open, dealId, dealName, contact, onClose
         setBody(data.body ?? "");
         setSubject(data.subject ?? "");
       })
-      .catch((err: Error) => {
-        toast({ title: "Couldn't generate email", description: err.message, variant: "destructive" });
+      .catch((err: unknown) => {
+        toast({ title: "Couldn't generate email", description: extractErrorDetail(err), variant: "destructive" });
       })
       .finally(() => setLoading(false));
   }, [open, dealId]);
@@ -114,8 +129,8 @@ export default function EmailComposer({ open, dealId, dealName, contact, onClose
         setBody(data.body ?? "");
         setSubject(data.subject ?? "");
       })
-      .catch((err: Error) =>
-        toast({ title: "Regeneration failed", description: err.message, variant: "destructive" })
+      .catch((err: unknown) =>
+        toast({ title: "Regeneration failed", description: extractErrorDetail(err), variant: "destructive" })
       )
       .finally(() => setLoading(false));
   };
@@ -158,14 +173,17 @@ export default function EmailComposer({ open, dealId, dealName, contact, onClose
               <div className="flex items-center gap-3 px-5 py-2">
                 <span className="w-14 shrink-0 text-xs font-semibold text-muted-foreground">To</span>
                 <div className="flex flex-wrap gap-1.5 flex-1">
-                  {contact ? (
-                    <span className="flex items-center gap-1.5 rounded-full bg-primary/10 border border-primary/20 px-2.5 py-0.5 text-xs font-medium text-primary">
-                      {contact.name}
-                      {contact.email && <span className="text-primary/60">({contact.email})</span>}
-                    </span>
-                  ) : (
-                    <span className="text-xs text-muted-foreground/50">Contact for {dealName}</span>
-                  )}
+                  {(() => {
+                    const to = draft?.recipient ?? contact;
+                    if (to) return (
+                      <span className="flex items-center gap-1.5 rounded-full bg-primary/10 border border-primary/20 px-2.5 py-0.5 text-xs font-medium text-primary">
+                        {to.name}
+                        {to.email && <span className="text-primary/60">{to.email}</span>}
+                      </span>
+                    );
+                    if (loading) return <span className="text-xs text-muted-foreground/40 animate-pulse">Resolving contact…</span>;
+                    return <span className="text-xs text-muted-foreground/50">No contact email found for {dealName}</span>;
+                  })()}
                 </div>
               </div>
 
