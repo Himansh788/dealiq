@@ -187,13 +187,18 @@ function stripQuotedText(text: string): string {
   return text.trim();
 }
 
-/** Sanitise HTML for safe inline rendering, stripping blockquotes (quoted replies). */
-function sanitizeEmailHtml(html: string): string {
+/** Sanitise HTML for safe inline rendering, stripping blockquotes and inline styles. */
+function sanitizeEmailHtml(html: string, stripQuoted = true): string {
+  let h = html;
   // Remove blockquote chains (quoted previous messages in thread)
-  const stripped = html.replace(/<blockquote[\s\S]*?<\/blockquote>/gi, "");
-  return DOMPurify.sanitize(stripped, {
+  if (stripQuoted) h = h.replace(/<blockquote[\s\S]*?<\/blockquote>/gi, "");
+  // Strip inline style/color/font attrs so they don't override the app's dark theme
+  h = h.replace(/\s*style="[^"]*"/gi, "");
+  h = h.replace(/\s*color="[^"]*"/gi, "");
+  h = h.replace(/\s*face="[^"]*"/gi, "");
+  return DOMPurify.sanitize(h, {
     ALLOWED_TAGS: ["p","br","div","span","b","strong","i","em","u","a","ul","ol","li","h1","h2","h3","pre","table","tr","td","th","tbody","thead"],
-    ALLOWED_ATTR: ["href","target","style","class"],
+    ALLOWED_ATTR: ["href","target"],
     FORCE_BODY: true,
   });
 }
@@ -233,8 +238,8 @@ function MessageBubble({ email, defaultExpanded = false }: { email: EmailMessage
       <div className={cn(
         "max-w-[82%] rounded-2xl border text-xs",
         outbound
-          ? "rounded-tr-sm bg-primary/8 border-primary/20"
-          : "rounded-tl-sm bg-card border-border/50"
+          ? "rounded-tr-sm bg-primary/10 border-primary/25"
+          : "rounded-tl-sm bg-muted/40 border-border/50"
       )}>
         {/* Header */}
         <button
@@ -248,7 +253,7 @@ function MessageBubble({ email, defaultExpanded = false }: { email: EmailMessage
                 ? <Badge variant="outline" className="text-[9px] h-3.5 px-1 text-primary border-primary/30 bg-primary/10">Sent</Badge>
                 : <Badge variant="outline" className="text-[9px] h-3.5 px-1 text-muted-foreground border-border/40">Received</Badge>}
             </div>
-            <p className="text-[10px] text-muted-foreground/60">
+            <p className="text-[11px] text-muted-foreground">
               {formatDateTime(email.date || email.sent_at)}
             </p>
           </div>
@@ -259,7 +264,7 @@ function MessageBubble({ email, defaultExpanded = false }: { email: EmailMessage
 
         {/* Preview when collapsed */}
         {!expanded && hasBody && (
-          <p className="px-4 pb-3 text-[11px] text-muted-foreground/70 line-clamp-2 leading-relaxed">
+          <p className="px-4 pb-3 text-[12px] text-muted-foreground line-clamp-2 leading-relaxed">
             {previewText}…
           </p>
         )}
@@ -273,11 +278,11 @@ function MessageBubble({ email, defaultExpanded = false }: { email: EmailMessage
                 <>
                   {safeHtml ? (
                     <div
-                      className="prose prose-xs dark:prose-invert max-w-none text-[11px] leading-relaxed text-foreground/90 [&_a]:text-primary [&_a]:underline"
-                      dangerouslySetInnerHTML={{ __html: showFull ? DOMPurify.sanitize(email.html_content!, { FORCE_BODY: true }) : safeHtml }}
+                      className="email-body text-[12px] leading-relaxed text-foreground [&_a]:text-primary [&_a]:underline [&_p]:mb-2 [&_div]:mb-1"
+                      dangerouslySetInnerHTML={{ __html: showFull ? sanitizeEmailHtml(email.html_content!, false) : safeHtml }}
                     />
                   ) : (
-                    <p className="text-[11px] leading-relaxed text-foreground/90 whitespace-pre-wrap">
+                    <p className="text-[12px] leading-relaxed text-foreground whitespace-pre-wrap">
                       {showFull ? plainBody : cleanPlain}
                     </p>
                   )}
