@@ -328,8 +328,12 @@ export default function Dashboard() {
   // Load metrics
   useEffect(() => {
     if (!session) { navigate("/", { replace: true }); return; }
-    api.getMetrics()
+    const controller = new AbortController();
+    let cancelled = false;
+
+    api.getMetrics(controller.signal)
       .then((data: any) => {
+        if (cancelled) return;
         setMetrics({
           total_deals:          data.total_deals          ?? 0,
           total_value:          data.total_value          ?? data.pipeline_value  ?? 0,
@@ -341,16 +345,26 @@ export default function Dashboard() {
           deals_needing_action: data.deals_needing_action ?? data.needs_action    ?? 0,
         });
       })
-      .catch(() => setMetrics(DEMO_METRICS))
-      .finally(() => setLoadingMetrics(false));
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        if (err instanceof Error && err.name === "AbortError") return;
+        setMetrics(DEMO_METRICS);
+      })
+      .finally(() => { if (!cancelled) setLoadingMetrics(false); });
+
+    return () => { cancelled = true; controller.abort(); };
   }, [session, navigate]);
 
   // Load all deals once
   useEffect(() => {
     if (!session) return;
+    let cancelled = false;
     setLoadingDeals(true);
+
     api.getAllDeals()
       .then((list: any[]) => {
+        if (cancelled) return;
         const mapped: Deal[] = list.map((d: any) => ({
           id:           d.id,
           deal_name:    d.name ?? d.deal_name ?? "Unnamed Deal",
@@ -364,19 +378,32 @@ export default function Dashboard() {
         setAllDeals(mapped);
         setTotalDeals(mapped.length);
       })
-      .catch(() => { setAllDeals(DEMO_DEALS); setTotalDeals(DEMO_DEALS.length); })
-      .finally(() => setLoadingDeals(false));
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        if (err instanceof Error && err.name === "AbortError") return;
+        setAllDeals(DEMO_DEALS);
+        setTotalDeals(DEMO_DEALS.length);
+      })
+      .finally(() => { if (!cancelled) setLoadingDeals(false); });
+
+    return () => { cancelled = true; };
   }, [session]);
 
   // Load team activity summary (lazy, low priority)
-  const fetchTeamSummary = () => {
+  // Also exposed as fetchTeamSummary for the manual refresh button.
+  function fetchTeamSummary() {
     if (!session) return;
     setLoadingTeam(true);
     api.getTeamActivitySummary()
       .then(setTeamSummary)
-      .catch(() => { /* silent */ })
+      .catch((err: unknown) => {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        if (err instanceof Error && err.name === "AbortError") return;
+        // silent — team summary is non-critical
+      })
       .finally(() => setLoadingTeam(false));
-  };
+  }
 
   useEffect(() => {
     if (!session) return;
