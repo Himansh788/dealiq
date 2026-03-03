@@ -355,6 +355,20 @@ async def list_deals(
         )
 
     # ── Full pipeline list path (no search) ───────────────────────────────────
+    # Helper: run a DB write in a fresh session so it's safe to fire as a
+    # background task.  The request-scoped `db` is closed before background
+    # tasks execute; they must own their session lifetime.
+    async def _bg_write(coro_fn, *args, **kwargs):
+        from database.connection import AsyncSessionLocal
+        if AsyncSessionLocal is None:
+            return
+        try:
+            async with AsyncSessionLocal() as new_db:
+                await coro_fn(new_db, *args, **kwargs)
+                await new_db.commit()
+        except Exception as exc:
+            logger.warning("Background DB write failed: %s", exc)
+
     cache_meta: dict = {}
     if simulated:
         raw_deals = SIMULATED_DEALS
@@ -366,20 +380,22 @@ async def list_deals(
 
         if cached is not None:
             raw_deals = cached
-            # Background sync if >30% stale — user gets data instantly
+            # Background sync if >30% stale — user gets fresh data silently
             if cache_meta.get("needs_background_sync"):
+                access_token = session["access_token"]
                 async def _bg_sync():
                     try:
-                        fresh = await _fetch_all_zoho_deals(session["access_token"])
-                        await upsert_deals(db, fresh, user_email)
+                        fresh = await _fetch_all_zoho_deals(access_token)
+                        await _bg_write(upsert_deals, fresh, user_email)
                     except Exception as exc:
                         logger.warning("Background sync failed: %s", exc)
                 asyncio.create_task(_bg_sync())
         else:
-            # No data at all — blocking fetch required (first load or cleared DB)
+            # No rows at all — blocking Zoho fetch on first load
             try:
                 raw_deals = await _fetch_all_zoho_deals(session["access_token"])
-                asyncio.create_task(upsert_deals(db, raw_deals, user_email))
+                # Write in background so response isn't blocked; own session
+                asyncio.create_task(_bg_write(upsert_deals, raw_deals, user_email))
                 cache_meta = get_cache_status(datetime.now(timezone.utc), "deals")
                 cache_meta["source"] = "zoho"
             except Exception:
@@ -414,14 +430,29 @@ async def list_deals(
             next_step=raw.get("next_step"),
         ))
 
-    # Persist scores + fetch trends in parallel (non-blocking)
+    # Fetch trends using the live request session (read — session is still open here)
+    # Then persist scores in background with a fresh session
     if not simulated and health_results and db is not None:
         from services.score_db import persist_health_score, batch_get_trends
-        async def _persist_all():
-            for zid, hr in health_results.items():
-                await persist_health_score(db, zid, hr)
+
+        # Read: inline, session is open
         trends = await batch_get_trends(db, list(health_results.keys()))
-        asyncio.create_task(_persist_all())
+
+        # Write: background task with its own session
+        captured_results = dict(health_results)
+        async def _persist_scores():
+            from database.connection import AsyncSessionLocal
+            if AsyncSessionLocal is None:
+                return
+            try:
+                async with AsyncSessionLocal() as new_db:
+                    for zid, hr in captured_results.items():
+                        await persist_health_score(new_db, zid, hr)
+                    # persist_health_score commits per row; final commit is a no-op
+            except Exception as exc:
+                logger.warning("Score persist background task failed: %s", exc)
+        asyncio.create_task(_persist_scores())
+
         for deal in scored_all:
             deal.score_trend = trends.get(deal.id)
     else:

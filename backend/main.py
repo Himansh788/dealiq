@@ -94,6 +94,46 @@ def debug_env():
     db_url = os.getenv("DATABASE_URL")
     return {"db_url_set": db_url is not None, "db_url_prefix": db_url[:30] if db_url else None}
 
+
+@app.get("/debug/db")
+async def debug_db():
+    """Diagnose DB connectivity, table list, and row counts."""
+    from sqlalchemy import text
+    from database.connection import async_engine, AsyncSessionLocal, DATABASE_URL
+
+    if async_engine is None:
+        return {
+            "connection": "FAILED",
+            "error": "DATABASE_URL not set or engine failed to create",
+            "database_url_prefix": (DATABASE_URL or "")[:40] or None,
+        }
+
+    try:
+        async with async_engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+    except Exception as exc:
+        return {"connection": "FAILED", "error": str(exc), "error_type": type(exc).__name__}
+
+    try:
+        async with async_engine.connect() as conn:
+            result = await conn.execute(text("SHOW TABLES"))
+            tables = [row[0] for row in result.fetchall()]
+
+        counts = {}
+        async with AsyncSessionLocal() as session:
+            for table in tables:
+                result = await session.execute(text(f"SELECT COUNT(*) FROM `{table}`"))
+                counts[table] = result.scalar()
+
+        return {
+            "connection": "OK",
+            "database_url_prefix": DATABASE_URL[:40] if DATABASE_URL else None,
+            "tables": tables,
+            "row_counts": counts,
+        }
+    except Exception as exc:
+        return {"connection": "OK", "count_error": str(exc)}
+
 @app.get("/debug/routes")
 def debug_routes():
     routes = [{"path": r.path, "methods": r.methods} for r in app.routes]
