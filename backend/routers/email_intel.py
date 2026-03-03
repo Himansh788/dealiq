@@ -96,8 +96,10 @@ def _normalise_zoho_email(raw: dict) -> dict:
     else:
         status = "delivered"
 
-    plain = raw.get("content") or raw.get("description") or raw.get("summary") or ""
-    snippet = plain[:300].strip() if plain else ""
+    # Prefer the enriched full-body fields set by _fetch_emails_for_record
+    body_full = raw.get("body_full") or raw.get("content") or raw.get("description") or raw.get("summary") or ""
+    body_preview = raw.get("body_preview") or raw.get("snippet") or body_full[:300]
+    snippet = body_preview[:300].strip() if body_preview else ""
 
     return {
         "subject":      raw.get("subject") or raw.get("Subject") or "(no subject)",
@@ -106,6 +108,7 @@ def _normalise_zoho_email(raw: dict) -> dict:
         "date":         raw.get("sent_time") or raw.get("date") or raw.get("Created_Time") or "",
         "snippet":      snippet,
         "body_preview": snippet,
+        "body_full":    body_full,
         "status":       status,
         "direction":    status,
         "sent_at":      raw.get("sent_time") or raw.get("date") or "",
@@ -198,13 +201,19 @@ async def _analyse_thread(thread_text: str, deal_name: str) -> dict | None:
 
 
 def _build_thread_text(messages: list[dict]) -> str:
-    """Join messages chronologically into a readable transcript for the AI."""
+    """
+    Join messages chronologically into a readable transcript for the AI.
+    Uses body_full when available (contains full quoted thread history from Zoho),
+    falling back to body_preview / snippet for metadata-only emails.
+    """
     parts = []
     for m in messages:
         sender = m.get("from") or "Unknown"
         date   = m.get("date") or m.get("sent_at") or ""
-        body   = m.get("body_preview") or m.get("snippet") or "(no body)"
-        parts.append(f"[{date[:10]}] FROM: {sender}\n{body}")
+        # body_full may contain the entire thread quoted — ideal for AI context
+        body = m.get("body_full") or m.get("body_preview") or m.get("snippet") or "(no body)"
+        # Cap per-message to 3000 chars to keep total prompt size reasonable
+        parts.append(f"[{date[:10]}] FROM: {sender}\n{body[:3000]}")
     return "\n\n---\n\n".join(parts)
 
 

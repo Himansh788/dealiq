@@ -35,6 +35,7 @@ interface EmailMessage {
   sent_at: string;
   snippet: string;
   body_preview: string;
+  body_full?: string;
   direction: string;
   status: string;
   thread_id?: string;
@@ -116,7 +117,9 @@ function formatShort(dateStr: string): string {
 function EmailCard({ email }: { email: EmailMessage }) {
   const [expanded, setExpanded] = useState(false);
   const outbound = isOutbound(email.direction);
-  const body = email.body_preview || email.snippet || "";
+  // Use body_full when expanded (full thread content), body_preview for collapsed hint
+  const bodyFull = email.body_full || email.body_preview || email.snippet || "";
+  const bodyPreview = email.body_preview || email.snippet || bodyFull.slice(0, 200);
 
   return (
     <div className={cn(
@@ -157,8 +160,8 @@ function EmailCard({ email }: { email: EmailMessage }) {
             </span>
           </div>
           {/* Body preview line when collapsed */}
-          {!expanded && body && (
-            <p className="text-[11px] text-muted-foreground/60 mt-0.5 truncate">{body}</p>
+          {!expanded && bodyPreview && (
+            <p className="text-[11px] text-muted-foreground/60 mt-0.5 truncate">{bodyPreview}</p>
           )}
         </div>
 
@@ -177,7 +180,7 @@ function EmailCard({ email }: { email: EmailMessage }) {
               </p>
             )}
             <p className="text-xs text-muted-foreground leading-relaxed whitespace-pre-wrap">
-              {body || <span className="italic opacity-50">(no body available — re-auth Zoho to get email scope)</span>}
+              {bodyFull || <span className="italic opacity-50">(no body available — re-auth Zoho to grant ZohoCRM.modules.emails.READ scope)</span>}
             </p>
             <p className="text-[10px] text-muted-foreground/40">{formatShort(email.date || email.sent_at)}</p>
           </div>

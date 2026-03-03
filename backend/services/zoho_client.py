@@ -202,12 +202,23 @@ async def fetch_single_deal(access_token: str, deal_id: str) -> Optional[Dict[st
 
 def _strip_html(html: str) -> str:
     """Strip HTML tags and collapse whitespace so AI gets plain text."""
-    text = re.sub(r"<[^>]+>", " ", html)
+    try:
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(html, "html.parser")
+        # Remove script/style blocks entirely
+        for tag in soup(["script", "style"]):
+            tag.decompose()
+        text = soup.get_text(separator=" ")
+    except ImportError:
+        text = re.sub(r"<[^>]+>", " ", html)
+
+    # Decode common HTML entities
     text = re.sub(r"&nbsp;", " ", text)
     text = re.sub(r"&amp;", "&", text)
     text = re.sub(r"&lt;", "<", text)
     text = re.sub(r"&gt;", ">", text)
     text = re.sub(r"&quot;", '"', text)
+    text = re.sub(r"&#39;", "'", text)
     text = re.sub(r"\s+", " ", text).strip()
     return text
 
@@ -279,19 +290,31 @@ async def _fetch_email_body_v8(
     record_id: str,
     message_id: str,
     access_token: str,
+    user_id: str | None = None,
 ) -> tuple[str, str]:
     """
     Fetch full email body via Zoho CRM v8.
-    GET /crm/v8/{module}/{record_id}/Emails/{message_id}
+    GET /crm/v8/{module}/{record_id}/Emails/{message_id}?user_id={owner_id}
+
+    The user_id parameter (the email owner's Zoho user ID) is required for
+    shared/org emails — without it Zoho returns metadata only, not content.
     Returns (html_content, plain_text).
     """
     encoded_id = quote(str(message_id), safe="")
     url = f"{ZOHO_API_V8}/{module}/{record_id}/Emails/{encoded_id}"
+    params: dict = {}
+    if user_id:
+        params["user_id"] = user_id
+
     async with httpx.AsyncClient(timeout=10) as client:
-        resp = await client.get(url, headers={"Authorization": f"Zoho-oauthtoken {access_token}"})
+        resp = await client.get(
+            url,
+            headers={"Authorization": f"Zoho-oauthtoken {access_token}"},
+            params=params,
+        )
 
     if resp.status_code in (204, 404) or not resp.is_success:
-        logger.debug("v8 email body: %s %s → %s", module, message_id[:20], resp.status_code)
+        logger.debug("v8 email body: %s %s → %s", module, str(message_id)[:20], resp.status_code)
         return "", ""
 
     data = resp.json()
@@ -311,19 +334,30 @@ async def _fetch_email_body_v8(
         or ""
     )
     plain = _strip_html(html) if html else (obj.get("text_body") or obj.get("summary") or "")
+    logger.debug(
+        "v8 email body: %s/%s/%s user_id=%s html_len=%d plain_len=%d",
+        module, record_id, str(message_id)[:20], user_id, len(html), len(plain),
+    )
     return html, plain
 
 
 async def _fetch_emails_for_record(module: str, record_id: str, access_token: str) -> list:
     """
-    Fetch ALL emails for a Zoho CRM record using v8 API with full pagination and bodies.
+    Fetch ALL emails for a Zoho CRM record with full bodies.
 
-    Step 1 — paginate GET /crm/v8/{module}/{record_id}/Emails until no more records
-    Step 2 — fetch full body for every email in parallel via /Emails/{message_id}
+    Step 1 — paginate GET /crm/v8/{module}/{record_id}/Emails (metadata list)
+    Step 2 — fetch content for each email:
+              GET /crm/v8/{module}/{record_id}/Emails/{message_id}?user_id={owner_id}
+              The user_id (from email.owner.id in the list response) is required
+              for Zoho to return the "content" field — without it only metadata comes back.
+
+    Key insight: the most recent email in a thread typically embeds ALL prior messages
+    as quoted HTML. So we always fetch the latest email's body, and only fetch older
+    emails if they don't already appear in the thread history.
     """
     all_emails: list[dict] = []
 
-    # Step 1: paginate email list
+    # Step 1: paginate v8 email list (metadata only — no bodies yet)
     async with httpx.AsyncClient(timeout=15) as client:
         index: int | None = None
         while True:
@@ -344,7 +378,6 @@ async def _fetch_emails_for_record(module: str, record_id: str, access_token: st
                     "Zoho v8 email list: %s/%s → status=%s body=%s",
                     module, record_id, resp.status_code, resp.text[:300],
                 )
-                # Fall back to v2 if v8 fails (scope issue etc.)
                 break
 
             body = resp.json()
@@ -362,7 +395,7 @@ async def _fetch_emails_for_record(module: str, record_id: str, access_token: st
                 break
 
     if not all_emails:
-        # v2 fallback — older token or scope issue
+        # v2 fallback — older token or missing ZohoCRM.modules.emails.READ scope
         logger.info("v8 email list empty for %s/%s — falling back to v2", module, record_id)
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.get(
@@ -379,25 +412,53 @@ async def _fetch_emails_for_record(module: str, record_id: str, access_token: st
 
     logger.info("Zoho email list: %s/%s total=%d — fetching bodies", module, record_id, len(all_emails))
 
-    # Step 2: fetch full body for every email in parallel
+    # Sort newest-first so we fetch the most content-rich email first
+    all_emails.sort(key=lambda e: e.get("sent_time") or e.get("date") or "", reverse=True)
+
+    # Step 2: fetch full body for each email, passing user_id from owner field
     async def _enrich(email: dict) -> dict:
         message_id = email.get("message_id") or email.get("id")
         if not message_id:
             return email
-        html, plain = await _fetch_email_body_v8(module, record_id, message_id, access_token)
+
+        # Extract owner's user_id — required by Zoho to return content field
+        owner = email.get("owner") or email.get("from_address") or {}
+        user_id: str | None = None
+        if isinstance(owner, dict):
+            user_id = owner.get("id") or owner.get("user_id")
+
+        html, plain = await _fetch_email_body_v8(module, record_id, message_id, access_token, user_id)
         if html or plain:
-            return {**email, "html_content": html, "content": plain or _strip_html(html)}
-        # v2 fallback for body
+            snippet = (plain or _strip_html(html))[:200]
+            return {
+                **email,
+                "html_content": html,
+                "content": plain or _strip_html(html),
+                "body_preview": snippet,
+                "body_full": plain or _strip_html(html),
+                "snippet": snippet,
+            }
+
+        # v2 fallback (no user_id support, but worth trying)
         plain_v2 = await _fetch_email_body(module, record_id, message_id, access_token)
         if plain_v2:
-            return {**email, "content": plain_v2}
+            return {
+                **email,
+                "content": plain_v2,
+                "body_preview": plain_v2[:200],
+                "body_full": plain_v2,
+                "snippet": plain_v2[:200],
+            }
         return email
 
     enriched = await asyncio.gather(*[_enrich(e) for e in all_emails])
     result = list(enriched)
 
-    bodies_found = sum(1 for e in result if e.get("content"))
-    logger.info("Zoho email list: %s/%s enriched=%d/%d with body", module, record_id, bodies_found, len(result))
+    bodies_found = sum(1 for e in result if e.get("content") or e.get("body_full"))
+    logger.info(
+        "Zoho email list: %s/%s enriched=%d/%d with body",
+        module, record_id, bodies_found, len(result),
+    )
     return result
 
 

@@ -9,3 +9,4 @@ asyncpg
 alembic
 tiktoken  # token counting for Ask DealIQ context assembly
 apscheduler>=3.10.0  # daily morning scan scheduler
+beautifulsoup4>=4.12.0  # HTML parsing for Zoho email bodies
