@@ -148,6 +148,7 @@ async def get_forecast(
         "overforecasted_deals": result.overforecasted_deals,
         "rescue_opportunities": result.rescue_opportunities,
         "already_dead": result.already_dead,
+        "total_rescue_potential": result.total_rescue_potential,
         "total_deals_analysed": result.total_deals_analysed,
         "simulated": result.simulated,
         "generated_at": result.generated_at,
@@ -166,8 +167,8 @@ async def get_forecast(
                 result.this_month_gap,
             )
 
-            # 2. Rep coaching — run all reps in parallel (cap at 5 to save tokens)
-            top_reps = by_rep_dicts[:5]
+            # 2. Rep coaching — all reps in parallel (no arbitrary cap)
+            top_reps = by_rep_dicts
             coaching_tasks = [generate_rep_coaching(rep) for rep in top_reps]
 
             # Fire everything at once

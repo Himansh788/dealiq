@@ -18,6 +18,12 @@ from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass, field
 
 
+# Stages that are terminal / noise — exclude from all pipeline math
+EXCLUDED_STAGES = frozenset({
+    "Duplicate", "Evaluation Failed", "Closed Lost",
+    "Closed Disqualified", "Dropped", "Closed - Lost",
+})
+
 HEALTH_CONFIDENCE: Dict[str, float] = {
     "healthy":  0.85,   # High confidence, some deals always slip at the last minute
     "at_risk":  0.45,   # Meaningful risk, roughly coin-flip adjusted for value
@@ -131,6 +137,7 @@ class ForecastResult:
     overforecasted_deals: List[Dict]    # Deals where rep is most overconfident
     rescue_opportunities: List[Dict]    # At-risk deals closing soon that could be saved
     already_dead: List[Dict]            # Zombie deals still showing in CRM forecast
+    total_rescue_potential: float       # sum(rescue_upside) — computed, not AI-generated
 
     # Meta
     total_deals_analysed: int
@@ -238,6 +245,9 @@ def compute_forecast(scored_deals: List[Dict[str, Any]], simulated: bool = False
     Main forecast computation.
     Expects deals that already have health_score and health_label computed.
     """
+    # Fix 5: strip terminal/noise stages before any math
+    scored_deals = [d for d in scored_deals if d.get("stage") not in EXCLUDED_STAGES]
+
     deals = [_score_single_deal(d) for d in scored_deals]
 
     # ── Top-line numbers ──────────────────────────────────────────────────────
@@ -281,10 +291,22 @@ def compute_forecast(scored_deals: List[Dict[str, Any]], simulated: bool = False
         for d in rep_deals:
             health_counts[d.health_label] = health_counts.get(d.health_label, 0) + 1
 
-        top_deal = max(
-            (d for d in rep_deals if d.health_label == "healthy"),
-            key=lambda d: d.amount,
-            default=None,
+        # Fix 1: zombie_count = health_label zombie + deals overdue 90+ days with health < 40
+        extra_dead = sum(
+            1 for d in rep_deals
+            if d.health_label != "zombie"  # already counted above
+            and d.health_score < 40
+            and d.days_to_close is not None
+            and d.days_to_close < -90
+        )
+        health_counts["zombie"] += extra_dead
+
+        # Fix 2: fall back to highest-amount at_risk then critical — never null if rep has deals
+        top_deal = (
+            max((d for d in rep_deals if d.health_label == "healthy"), key=lambda d: d.amount, default=None)
+            or max((d for d in rep_deals if d.health_label == "at_risk"), key=lambda d: d.amount, default=None)
+            or max((d for d in rep_deals if d.health_label == "critical"), key=lambda d: d.amount, default=None)
+            or (max(rep_deals, key=lambda d: d.amount) if rep_deals else None)
         )
 
         rep_crm = sum(d.crm_expected_value for d in rep_deals)
@@ -326,10 +348,14 @@ def compute_forecast(scored_deals: List[Dict[str, Any]], simulated: bool = False
     by_rep.sort(key=lambda r: r.overconfidence_gap, reverse=True)
 
     # ── By month ─────────────────────────────────────────────────────────────
+    # Fix 4: only future months (closing_date >= first day of current month)
+    today_d = date.today()
+    current_month_start = today_d.replace(day=1)
+
     month_map: Dict[str, List[ScoredDeal]] = {}
     for d in deals:
         cd = _parse_date(d.closing_date)
-        if cd:
+        if cd and cd >= current_month_start:
             key = f"{cd.year}-{cd.month:02d}"
             month_map.setdefault(key, []).append(d)
 
@@ -408,11 +434,18 @@ def compute_forecast(scored_deals: List[Dict[str, Any]], simulated: bool = False
         for d in rescue
     ]
 
-    # Already dead: zombie deals with significant CRM forecast
+    # Fix 1: already_dead = closing_date > 90 days past AND health_score < 40
+    # Also include zombies with large CRM forecast regardless of closing date
     dead = sorted(
-        [d for d in deals if d.health_label == "zombie" and d.crm_expected_value > 100],
+        [
+            d for d in deals
+            if d.health_score < 40 and (
+                (d.days_to_close is not None and d.days_to_close < -90)
+                or (d.health_label == "zombie" and d.crm_expected_value > 100)
+            )
+        ],
         key=lambda d: d.crm_expected_value,
-        reverse=True
+        reverse=True,
     )[:8]
 
     dead_out = [
@@ -432,6 +465,9 @@ def compute_forecast(scored_deals: List[Dict[str, Any]], simulated: bool = False
         for d in dead
     ]
 
+    # Fix 6: total_rescue_potential is a pure sum — never AI-generated
+    total_rescue_potential = round(sum(r["rescue_upside"] for r in rescue_out), 2)
+
     return ForecastResult(
         total_pipeline=round(total_pipeline, 2),
         crm_forecast=round(crm_forecast, 2),
@@ -450,6 +486,7 @@ def compute_forecast(scored_deals: List[Dict[str, Any]], simulated: bool = False
         overforecasted_deals=overforecasted_out,
         rescue_opportunities=rescue_out,
         already_dead=dead_out,
+        total_rescue_potential=total_rescue_potential,
         total_deals_analysed=len(deals),
         simulated=simulated,
         generated_at=datetime.now(timezone.utc).isoformat(),

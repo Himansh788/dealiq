@@ -194,12 +194,20 @@ async def generate_rescue_priorities(
     if not rescue_opportunities:
         return {"generated": True, "priorities": [], "total_rescue_potential": 0, "strategy": ""}
 
-    deals_text = "\n".join([
-        f"{i+1}. {d['name']} ({d['owner']})\n"
-        f"   {_fmt(d['amount'])} | {d['stage']} | Health: {d['health_label']} (score: {d.get('health_score', '?')}) | "
-        f"Closes in {d['days_to_close']}d | Rescue upside: {_fmt(d['rescue_upside'])}"
-        for i, d in enumerate(rescue_opportunities[:8])
-    ])
+    # Build deal lines with EXACT computed values — AI must copy these verbatim
+    deal_lines = []
+    for i, d in enumerate(rescue_opportunities[:8]):
+        deal_lines.append(
+            f"{i+1}. {d['name']} ({d['owner']})\n"
+            f"   Full amount: {_fmt(d['amount'])} (EXACT — do not change)\n"
+            f"   Rescue upside: {_fmt(d['rescue_upside'])} (EXACT — copy this value into 'rescue_upside' field)\n"
+            f"   Stage: {d['stage']} | Health: {d['health_label']} (score: {d.get('health_score', '?')}) | "
+            f"Closes in {d['days_to_close']}d"
+        )
+    deals_text = "\n".join(deal_lines)
+
+    # Pre-compute total so AI cannot hallucinate it
+    computed_total = sum(d["rescue_upside"] for d in rescue_opportunities[:8])
 
     prompt = f"""You are a sales manager trying to close this month's gap. You have limited time and need to prioritise ruthlessly.
 
@@ -208,19 +216,22 @@ Month's forecast gap to close: {_fmt(this_month_gap)}
 AT-RISK DEALS THAT COULD STILL BE SAVED:
 {deals_text}
 
-For each deal: rank by likelihood × impact. High probability of closing + large value = rank 1.
-For each action: be specific — not "follow up" but "send a one-question email: 'Is the legal review blocking us or is something else?'"
+CRITICAL RULES:
+- Use ONLY the deal names, amounts, and rescue_upside values shown above. Do NOT invent or estimate any dollar amounts.
+- Copy the exact "Rescue upside" figure into the "rescue_upside" field for each priority.
+- total_rescue_potential MUST be exactly {_fmt(computed_total)} — do not compute it yourself.
+- For each action: be specific — not "follow up" but "send a one-question email: 'Is the legal review blocking us or is something else?'"
 
 Return ONLY this JSON:
 {{
   "strategy": "One sentence overall rescue strategy for this month — what's the focus?",
-  "total_rescue_potential": 0,
+  "total_rescue_potential": {round(computed_total)},
   "priorities": [
     {{
       "rank": 1,
-      "deal_name": "exact deal name from the list",
+      "deal_name": "exact deal name from the list above",
       "owner": "rep name",
-      "amount": 0,
+      "rescue_upside": 0,
       "action": "Specific, exact action — what to say, who to contact, which channel. 2 sentences max.",
       "why_this_one": "Why ranked here — probability + urgency reasoning (1 sentence)",
       "urgency": "today|this_week|next_week"
@@ -239,13 +250,15 @@ Include ALL deals in the priorities array. Be specific — reference actual deal
         )
         result = _extract_json(resp.choices[0].message.content)
         result["generated"] = True
+        # Always overwrite with server-computed value — never trust AI math
+        result["total_rescue_potential"] = round(computed_total)
         return result
     except Exception as e:
         return {
             "generated": False,
             "strategy": f"Could not generate rescue priorities: {str(e)[:80]}",
             "priorities": [],
-            "total_rescue_potential": 0,
+            "total_rescue_potential": round(computed_total),
         }
 
 
