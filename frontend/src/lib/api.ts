@@ -149,11 +149,11 @@ export const api = {
   getAck: (dealId: string) =>
     fetchWithTimeout(`${API_URL}/analysis/ack/${dealId}`, { headers: authHeaders() }).then(handleResponse),
 
-  postDecision: (dealId: string, decision: string) =>
+  postDecision: (dealId: string, decision: string, notes?: string) =>
     fetchWithTimeout(`${API_URL}/analysis/ack/${dealId}/decide`, {
       method: "POST",
       headers: authHeaders(),
-      body: JSON.stringify({ deal_id: dealId, decision }),
+      body: JSON.stringify({ deal_id: dealId, decision, notes: notes ?? null }),
     }).then(handleResponse),
 
   checkMismatch: (transcript: string, email_draft: string) =>

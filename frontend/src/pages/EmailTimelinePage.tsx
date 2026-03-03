@@ -104,6 +104,97 @@ interface ThreadData {
   source?: string;
 }
 
+// ── Email chain parser ─────────────────────────────────────────────────────────
+
+interface ChainMessage {
+  sender: string;   // raw "Name <email>" or extracted name
+  date:   string;   // raw date string as found in header, may be empty
+  body:   string;   // trimmed body text for this message only
+}
+
+/**
+ * Split a flat plain-text email body into individual messages.
+ * Handles both Outlook "From: ... Date: ... Subject: ..." and
+ * Gmail "On Mon, 1 Dec 2025 at 12:00 PM Foo Bar <foo@bar.com> wrote:" delimiters.
+ * Returns array newest-first; [0] is the outermost (newest) message.
+ */
+function parseEmailChain(raw: string): ChainMessage[] {
+  if (!raw || raw.trim().length < 40) return [];
+
+  // ── Normalise: collapse excessive blank lines ──────────────────────────────
+  const text = raw.replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n");
+
+  // ── Build a list of split positions ───────────────────────────────────────
+  type SplitPoint = { index: number; sender: string; date: string };
+  const splits: SplitPoint[] = [];
+
+  // Pattern A — Gmail / Apple Mail style:
+  //   "On Mon, 1 Dec 2025 at 7:23 PM Darryl Ismail <darryl@innstant.travel> wrote:"
+  const gmailRe =
+    /On\s+(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun),?\s+\w+\s+\d{1,2}(?:,\s+\d{4})?.+?wrote:/gis;
+  let m: RegExpExecArray | null;
+  while ((m = gmailRe.exec(text)) !== null) {
+    // Extract date + sender from the matched header
+    const header = m[0];
+    const dateMatch  = header.match(/On\s+(.+?)\s+[A-Z][a-z]+ [A-Z][a-z]+\s+</i)
+                    ?? header.match(/On\s+(.+?)\s+wrote:/i);
+    const senderMatch = header.match(/([\w\s]+)\s*<([^>]+)>\s+wrote:/i)
+                     ?? header.match(/([^<\n]+)\s+wrote:/i);
+    splits.push({
+      index:  m.index,
+      sender: senderMatch ? senderMatch[1].trim() : "",
+      date:   dateMatch   ? dateMatch[1].trim()   : "",
+    });
+  }
+
+  // Pattern B — Outlook "From:" block (multi-line, terminated by "Subject:"):
+  //   "From: Name <email>\nSent: date\nTo: ...\nSubject: ..."
+  const outlookRe =
+    /^From:\s*(.+?)[\r\n]+(?:Sent|Date):\s*(.+?)[\r\n]+(?:To|Cc):.*?[\r\n]+Subject:/gim;
+  while ((m = outlookRe.exec(text)) !== null) {
+    // Avoid double-counting a position already captured by gmailRe (within ±80 chars)
+    const near = splits.some(s => Math.abs(s.index - m!.index) < 80);
+    if (!near) {
+      splits.push({ index: m.index, sender: m[1].trim(), date: m[2].trim() });
+    }
+  }
+
+  if (splits.length === 0) {
+    // Nothing to split — return the whole text as one message
+    return [{ sender: "", date: "", body: text.trim() }];
+  }
+
+  // Sort by position ascending
+  splits.sort((a, b) => a.index - b.index);
+
+  // ── Slice the text at each split point ────────────────────────────────────
+  const parts: ChainMessage[] = [];
+
+  // First segment: text before the first split is the newest message
+  const firstBody = text.slice(0, splits[0].index).trim();
+  if (firstBody) parts.push({ sender: "", date: "", body: firstBody });
+
+  for (let i = 0; i < splits.length; i++) {
+    const sp   = splits[i];
+    const end  = splits[i + 1]?.index ?? text.length;
+    // Find the end of the header line(s) — skip past "Subject: ..." line
+    const afterHeader = text.indexOf("\n", sp.index + 10);
+    const bodyStart   = afterHeader > -1 ? afterHeader : sp.index;
+    const body        = text.slice(bodyStart, end).trim();
+    // Strip nested quoted lines (">") from this body slice
+    const cleanBody   = body
+      .split("\n")
+      .filter(line => !line.trimStart().startsWith(">"))
+      .join("\n")
+      .trim();
+    if (cleanBody) {
+      parts.push({ sender: sp.sender, date: sp.date, body: cleanBody });
+    }
+  }
+
+  return parts;
+}
+
 // ── Constants ──────────────────────────────────────────────────────────────────
 
 const HEALTH_DOT: Record<string, string> = {
@@ -234,6 +325,29 @@ function normaliseDeadline(d: Deadline | string): Deadline {
   return d;
 }
 
+// Per-thread accent colours — cycles for > 4 threads
+const THREAD_COLORS = [
+  { border: "border-l-4 border-purple-500", badgeCls: "bg-purple-500/10 text-purple-400 border-purple-500/30" },
+  { border: "border-l-4 border-blue-500",   badgeCls: "bg-blue-500/10 text-blue-400 border-blue-500/30"   },
+  { border: "border-l-4 border-teal-500",   badgeCls: "bg-teal-500/10 text-teal-400 border-teal-500/30"   },
+  { border: "border-l-4 border-amber-500",  badgeCls: "bg-amber-500/10 text-amber-400 border-amber-500/30" },
+];
+
+/** Returns true when a deadline string (ISO or human-readable) is in the past. */
+function isDeadlineExpired(deadline: string | null | undefined): boolean {
+  if (!deadline) return false;
+  try {
+    // ISO parse first
+    const d = parseISO(deadline);
+    if (!isNaN(d.getTime())) return d < new Date();
+    // Human-readable fallback: strip ordinal suffixes ("31st" → "31")
+    const cleaned = deadline.replace(/(\d+)(st|nd|rd|th)/i, "$1");
+    const d2 = new Date(cleaned);
+    if (!isNaN(d2.getTime())) return d2 < new Date();
+    return false;
+  } catch { return false; }
+}
+
 // Avatar colour palette — deterministic by name
 const AVATAR_COLORS = [
   "bg-blue-500/20 text-blue-400",
@@ -285,20 +399,35 @@ function InsightSection({
 // ── Draft Email Modal ──────────────────────────────────────────────────────────
 
 function DraftEmailModal({
-  open, onClose, nextStep, dealName,
+  open, onClose, nextStep, dealName, contactEmail, threadSubject,
 }: {
   open: boolean;
   onClose: () => void;
   nextStep: string;
   dealName: string;
+  contactEmail?: string;
+  threadSubject?: string;
 }) {
   const { toast } = useToast();
   const [copied, setCopied] = useState(false);
-  const subject = `Following up — ${dealName}`;
-  const body = `Hi,\n\nFollowing up on our previous conversation.\n\n${nextStep}\n\nWould love to connect — please let me know your availability.\n\nBest,`;
+
+  const toField   = contactEmail  || "";
+  const subject   = threadSubject ? `Re: ${threadSubject}` : `Following up — ${dealName}`;
+  const bodyInit  = nextStep
+    ? `Hi,\n\nFollowing up on our previous conversation.\n\nNext step: ${nextStep}\n\nWould love to connect — please let me know your availability.\n\nBest,`
+    : `Hi,\n\nFollowing up on our previous conversation.\n\nWould love to connect — please let me know your availability.\n\nBest,`;
+
+  const [body, setBody] = useState(bodyInit);
+  // Reset body when modal opens with new content
+  const prevOpen = useRef(false);
+  useEffect(() => {
+    if (open && !prevOpen.current) setBody(bodyInit);
+    prevOpen.current = open;
+  }, [open]);
 
   const copy = () => {
-    navigator.clipboard.writeText(`Subject: ${subject}\n\n${body}`);
+    const text = `To: ${toField}\nSubject: ${subject}\n\n${body}`;
+    navigator.clipboard.writeText(text);
     setCopied(true);
     toast({ title: "Copied to clipboard" });
     setTimeout(() => setCopied(false), 2000);
@@ -314,6 +443,12 @@ function DraftEmailModal({
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3 mt-1">
+          {toField && (
+            <div>
+              <p className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wider mb-1">To</p>
+              <p className="rounded-md border border-border/40 bg-secondary/30 px-3 py-2 text-xs text-foreground">{toField}</p>
+            </div>
+          )}
           <div>
             <p className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wider mb-1">Subject</p>
             <p className="rounded-md border border-border/40 bg-secondary/30 px-3 py-2 text-xs text-foreground">{subject}</p>
@@ -323,7 +458,8 @@ function DraftEmailModal({
             <textarea
               className="w-full rounded-md border border-border/40 bg-secondary/30 px-3 py-2 text-xs text-foreground resize-none focus:outline-none focus:ring-1 focus:ring-primary/40"
               rows={8}
-              defaultValue={body}
+              value={body}
+              onChange={e => setBody(e.target.value)}
             />
           </div>
           <div className="flex gap-2">
@@ -341,6 +477,61 @@ function DraftEmailModal({
   );
 }
 
+// ── QuotedMessage (collapsed card inside the reply history) ───────────────────
+
+function QuotedMessage({ msg, depth }: { msg: ChainMessage; depth: number }) {
+  const [open, setOpen] = useState(false);
+  const isOurs = msg.sender ? msg.sender.toLowerCase().includes(OUR_DOMAIN) : false;
+  const preview = msg.body.slice(0, 120);
+
+  return (
+    <div className={cn(
+      "rounded-lg border text-[11px] transition-colors",
+      isOurs
+        ? "border-primary/20 bg-primary/5"
+        : "border-border/30 bg-muted/20",
+    )}>
+      <button
+        className="w-full flex items-center gap-2 px-3 py-2 text-left"
+        onClick={e => { e.stopPropagation(); setOpen(v => !v); }}
+      >
+        {/* Sender avatar */}
+        <div className={cn(
+          "h-5 w-5 rounded-full flex items-center justify-center text-[9px] font-bold shrink-0",
+          isOurs ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"
+        )}>
+          {msg.sender ? senderInitials(msg.sender) : "?"}
+        </div>
+        <div className="flex-1 min-w-0 space-y-0.5">
+          <div className="flex items-center gap-2">
+            <span className="font-semibold text-foreground/80 truncate">
+              {msg.sender ? senderName(msg.sender) : "Unknown"}
+            </span>
+            {msg.date && (
+              <span className="text-[10px] text-muted-foreground/50 shrink-0">
+                {msg.date.length > 30 ? msg.date.slice(0, 30) + "…" : msg.date}
+              </span>
+            )}
+          </div>
+          {!open && (
+            <p className="text-muted-foreground/60 truncate">{preview}…</p>
+          )}
+        </div>
+        {open
+          ? <ChevronDown className="h-3 w-3 text-muted-foreground/40 shrink-0" />
+          : <ChevronRight className="h-3 w-3 text-muted-foreground/40 shrink-0" />}
+      </button>
+      {open && (
+        <div className="px-3 pb-3 border-t border-border/20 pt-2">
+          <p className="text-[11px] leading-relaxed text-foreground/80 whitespace-pre-wrap">
+            {msg.body}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── MessageBubble ──────────────────────────────────────────────────────────────
 
 function MessageBubble({
@@ -349,9 +540,9 @@ function MessageBubble({
   email: EmailMessage;
   defaultExpanded?: boolean;
 }) {
-  const [expanded, setExpanded] = useState(defaultExpanded);
-  const [showFull, setShowFull] = useState(false);
-  const [hoverDate, setHoverDate] = useState(false);
+  const [expanded,     setExpanded]     = useState(defaultExpanded);
+  const [showHistory,  setShowHistory]  = useState(false);
+  const [hoverDate,    setHoverDate]    = useState(false);
 
   const outbound = isOurTeam(email.from) || email.direction === "sent";
   const name = senderName(email.from);
@@ -361,10 +552,16 @@ function MessageBubble({
   const safeHtml = hasHtml ? sanitizeEmailHtml(email.html_content!) : null;
 
   const plainBody = email.body_full || email.body_preview || email.snippet || "";
-  const cleanPlain = stripQuotedText(plainBody);
-  const previewText = cleanPlain.slice(0, 180);
 
-  const hasBody = Boolean(safeHtml || cleanPlain);
+  // Parse the reply chain from the plain body
+  const chain = !safeHtml ? parseEmailChain(plainBody) : [];
+  // chain[0] = newest message (this email's actual content)
+  // chain[1..] = quoted history
+  const latestBody  = chain[0]?.body ?? stripQuotedText(plainBody);
+  const quotedChain = chain.slice(1);
+
+  const previewText = latestBody.slice(0, 180);
+  const hasBody = Boolean(safeHtml || latestBody);
   const dateStr = email.date || email.sent_at;
 
   return (
@@ -418,10 +615,10 @@ function MessageBubble({
             : <ChevronRight className="h-3 w-3 text-muted-foreground/40 shrink-0 mt-0.5" />}
         </button>
 
-        {/* Preview when collapsed */}
+        {/* Preview when collapsed — only the newest message, no chain noise */}
         {!expanded && hasBody && (
           <p className="px-4 pb-3 text-[12px] text-muted-foreground line-clamp-2 leading-relaxed">
-            {previewText}…
+            {previewText}{previewText.length >= 180 ? "…" : ""}
           </p>
         )}
 
@@ -429,25 +626,45 @@ function MessageBubble({
         {expanded && (
           <>
             <Separator className="opacity-30 mx-4" />
-            <div className="px-4 py-3">
+            <div className="px-4 py-3 space-y-3">
               {hasBody ? (
                 <>
+                  {/* ── Latest message body ── */}
                   {safeHtml ? (
                     <div
                       className="email-body text-[12px] leading-relaxed text-foreground [&_a]:text-primary [&_a]:underline [&_p]:mb-2 [&_div]:mb-1"
-                      dangerouslySetInnerHTML={{ __html: showFull ? sanitizeEmailHtml(email.html_content!, false) : safeHtml }}
+                      dangerouslySetInnerHTML={{ __html: safeHtml }}
                     />
                   ) : (
                     <p className="text-[12px] leading-relaxed text-foreground whitespace-pre-wrap">
-                      {showFull ? plainBody : cleanPlain}
+                      {latestBody}
                     </p>
                   )}
-                  <button
-                    className="mt-2 text-[10px] text-muted-foreground/50 hover:text-muted-foreground underline transition-colors"
-                    onClick={e => { e.stopPropagation(); setShowFull(v => !v); }}
-                  >
-                    {showFull ? "Hide quoted thread ▴" : "Show quoted text ▾"}
-                  </button>
+
+                  {/* ── Quoted reply chain ── */}
+                  {quotedChain.length > 0 && (
+                    <div className="mt-2">
+                      <button
+                        className="flex items-center gap-1.5 text-[10px] text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+                        onClick={e => { e.stopPropagation(); setShowHistory(v => !v); }}
+                      >
+                        {showHistory
+                          ? <ChevronDown className="h-3 w-3" />
+                          : <ChevronRight className="h-3 w-3" />}
+                        {showHistory
+                          ? "Hide reply history"
+                          : `Show ${quotedChain.length} earlier message${quotedChain.length > 1 ? "s" : ""}`}
+                      </button>
+
+                      {showHistory && (
+                        <div className="mt-2 space-y-2 border-l-2 border-border/30 pl-3">
+                          {quotedChain.map((msg, qi) => (
+                            <QuotedMessage key={qi} msg={msg} depth={qi} />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </>
               ) : (
                 <p className="text-[11px] italic text-muted-foreground/40">
@@ -465,10 +682,11 @@ function MessageBubble({
 // ── ThreadView ─────────────────────────────────────────────────────────────────
 
 function ThreadView({
-  thread, extracted,
+  thread, extracted, threadIndex = 0,
 }: {
   thread: Thread;
   extracted?: Extracted | null;
+  threadIndex?: number;
 }) {
   const [open, setOpen] = useState(true);
 
@@ -476,16 +694,38 @@ function ThreadView({
   const momentum  = (extracted?.momentum  || "").toLowerCase();
   const health    = sentiment && momentum ? threadHealthBadge(sentiment, momentum) : null;
 
+  const color = THREAD_COLORS[threadIndex % THREAD_COLORS.length];
+
+  // Red date if last activity was > 60 days ago
+  const ageInDays = (() => {
+    if (!thread.latest_date) return null;
+    try { const d = parseISO(thread.latest_date); return isNaN(d.getTime()) ? null : differenceInDays(new Date(), d); }
+    catch { return null; }
+  })();
+  const dateIsOld = ageInDays !== null && ageInDays > 60;
+
+  // Sent/received indicator from messages
+  const hasBuyerReply = thread.messages.some(m => !isOurTeam(m.from) && m.direction !== "sent");
+
   // Build unique participant initials for avatar stack (max 3)
   const uniqueParticipants = [...new Set(thread.participants ?? [])].slice(0, 4);
 
   return (
-    <div className="rounded-xl border border-border/30 bg-card/20 overflow-hidden transition-all duration-200 hover:border-border/50">
+    <div className={cn(
+      "rounded-xl border border-border/30 bg-card/20 overflow-hidden transition-all duration-200 hover:border-border/50",
+      color.border,
+    )}>
       <button
         className="w-full flex items-center gap-2.5 px-4 py-3 text-left bg-card/50 hover:bg-card/70 transition-colors"
         onClick={() => setOpen(v => !v)}
       >
-        <Mail className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0" />
+        {/* Thread number badge */}
+        <Badge
+          variant="outline"
+          className={cn("text-[9px] h-4 px-1.5 shrink-0 font-bold", color.badgeCls)}
+        >
+          Thread {threadIndex + 1}
+        </Badge>
 
         {/* Subject */}
         <span className="text-xs font-medium text-foreground flex-1 truncate">{thread.subject}</span>
@@ -496,6 +736,19 @@ function ThreadView({
             {health.emoji} {health.label}
           </Badge>
         )}
+
+        {/* Sent/received pill */}
+        <Badge
+          variant="outline"
+          className={cn(
+            "text-[9px] h-4 px-1.5 shrink-0",
+            hasBuyerReply
+              ? "text-green-400 border-green-500/30 bg-green-500/10"
+              : "text-orange-400 border-orange-500/30 bg-orange-500/10"
+          )}
+        >
+          {hasBuyerReply ? "Replied" : "No reply"}
+        </Badge>
 
         {/* Participant avatar stack */}
         {uniqueParticipants.length > 0 && (
@@ -518,7 +771,10 @@ function ThreadView({
           </div>
         )}
 
-        <span className="text-[10px] text-muted-foreground/50 shrink-0">
+        <span className={cn(
+          "text-[10px] shrink-0",
+          dateIsOld ? "text-red-400/80" : "text-muted-foreground/50"
+        )}>
           {thread.message_count} msg{thread.message_count !== 1 ? "s" : ""} · {formatRelative(thread.latest_date)}
         </span>
         {open
@@ -565,17 +821,19 @@ const URGENCY_CLS: Record<string, string> = {
 };
 
 function AIInsightsPanel({
-  extracted, onReanalyse, analysing, onDraftEmail, dealName,
+  extracted, onReanalyse, analysing, onDraftEmail, dealName, dealId,
 }: {
   extracted: Extracted;
   onReanalyse: () => void;
   analysing: boolean;
   onDraftEmail?: () => void;
   dealName?: string;
+  dealId?: string;
 }) {
   const [showOpenQ,  setShowOpenQ]  = useState(false);
   const [showRelMap, setShowRelMap] = useState(false);
-  const [doneStep,   setDoneStep]   = useState(false);
+  const [doneStep,      setDoneStep]      = useState(false);
+  const [confirmingDone, setConfirmingDone] = useState(false);
   const [checkedCommitments, setCheckedCommitments] = useState<Set<number>>(new Set());
 
   const sentiment  = (extracted.sentiment || "").toLowerCase();
@@ -590,12 +848,16 @@ function AIInsightsPanel({
 
   const allCommitmentsChecked = commitments.length > 0 && checkedCommitments.size === commitments.length;
 
-  const toggleCommitment = (i: number) => {
+  const toggleCommitment = (i: number, commitment: Commitment) => {
+    const alreadyChecked = checkedCommitments.has(i);
     setCheckedCommitments(prev => {
       const next = new Set(prev);
       next.has(i) ? next.delete(i) : next.add(i);
       return next;
     });
+    if (!alreadyChecked && dealId) {
+      api.postDecision(dealId, "commitment_met", commitment.what).catch(() => {});
+    }
   };
 
   return (
@@ -659,7 +921,7 @@ function AIInsightsPanel({
               {extracted.next_step}
             </p>
           </div>
-          {!doneStep && (
+          {!doneStep && !confirmingDone && (
             <div className="flex gap-2 mt-2.5">
               {onDraftEmail && (
                 <Button
@@ -675,17 +937,46 @@ function AIInsightsPanel({
                 size="sm"
                 variant="outline"
                 className="flex-1 h-7 text-xs border-green-500/30 text-green-400 hover:bg-green-500/10 gap-1.5"
-                onClick={() => setDoneStep(true)}
+                onClick={() => setConfirmingDone(true)}
               >
                 <Check className="h-3 w-3" />
                 Mark Done
               </Button>
             </div>
           )}
+          {confirmingDone && !doneStep && (
+            <div className="mt-2.5 rounded-lg border border-green-500/30 bg-green-500/8 px-3 py-2 space-y-2">
+              <p className="text-[11px] text-green-400/90">Mark this next step as complete?</p>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  className="flex-1 h-6 text-[11px] bg-green-600 hover:bg-green-700 text-white"
+                  onClick={() => {
+                    setDoneStep(true);
+                    setConfirmingDone(false);
+                    if (dealId && extracted.next_step) {
+                      api.postDecision(dealId, "next_step_completed", extracted.next_step).catch(() => {});
+                    }
+                  }}
+                >
+                  <CheckCircle2 className="h-3 w-3 mr-1" />
+                  Confirm
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="flex-1 h-6 text-[11px] border-border/40"
+                  onClick={() => setConfirmingDone(false)}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          )}
           {doneStep && (
             <p className="mt-2 flex items-center gap-1.5 text-[11px] text-green-400">
               <CheckCircle2 className="h-3 w-3" />
-              Marked as done ·{" "}
+              ✓ Completed ·{" "}
               <button className="underline hover:no-underline" onClick={() => setDoneStep(false)}>
                 Undo
               </button>
@@ -768,13 +1059,15 @@ function AIInsightsPanel({
             ) : (
               commitments.map((c, i) => {
                 const checked = checkedCommitments.has(i);
+                const expired = isDeadlineExpired(c.deadline);
+                const isOverdue = c.status === "overdue" || expired;
                 return (
                   <button
                     key={i}
-                    onClick={() => toggleCommitment(i)}
+                    onClick={() => toggleCommitment(i, c)}
                     className={cn(
                       "w-full flex gap-2 rounded-lg px-2.5 py-2 text-left text-[11px] transition-all duration-200 hover:bg-card/70",
-                      c.status === "overdue" && !checked
+                      isOverdue && !checked
                         ? "bg-red-500/10 border border-red-500/20"
                         : "bg-card/50 border border-transparent"
                     )}
@@ -783,22 +1076,29 @@ function AIInsightsPanel({
                       ? <CheckSquare className="h-3.5 w-3.5 text-green-400 shrink-0 mt-0.5" />
                       : c.status === "fulfilled"
                       ? <CheckCircle2 className="h-3.5 w-3.5 text-green-400 shrink-0 mt-0.5" />
-                      : c.status === "overdue"
+                      : isOverdue
                       ? <AlertTriangle className="h-3.5 w-3.5 text-red-400 shrink-0 mt-0.5" />
                       : <Square className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0 mt-0.5" />}
                     <div className="flex-1 min-w-0">
-                      {c.by && (
-                        <span className={cn("font-semibold", checked ? "text-muted-foreground/50 line-through" : "text-foreground/70")}>
-                          {c.by}:{" "}
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {c.by && (
+                          <span className={cn("font-semibold", checked ? "text-muted-foreground/50 line-through" : "text-foreground/70")}>
+                            {c.by}:{" "}
+                          </span>
+                        )}
+                        <span className={cn(checked ? "text-muted-foreground/50 line-through" : "text-foreground/80")}>
+                          {c.what}
                         </span>
-                      )}
-                      <span className={cn(checked ? "text-muted-foreground/50 line-through" : "text-foreground/80")}>
-                        {c.what}
-                      </span>
+                        {expired && !checked && (
+                          <Badge variant="outline" className="text-[9px] h-4 px-1.5 text-red-400 border-red-500/40 bg-red-500/10 shrink-0">
+                            ⚠ EXPIRED
+                          </Badge>
+                        )}
+                      </div>
                       {c.deadline && (
-                        <span className={cn("ml-1.5 text-[10px]",
+                        <span className={cn("text-[10px]",
                           checked ? "text-muted-foreground/40" :
-                          c.status === "overdue" ? "text-red-400" : "text-muted-foreground/60"
+                          isOverdue ? "text-red-400" : "text-muted-foreground/60"
                         )}>
                           · {c.deadline}
                         </span>
@@ -1069,11 +1369,27 @@ export default function EmailTimelinePage() {
   const lastBuyerEmail = [...emails]
     .reverse()
     .find(e => !isOurTeam(e.from) && e.direction !== "sent");
-  const daysSinceReply = lastBuyerEmail
-    ? differenceInDays(new Date(), parseISO(lastBuyerEmail.date || lastBuyerEmail.sent_at || ""))
-    : null;
+  const daysSinceReply = (() => {
+    if (!lastBuyerEmail) return null;
+    const ds = lastBuyerEmail.date || lastBuyerEmail.sent_at || "";
+    if (!ds) return null;
+    try { const d = parseISO(ds); return isNaN(d.getTime()) ? null : differenceInDays(new Date(), d); }
+    catch { return null; }
+  })();
 
   const noReply = receivedCount === 0 && sentCount > 0;
+
+  // Last sent email date for no-reply banner
+  const lastSentEmail = [...emails]
+    .reverse()
+    .find(e => isOurTeam(e.from) || e.direction === "sent");
+  const lastSentAgo = (() => {
+    if (!lastSentEmail) return null;
+    const ds = lastSentEmail.date || lastSentEmail.sent_at || "";
+    if (!ds) return null;
+    try { const d = parseISO(ds); return isNaN(d.getTime()) ? null : formatDistanceToNow(d, { addSuffix: true }); }
+    catch { return null; }
+  })();
 
   return (
     <div className="min-h-screen bg-background">
@@ -1191,6 +1507,7 @@ export default function EmailTimelinePage() {
                       key={t.thread_id || i}
                       thread={t}
                       extracted={thread?.extracted}
+                      threadIndex={i}
                     />
                   ))
                 : emails.map((e, i) => (
@@ -1217,11 +1534,19 @@ export default function EmailTimelinePage() {
                   <p className="text-[10px] text-muted-foreground">Sent</p>
                   <p className="text-[9px] text-muted-foreground/50">by our team</p>
                 </div>
-                {/* Received — red if 0 */}
-                <div className="space-y-0.5">
-                  <p className={cn("text-lg font-bold", receivedCount === 0 && sentCount > 0 ? "text-red-400" : "text-foreground")}>
-                    {receivedCount}
-                  </p>
+                {/* Received — red bg + 📭 icon if 0 */}
+                <div className={cn(
+                  "space-y-0.5 rounded-lg px-1 py-0.5 transition-colors",
+                  receivedCount === 0 && sentCount > 0 ? "bg-red-950/40" : ""
+                )}>
+                  <div className="flex items-center justify-center gap-1">
+                    {receivedCount === 0 && sentCount > 0 && (
+                      <span className="text-sm">📭</span>
+                    )}
+                    <p className={cn("text-lg font-bold", receivedCount === 0 && sentCount > 0 ? "text-red-400" : "text-foreground")}>
+                      {receivedCount}
+                    </p>
+                  </div>
                   <p className={cn("text-[10px]", receivedCount === 0 && sentCount > 0 ? "text-red-400/70" : "text-muted-foreground")}>
                     Received
                   </p>
@@ -1237,7 +1562,7 @@ export default function EmailTimelinePage() {
 
               {/* One-sided conversation warning */}
               {noReply && (
-                <p className="text-[10px] text-center text-red-400/70 -mt-2">
+                <p className="text-sm border-l-4 border-orange-500 pl-3 text-orange-400/80 -mt-2">
                   One-sided conversation detected. Consider a different approach.
                 </p>
               )}
@@ -1257,13 +1582,13 @@ export default function EmailTimelinePage() {
                       <span className="text-xs font-bold text-orange-400">No buyer response yet</span>
                     </div>
                     <p className="text-[11px] text-orange-300/80 leading-relaxed">
-                      {daysSinceReply !== null
-                        ? `No reply in ${daysSinceReply} day${daysSinceReply !== 1 ? "s" : ""}. The buyer has gone quiet.`
+                      {lastSentAgo
+                        ? `No buyer response · Last email sent ${lastSentAgo}`
                         : `${sentCount} emails sent with no reply. The buyer has gone quiet.`}
                     </p>
                     <Button
                       size="sm"
-                      className="h-7 w-full text-xs bg-orange-500/20 text-orange-300 border border-orange-500/30 hover:bg-orange-500/30 gap-1.5"
+                      className="h-7 w-full text-xs bg-orange-500/20 text-orange-300 border border-orange-500/30 hover:bg-orange-600 hover:text-white transition-colors gap-1.5"
                       variant="outline"
                       onClick={() => setDraftModalOpen(true)}
                     >
@@ -1292,6 +1617,7 @@ export default function EmailTimelinePage() {
                   analysing={analysing}
                   onDraftEmail={() => setDraftModalOpen(true)}
                   dealName={selectedDeal?.name}
+                  dealId={selectedDealId || undefined}
                 />
               ) : (
                 <div className="rounded-xl border border-border/20 bg-card/30 p-4 space-y-3 text-center">
@@ -1318,6 +1644,11 @@ export default function EmailTimelinePage() {
         onClose={() => setDraftModalOpen(false)}
         nextStep={thread?.extracted?.next_step ?? ""}
         dealName={selectedDeal?.name ?? "this deal"}
+        contactEmail={
+          // First non-our-team participant from threads[0]
+          threads[0]?.participants?.find(p => !isOurTeam(p)) ?? undefined
+        }
+        threadSubject={threads[0]?.subject ?? undefined}
       />
     </div>
   );
