@@ -6,20 +6,23 @@ import AskDealIQPanel from "@/components/deal/AskDealIQPanel";
 import PipelineQABar from "@/components/PipelineQABar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Sparkles, LayoutDashboard } from "lucide-react";
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import { Sparkles, LayoutDashboard, ChevronsUpDown, Check } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface Deal {
   id: string;
-  deal_name: string;
+  name: string;
   company: string;
   health_score: number;
   health_label: string;
@@ -43,6 +46,7 @@ export default function AskDealIQPage() {
   const [deals,          setDeals]          = useState<Deal[]>([]);
   const [selectedDealId, setSelectedDealId] = useState<string>("");
   const [loading,        setLoading]        = useState(true);
+  const [open,           setOpen]           = useState(false);
 
   useEffect(() => {
     api.getAllDeals()
@@ -89,29 +93,57 @@ export default function AskDealIQPage() {
             </p>
 
             {/* Deal selector */}
-            <div className="max-w-xs">
+            <div>
               {loading ? (
-                <Skeleton className="h-8 w-48 rounded-lg" />
+                <Skeleton className="h-8 w-56 rounded-lg" />
               ) : (
-                <Select value={selectedDealId} onValueChange={setSelectedDealId}>
-                  <SelectTrigger className="h-8 text-xs border-border/50 min-w-[200px]">
-                    <SelectValue placeholder="Select a deal…" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {deals.map((d) => (
-                      <SelectItem key={d.id} value={d.id} className="text-xs">
-                        <div className="flex items-center gap-2">
-                          <span className={cn(
-                            "h-1.5 w-1.5 rounded-full shrink-0",
-                            HEALTH_DOT[d.health_label] ?? "bg-muted-foreground"
-                          )} />
-                          <span>{d.deal_name}</span>
-                          <span className="text-muted-foreground/60">{d.stage}</span>
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Popover open={open} onOpenChange={setOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      role="combobox"
+                      aria-expanded={open}
+                      className="h-8 min-w-[220px] max-w-xs justify-between text-xs border-border/50 font-normal"
+                    >
+                      {selectedDeal
+                        ? <span className="flex items-center gap-2 truncate">
+                            <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", HEALTH_DOT[selectedDeal.health_label] ?? "bg-muted-foreground")} />
+                            <span className="truncate">{selectedDeal.name}</span>
+                          </span>
+                        : <span className="text-muted-foreground">Select a deal…</span>
+                      }
+                      <ChevronsUpDown className="ml-2 h-3 w-3 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[320px] p-0" align="start">
+                    <Command>
+                      <CommandInput placeholder="Search deals…" className="h-8 text-xs" />
+                      <CommandList>
+                        <CommandEmpty className="py-4 text-center text-xs text-muted-foreground">
+                          No deals found.
+                        </CommandEmpty>
+                        <CommandGroup>
+                          {deals.map((d) => (
+                            <CommandItem
+                              key={d.id}
+                              value={`${d.name} ${d.stage}`}
+                              onSelect={() => {
+                                setSelectedDealId(d.id === selectedDealId ? "" : d.id);
+                                setOpen(false);
+                              }}
+                              className="text-xs"
+                            >
+                              <span className={cn("mr-2 h-1.5 w-1.5 rounded-full shrink-0", HEALTH_DOT[d.health_label] ?? "bg-muted-foreground")} />
+                              <span className="flex-1 truncate">{d.name}</span>
+                              {d.stage && <span className="ml-2 text-muted-foreground/60 shrink-0">{d.stage}</span>}
+                              <Check className={cn("ml-2 h-3 w-3 shrink-0", d.id === selectedDealId ? "opacity-100" : "opacity-0")} />
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
               )}
             </div>
 
@@ -121,13 +153,16 @@ export default function AskDealIQPage() {
                 className="ml-auto text-[10px] border-border/40 text-muted-foreground"
               >
                 <LayoutDashboard className="mr-1 h-2.5 w-2.5" />
-                {selectedDeal.stage}
+                {selectedDeal.name}
+                {selectedDeal.stage && (
+                  <span className="ml-1 opacity-60">— {selectedDeal.stage}</span>
+                )}
               </Badge>
             )}
           </div>
 
           {selectedDeal ? (
-            <AskDealIQPanel dealId={selectedDeal.id} dealName={selectedDeal.deal_name} />
+            <AskDealIQPanel dealId={selectedDeal.id} dealName={selectedDeal.name} />
           ) : (
             <div className="flex flex-col items-center gap-2 rounded-xl border border-border/30 bg-card/40 px-6 py-12">
               <Sparkles className="h-7 w-7 text-violet-400/40" />

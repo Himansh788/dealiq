@@ -51,9 +51,10 @@ async def get_today_actions(
         ]
         return {"actions": actions, "total": len(actions), "source": "demo"}
 
-    from services.zoho_client import fetch_deals
+    from services.zoho_client import fetch_deals, map_zoho_deal
     try:
-        deals = await fetch_deals(session.get("access_token", ""), per_page=200)
+        raw_deals = await fetch_deals(session.get("access_token", ""), per_page=200)
+        deals = [map_zoho_deal(r) for r in raw_deals]
     except Exception:
         deals = []
 

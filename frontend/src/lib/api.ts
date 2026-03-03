@@ -315,18 +315,25 @@ export const api = {
   getEmailThread: (dealId: string) =>
     fetchWithTimeout(`${API_URL}/email-intel/threads/${dealId}`, { headers: authHeaders() }).then(handleResponse),
 
-  // ── Google Auth ───────────────────────────────────────────────────────────
-  getGoogleAuthStatus: () =>
-    fetchWithTimeout(`${API_URL}/google-auth/status`, { headers: authHeaders() }).then(handleResponse),
+  syncEmailsForDeal: (dealId: string, contactEmails: string[] = []) =>
+    fetchWithTimeout(`${API_URL}/email-intel/sync`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ deal_id: dealId, contact_emails: contactEmails }),
+    }).then(handleResponse),
 
-  connectGoogle: () =>
-    fetchWithTimeout(`${API_URL}/google-auth/connect`, {
+  // ── Microsoft / Outlook Auth ──────────────────────────────────────────────
+  getOutlookStatus: () =>
+    fetchWithTimeout(`${API_URL}/ms-auth/status`, { headers: authHeaders() }).then(handleResponse),
+
+  connectOutlook: () =>
+    fetchWithTimeout(`${API_URL}/ms-auth/connect`, {
       method: "POST",
       headers: authHeaders(),
     }).then(handleResponse),
 
-  disconnectGoogle: () =>
-    fetchWithTimeout(`${API_URL}/google-auth/disconnect`, {
+  disconnectOutlook: () =>
+    fetchWithTimeout(`${API_URL}/ms-auth/disconnect`, {
       method: "DELETE",
       headers: authHeaders(),
     }).then(handleResponse),

@@ -62,16 +62,19 @@ def _check_silent_deal(deal: dict[str, Any]) -> dict[str, Any] | None:
     days = _days_since(deal.get("last_activity_time"))
     if days is not None and days >= SILENT_DEAL_DAYS:
         urgency = 90 if days >= 30 else 75 if days >= 21 else 60
+        stage = deal.get("stage", "")
+        company = deal.get("account_name", deal.get("company", "the prospect"))
+        suggested = _STAGE_NEXT_STEP.get(stage, "Send a re-engagement email to restart the conversation.")
         return {
             "type": "silent_deal",
             "deal_id": deal["id"],
             "deal_name": deal.get("name", deal.get("deal_name", "Unknown")),
-            "company": deal.get("account_name", deal.get("company", "")),
+            "company": company,
             "amount": deal.get("amount", 0),
-            "stage": deal.get("stage", ""),
+            "stage": stage,
             "urgency_score": urgency,
-            "context": f"No activity for {days} days. Deal at risk of going cold.",
-            "suggested_action": "Send re-engagement email to restart conversation.",
+            "context": f"No activity for {days} days. {company} is at risk of going cold — still in {stage}.",
+            "suggested_action": suggested,
         }
     return None
 
@@ -92,26 +95,40 @@ def _check_overdue_close(deal: dict[str, Any]) -> dict[str, Any] | None:
                 "amount": deal.get("amount", 0),
                 "stage": deal.get("stage", ""),
                 "urgency_score": 85,
-                "context": f"Close date passed {overdue_days} day{'s' if overdue_days != 1 else ''} ago. Still in {deal.get('stage', '?')}.",
-                "suggested_action": "Get a new commitment date or reassess deal viability.",
+                "context": f"Close date passed {overdue_days} day{'s' if overdue_days != 1 else ''} ago. {deal.get('account_name', deal.get('company', 'Prospect'))} is still in {deal.get('stage', '?')} with no updated timeline.",
+                "suggested_action": f"Contact {deal.get('account_name', deal.get('company', 'the buyer'))} to get a revised commitment date or reassess deal viability.",
             }
     except Exception:
         pass
     return None
 
 
+_STAGE_NEXT_STEP: dict[str, str] = {
+    "Qualification":        "Schedule a discovery call to qualify budget, authority, and timeline.",
+    "Needs Analysis":       "Send a follow-up with a summary of pain points and proposed solution.",
+    "Value Proposition":    "Book a tailored demo and share a relevant case study.",
+    "Proposal/Price Quote": "Follow up on the proposal — ask if they have questions on pricing or scope.",
+    "Negotiation/Review":   "Set a decision deadline and offer a call with legal or finance to unblock.",
+    "Id. Decision Makers":  "Map remaining stakeholders and schedule calls with each decision maker.",
+}
+
+
 def _check_no_next_step(deal: dict[str, Any]) -> dict[str, Any] | None:
-    if not deal.get("next_step") and deal.get("stage") not in ("Closed Won", "Closed Lost"):
+    stage = deal.get("stage", "")
+    if not deal.get("next_step") and stage not in ("Closed Won", "Closed Lost"):
+        days_silent = _days_since(deal.get("last_activity_time"))
+        silence_note = f" No activity for {days_silent} days." if days_silent and days_silent > 3 else ""
+        suggested = _STAGE_NEXT_STEP.get(stage, "Define a clear next step with a specific date to maintain momentum.")
         return {
             "type": "no_next_step",
             "deal_id": deal["id"],
             "deal_name": deal.get("name", deal.get("deal_name", "Unknown")),
             "company": deal.get("account_name", deal.get("company", "")),
             "amount": deal.get("amount", 0),
-            "stage": deal.get("stage", ""),
+            "stage": stage,
             "urgency_score": 55,
-            "context": f"No next step defined. Stage: {deal.get('stage', '?')}.",
-            "suggested_action": "Define a clear next step with a date to keep momentum.",
+            "context": f"No next step recorded in CRM.{silence_note} Stage: {stage}.",
+            "suggested_action": suggested,
         }
     return None
 

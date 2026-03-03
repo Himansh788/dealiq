@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
 
-interface GoogleStatus {
+interface OutlookStatus {
   connected: boolean;
   message?: string;
   email?: string;
@@ -13,32 +13,41 @@ interface GoogleStatus {
 
 export default function SettingsPage() {
   const { toast } = useToast();
-  const [googleStatus, setGoogleStatus] = useState<GoogleStatus | null>(null);
-  const [loadingGoogle, setLoadingGoogle] = useState(true);
+  const [outlookStatus, setOutlookStatus] = useState<OutlookStatus | null>(null);
+  const [loadingOutlook, setLoadingOutlook] = useState(true);
   const [connecting, setConnecting] = useState(false);
 
   useEffect(() => {
-    api.getGoogleAuthStatus()
-      .then(setGoogleStatus)
-      .catch(() => setGoogleStatus({ connected: false, message: "Failed to check status" }))
-      .finally(() => setLoadingGoogle(false));
+    api.getOutlookStatus()
+      .then(setOutlookStatus)
+      .catch(() => setOutlookStatus({ connected: false, message: "Failed to check status" }))
+      .finally(() => setLoadingOutlook(false));
+
+    // Handle redirect back from Microsoft OAuth
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("outlook") === "connected") {
+      toast({ title: "Outlook connected", description: "Email and calendar sync is now active." });
+      window.history.replaceState({}, "", window.location.pathname);
+      // Re-fetch status after OAuth redirect
+      api.getOutlookStatus().then(setOutlookStatus).catch(() => null);
+    }
   }, []);
 
-  async function handleConnectGoogle() {
+  async function handleConnectOutlook() {
     setConnecting(true);
     try {
-      const result = await api.connectGoogle();
+      const result = await api.connectOutlook();
       if (result.auth_url) {
         window.location.href = result.auth_url;
       } else {
-        toast({ title: "Unable to start Google OAuth", description: result.message, variant: "destructive" });
+        toast({ title: "Unable to start Microsoft OAuth", description: result.message, variant: "destructive" });
       }
     } catch (err: any) {
-      const msg = err?.message || "Google OAuth not configured";
+      const msg = err?.message || "Microsoft OAuth not configured";
       if (msg.includes("501") || msg.includes("not configured")) {
         toast({
-          title: "Google not configured",
-          description: "Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in your backend .env file.",
+          title: "Outlook not configured",
+          description: "Set MICROSOFT_CLIENT_ID, MICROSOFT_CLIENT_SECRET, and MICROSOFT_TENANT_ID in your backend .env file.",
           variant: "destructive",
         });
       } else {
@@ -49,10 +58,10 @@ export default function SettingsPage() {
     }
   }
 
-  async function handleDisconnectGoogle() {
-    await api.disconnectGoogle().catch(() => null);
-    setGoogleStatus({ connected: false, message: "Disconnected" });
-    toast({ title: "Google disconnected" });
+  async function handleDisconnectOutlook() {
+    await api.disconnectOutlook().catch(() => null);
+    setOutlookStatus({ connected: false, message: "Disconnected" });
+    toast({ title: "Outlook disconnected" });
   }
 
   return (
@@ -72,7 +81,7 @@ export default function SettingsPage() {
 
       <div className="max-w-5xl mx-auto px-6 py-6 space-y-4">
 
-        {/* Google Calendar & Gmail */}
+        {/* Microsoft Outlook & Calendar */}
         <div className="rounded-xl border border-border/30 bg-card/60 p-5">
           <div className="flex items-start gap-4">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-500/15">
@@ -80,13 +89,13 @@ export default function SettingsPage() {
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <p className="text-sm font-semibold text-foreground">Google Calendar & Gmail</p>
-                {loadingGoogle ? (
+                <p className="text-sm font-semibold text-foreground">Outlook & Calendar</p>
+                {loadingOutlook ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-                ) : googleStatus?.connected ? (
+                ) : outlookStatus?.connected ? (
                   <Badge variant="outline" className="text-[10px] h-4 px-1.5 text-health-green border-health-green/30 bg-health-green/10">
                     <CheckCircle className="h-2.5 w-2.5 mr-1" />
-                    Connected{googleStatus.email ? ` — ${googleStatus.email}` : ""}
+                    Connected{outlookStatus.email ? ` — ${outlookStatus.email}` : ""}
                   </Badge>
                 ) : (
                   <Badge variant="outline" className="text-[10px] h-4 px-1.5 text-muted-foreground border-border/50">
@@ -96,27 +105,27 @@ export default function SettingsPage() {
                 )}
               </div>
               <p className="text-xs text-muted-foreground mt-1">
-                Connect your Google account to sync upcoming meetings and email threads. DealIQ reads calendar events and Gmail threads — it never sends email on your behalf.
+                Connect your Microsoft account to sync email threads and upcoming meetings. DealIQ reads Outlook mail and calendar events — it never sends email on your behalf.
               </p>
-              <div className="flex items-center gap-2 mt-3 flex-wrap">
+              <div className="flex items-center gap-3 mt-3 flex-wrap">
                 <div className="flex items-center gap-1 text-[11px] text-muted-foreground/60">
                   <Calendar className="h-3 w-3" />
-                  Calendar (read-only)
+                  Outlook Calendar (read-only)
                 </div>
                 <div className="flex items-center gap-1 text-[11px] text-muted-foreground/60">
                   <Mail className="h-3 w-3" />
-                  Gmail (read-only)
+                  Outlook Mail (read-only)
                 </div>
               </div>
             </div>
             <div className="shrink-0">
-              {!loadingGoogle && (
-                googleStatus?.connected ? (
+              {!loadingOutlook && (
+                outlookStatus?.connected ? (
                   <Button
                     size="sm"
                     variant="outline"
                     className="h-8 text-xs text-destructive border-destructive/30 hover:bg-destructive/10"
-                    onClick={handleDisconnectGoogle}
+                    onClick={handleDisconnectOutlook}
                   >
                     Disconnect
                   </Button>
@@ -125,11 +134,11 @@ export default function SettingsPage() {
                     size="sm"
                     variant="outline"
                     className="h-8 text-xs hover:border-primary/40 hover:text-primary"
-                    onClick={handleConnectGoogle}
+                    onClick={handleConnectOutlook}
                     disabled={connecting}
                   >
                     {connecting && <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />}
-                    Connect Google
+                    Connect Outlook
                   </Button>
                 )
               )}
@@ -153,7 +162,6 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        {/* More settings placeholder */}
         <p className="text-[11px] text-muted-foreground/40 text-center pt-4">
           More settings — notification preferences, API keys, team management — coming soon.
         </p>

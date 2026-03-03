@@ -244,7 +244,7 @@ export default function Home() {
             {[
               { href: "/dashboard", icon: AlertTriangle, label: "Pipeline",   desc: "All deals" },
               { href: "/ask",       icon: Sparkles,      label: "Ask AI",     desc: "Deal Q&A engine" },
-              { href: "/settings",  icon: Clock,         label: "Integrations", desc: "Connect Google & Zoho" },
+              { href: "/settings",  icon: Clock,         label: "Integrations", desc: "Connect Outlook & Zoho" },
             ].map(({ href, icon: Icon, label, desc }) => (
               <Link
                 key={href}
