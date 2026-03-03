@@ -147,8 +147,11 @@ def score_discount_pattern(discount_mention_count: int) -> HealthSignal:
                             detail=f"Discount mentioned {discount_mention_count} times. Commercial pressure is elevated.")
 
 
-def score_stage_age(stage: str, days_in_stage: Optional[int]) -> HealthSignal:
+def score_stage_age(stage: str, days_in_stage: Optional[int], stage_history: Optional[list] = None) -> HealthSignal:
     """Signal 5: How long has deal been at current stage vs. benchmark?"""
+    if stage_history is not None and len(stage_history) == 0:
+        return HealthSignal(name="Stage Velocity", score=0, max_score=15, label="insufficient_data",
+                            detail="No stage history available. Stage movement cannot be assessed.")
     if days_in_stage is None:
         return HealthSignal(name="Stage Velocity", score=8, max_score=15, label="warn",
                             detail="Stage entry date unavailable. Cannot benchmark velocity.")
@@ -259,7 +262,10 @@ def _score_multithreading(contact_count: int) -> HealthSignal:
                             detail="No contacts linked. Cannot assess stakeholder coverage.")
 
 
-def _score_activity_momentum(days_since_any: int) -> HealthSignal:
+def _score_activity_momentum(days_since_any: Optional[int]) -> HealthSignal:
+    if days_since_any is None:
+        return HealthSignal(name="Activity Momentum", score=0, max_score=5, label="insufficient_data",
+                            detail="No activity data available.")
     if days_since_any <= 3:
         return HealthSignal(name="Activity Momentum", score=5, max_score=5, label="good",
                             detail=f"Activity {days_since_any} day(s) ago — deal is live.")
@@ -396,8 +402,8 @@ def score_from_timeline(timeline_analysis: dict) -> Dict[str, Any]:
     if days is None:
         email_recency = HealthSignal(
             name="Email Recency (Timeline)",
-            score=5, max_score=10, label="warn",
-            detail="No email send events found in timeline."
+            score=0, max_score=10, label="insufficient_data",
+            detail="No email send events found in the v9 timeline. Sync your mailbox or check CRM email settings."
         )
     elif days <= 7:
         email_recency = HealthSignal(
@@ -508,7 +514,8 @@ def score_deal_with_activities(deal_data: Dict[str, Any], activity_data: dict) -
     emails_out = summary.get("emails_outbound", 0)
     emails_in = summary.get("emails_inbound", 0)
     contact_count = summary.get("total_contacts", 0)
-    days_since_any = summary.get("days_since_any_activity", 999)
+    days_since_any_raw = summary.get("days_since_any_activity")
+    days_since_any = None if (days_since_any_raw is None or (isinstance(days_since_any_raw, int) and days_since_any_raw >= 999)) else days_since_any_raw
 
     signals = raw_signals + [
         _score_communication_balance(emails_out, emails_in),
@@ -575,7 +582,8 @@ def score_deal_with_timeline(
     emails_out = summary.get("emails_outbound", 0)
     emails_in = summary.get("emails_inbound", 0)
     contact_count = summary.get("total_contacts", 0)
-    days_since_any = summary.get("days_since_any_activity", 999)
+    days_since_any_raw = summary.get("days_since_any_activity")
+    days_since_any = None if (days_since_any_raw is None or (isinstance(days_since_any_raw, int) and days_since_any_raw >= 999)) else days_since_any_raw
 
     core_signals = [
         _rescale_signal(score_next_step(next_step), 15),

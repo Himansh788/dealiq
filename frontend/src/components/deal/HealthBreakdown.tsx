@@ -3,8 +3,9 @@ import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
-import { Mail, TrendingUp, TrendingDown, AlertTriangle, Sparkles } from "lucide-react";
+import { Mail, TrendingUp, TrendingDown, AlertTriangle, Sparkles, ArrowRight, Users, XCircle } from "lucide-react";
 
 interface Signal {
   name: string;
@@ -39,13 +40,26 @@ interface HealthData {
   email_analysis?: EmailAnalysis;
 }
 
+const SIGNAL_SORT_ORDER: Record<string, number> = { critical: 0, warn: 1, insufficient_data: 2, good: 3 };
+
+function sortedSignals(signals: Signal[]): Signal[] {
+  return [...signals].sort((a, b) =>
+    (SIGNAL_SORT_ORDER[a.label] ?? 4) - (SIGNAL_SORT_ORDER[b.label] ?? 4)
+  );
+}
+
 function labelColor(label: string) {
   switch (label) {
-    case "good":     return "bg-health-green/20 text-health-green border-health-green/30";
-    case "warn":     return "bg-health-yellow/20 text-health-yellow border-health-yellow/30";
-    case "critical": return "bg-health-red/20 text-health-red border-health-red/30";
-    default:         return "bg-muted text-muted-foreground";
+    case "good":             return "bg-health-green/20 text-health-green border-health-green/30";
+    case "warn":             return "bg-health-yellow/20 text-health-yellow border-health-yellow/30";
+    case "critical":         return "bg-health-red/20 text-health-red border-health-red/30";
+    case "insufficient_data": return "bg-muted/60 text-muted-foreground border-border/40";
+    default:                 return "bg-muted text-muted-foreground";
   }
+}
+
+function labelDisplay(label: string) {
+  return label === "insufficient_data" ? "no data" : label;
 }
 
 function scoreRingColor(label: string) {
@@ -60,10 +74,11 @@ function scoreRingColor(label: string) {
 
 function progressColor(label: string) {
   switch (label) {
-    case "good":     return "[&>div]:bg-health-green";
-    case "warn":     return "[&>div]:bg-health-yellow";
-    case "critical": return "[&>div]:bg-health-red";
-    default:         return "";
+    case "good":             return "[&>div]:bg-health-green";
+    case "warn":             return "[&>div]:bg-health-yellow";
+    case "critical":         return "[&>div]:bg-health-red";
+    case "insufficient_data": return "[&>div]:bg-muted-foreground/30";
+    default:                 return "";
   }
 }
 
@@ -124,17 +139,21 @@ export default function HealthBreakdown({ dealId }: { dealId: string }) {
 
       {/* Signals */}
       <div className="space-y-3">
-        {data.signals.map((signal) => (
+        {sortedSignals(data.signals).map((signal) => (
           <div key={signal.name} className="space-y-1">
             <div className="flex items-center justify-between">
               <span className="text-sm font-medium text-foreground">{signal.name}</span>
-              <Badge variant="outline" className={`text-xs ${labelColor(signal.label)}`}>{signal.label}</Badge>
+              <Badge variant="outline" className={`text-xs ${labelColor(signal.label)}`}>
+                {labelDisplay(signal.label)}
+              </Badge>
             </div>
             <Progress
               value={(signal.score / (signal.max_score || 20)) * 100}
               className={`h-2 bg-secondary ${progressColor(signal.label)}`}
             />
-            <p className="text-xs text-muted-foreground">{signal.detail}</p>
+            <p className={`text-xs ${signal.label === "insufficient_data" ? "text-muted-foreground/50 italic" : "text-muted-foreground"}`}>
+              {signal.detail}
+            </p>
           </div>
         ))}
       </div>
@@ -230,6 +249,37 @@ export default function HealthBreakdown({ dealId }: { dealId: string }) {
           <p className="text-sm text-foreground">{data.recommendation}</p>
         </CardContent>
       </Card>
+
+      {/* Quick Actions */}
+      <div className="space-y-2">
+        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Quick Actions</p>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5 border-sky-500/40 bg-sky-500/10 text-sky-400 hover:bg-sky-500/20 hover:text-sky-300 text-xs"
+          >
+            <ArrowRight className="h-3.5 w-3.5" />
+            Advance Stage
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5 border-amber-500/40 bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 hover:text-amber-300 text-xs"
+          >
+            <Users className="h-3.5 w-3.5" />
+            Escalate
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5 border-health-red/40 bg-health-red/10 text-health-red hover:bg-health-red/20 text-xs"
+          >
+            <XCircle className="h-3.5 w-3.5" />
+            Mark as Lost
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }

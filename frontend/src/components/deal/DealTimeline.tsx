@@ -467,16 +467,46 @@ export default function DealTimeline({ dealId, onFollowUp }: { dealId: string; o
   const [data, setData] = useState<TimelineData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Increment to trigger a manual retry without changing dealId
+  const [retryKey, setRetryKey] = useState(0);
 
   useEffect(() => {
     if (!dealId) return;
+
+    // Create a controller so we can cancel the request on cleanup.
+    // This fires when: component unmounts, dealId changes, or retryKey changes.
+    const controller = new AbortController();
+    // Guard against setting state after cleanup (double-safety for StrictMode)
+    let cancelled = false;
+
     setLoading(true);
     setError(null);
-    api.getDealTimeline(dealId)
-      .then(setData)
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
-  }, [dealId]);
+
+    api.getDealTimeline(dealId, controller.signal)
+      .then((d) => {
+        if (!cancelled) setData(d);
+      })
+      .catch((e: unknown) => {
+        if (cancelled) return;
+        // AbortError = intentional cancel (unmount / dealId change) — never show to user
+        if (e instanceof DOMException && e.name === "AbortError") return;
+        if (e instanceof Error && e.name === "AbortError") return;
+        setError(
+          e instanceof Error
+            ? e.message
+            : "Failed to load timeline"
+        );
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+    // retryKey is intentional — incrementing it re-runs this effect
+  }, [dealId, retryKey]);
 
   if (loading) return (
     <div className="space-y-4 py-2">
@@ -502,7 +532,16 @@ export default function DealTimeline({ dealId, onFollowUp }: { dealId: string; o
   );
 
   if (error) return (
-    <p className="text-xs text-slate-500 py-3">Could not load timeline: {error}</p>
+    <div className="flex flex-col items-start gap-2 rounded-lg border border-slate-700/50 bg-slate-900/60 px-4 py-4">
+      <p className="text-xs font-medium text-slate-300">Could not load timeline</p>
+      <p className="text-[11px] text-slate-500">{error}</p>
+      <button
+        onClick={() => setRetryKey(k => k + 1)}
+        className="mt-1 rounded-md border border-slate-700 bg-slate-800 px-3 py-1 text-[11px] text-slate-300 hover:bg-slate-700 transition-colors"
+      >
+        Try again
+      </button>
+    </div>
   );
   if (!data || data.events.length === 0) return (
     <p className="text-xs text-slate-500 py-3">No timeline events found for this deal.</p>

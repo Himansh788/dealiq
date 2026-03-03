@@ -3,12 +3,62 @@ const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 // Abort any fetch that takes longer than this — prevents eternal spinners
 const TIMEOUT_MS = 15_000;
 
-function fetchWithTimeout(input: RequestInfo, init?: RequestInit): Promise<Response> {
-  const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), TIMEOUT_MS);
-  return fetch(input, { ...init, signal: controller.signal }).finally(() =>
-    clearTimeout(id)
+/**
+ * Wraps fetch with a 15s timeout controller, combined with an optional
+ * caller-supplied AbortSignal (e.g. from a component cleanup).
+ *
+ * Combining two signals: if EITHER fires — timeout OR component unmount —
+ * the request is cancelled. Without this, the timeout controller's signal
+ * is the only one wired, so component unmounts can't cancel in-flight requests,
+ * causing the "signal is aborted without reason" leak in the UI.
+ */
+function fetchWithTimeout(
+  input: RequestInfo,
+  init?: RequestInit & { signal?: AbortSignal },
+): Promise<Response> {
+  const timeoutController = new AbortController();
+  const timeoutId = setTimeout(() => timeoutController.abort(), TIMEOUT_MS);
+
+  // If a caller signal was provided, abort our timeout controller when it fires too
+  const callerSignal = init?.signal;
+  if (callerSignal) {
+    if (callerSignal.aborted) {
+      clearTimeout(timeoutId);
+      timeoutController.abort();
+    } else {
+      callerSignal.addEventListener("abort", () => {
+        clearTimeout(timeoutId);
+        timeoutController.abort();
+      }, { once: true });
+    }
+  }
+
+  return fetch(input, { ...init, signal: timeoutController.signal }).finally(() =>
+    clearTimeout(timeoutId)
   );
+}
+
+/**
+ * In-flight deduplication for GET requests.
+ * Prevents the same URL from being fetched twice simultaneously —
+ * second caller gets the same Promise as the first.
+ * Entry is removed once the request settles (success or error).
+ */
+const _inflight = new Map<string, Promise<any>>();
+
+function fetchDedup(url: string, init?: RequestInit & { signal?: AbortSignal }): Promise<any> {
+  // Don't dedup requests that have a caller-owned abort signal —
+  // each such request is intentionally independent (different component lifecycle).
+  if (init?.signal) {
+    return fetchWithTimeout(url, init).then(handleResponse);
+  }
+  const existing = _inflight.get(url);
+  if (existing) return existing;
+  const p = fetchWithTimeout(url, init)
+    .then(handleResponse)
+    .finally(() => _inflight.delete(url));
+  _inflight.set(url, p);
+  return p;
 }
 
 function authHeaders(): HeadersInit {
@@ -117,8 +167,18 @@ export const api = {
     }).then(handleResponse),
 
   // ── Timeline ─────────────────────────────────────────────────────────────
-  getDealTimeline: (dealId: string) =>
-    fetchWithTimeout(`${API_URL}/deals/${dealId}/timeline`, { headers: authHeaders() }).then(handleResponse),
+  // signal: pass the AbortController.signal from the calling component so that
+  // component unmounts cancel the in-flight request cleanly, preventing
+  // "signal is aborted without reason" errors leaking to the UI.
+  // fetchDedup prevents duplicate simultaneous fetches for the same dealId.
+  getDealTimeline: (dealId: string, signal?: AbortSignal) => {
+    const url = `${API_URL}/deals/${dealId}/timeline`;
+    if (signal) {
+      // Component-owned signal → bypass dedup (each mount lifecycle is independent)
+      return fetchWithTimeout(url, { headers: authHeaders(), signal }).then(handleResponse);
+    }
+    return fetchDedup(url, { headers: authHeaders() });
+  },
 
   // ── Live Email Coach ──────────────────────────────────────────────────────
   emailCoach: (emailDraft: string, dealId?: string, dealContext?: any) =>
