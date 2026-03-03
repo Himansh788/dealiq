@@ -1079,3 +1079,151 @@ Vikram: Sure, thanks Maya. Talk soon.
 
 [End of call — 38:04]
 """
+
+# ── Demo Timeline Data (Zoho v9 Timelines API shape) ──────────────────────────
+# Used when demo mode is active or when deal_id.startswith("sim_")
+# Mirrors the real Zoho v9 /Deals/{id}/timelines response structure.
+
+def _ts(days_ago_val: int, hour: int = 10) -> str:
+    from datetime import datetime, timedelta, timezone
+    dt = datetime.now(timezone.utc) - timedelta(days=days_ago_val)
+    return dt.replace(hour=hour, minute=0, second=0, microsecond=0).isoformat()
+
+
+DEMO_TIMELINE = {
+    "timeline": [
+        # ── Stage: Qualification → Demo Scheduled (forward) ──────────────
+        {
+            "action": "updated",
+            "audited_time": _ts(38),
+            "source": "crm_ui",
+            "done_by": {"name": "Sarah Chen", "profile": {"name": "Sales Rep"}, "type__s": "user"},
+            "record": {"name": "Acme Corp — Enterprise Plan", "module": {"api_name": "Deals"}},
+            "field_history": [
+                {
+                    "api_name": "Stage",
+                    "field_label": "Stage",
+                    "data_type": "picklist",
+                    "_value": {"old": "Qualification", "new": "Demo Scheduled"},
+                    "actual_value": {"old": "Qualification", "new": "Demo Scheduled"},
+                    "enable_colour_code": True,
+                    "pick_list_values": [
+                        {"display_value": "Qualification",   "actual_value": "Qualification",   "colour_code": "#5c6bc0", "sequence_number": 1},
+                        {"display_value": "Demo Scheduled",  "actual_value": "Demo Scheduled",  "colour_code": "#26a69a", "sequence_number": 2},
+                        {"display_value": "Demo Done",       "actual_value": "Demo Done",       "colour_code": "#ffa726", "sequence_number": 3},
+                        {"display_value": "Proposal/Price Quote", "actual_value": "Proposal/Price Quote", "colour_code": "#ef5350", "sequence_number": 4},
+                        {"display_value": "Negotiation/Review",   "actual_value": "Negotiation/Review",   "colour_code": "#ab47bc", "sequence_number": 5},
+                    ],
+                }
+            ],
+        },
+        # ── Email sent (human) ───────────────────────────────────────────
+        {
+            "action": "sent",
+            "audited_time": _ts(32),
+            "source": "crm_ui",
+            "done_by": {"name": "Sarah Chen", "profile": {"name": "Sales Rep"}, "type__s": "user"},
+            "record": {"name": "Demo confirmation + agenda — Acme Corp", "module": {"api_name": "Emails"}},
+            "field_history": [],
+        },
+        # ── Stage: Demo Scheduled → Demo Done (forward) ──────────────────
+        {
+            "action": "updated",
+            "audited_time": _ts(25),
+            "source": "crm_ui",
+            "done_by": {"name": "Sarah Chen", "profile": {"name": "Sales Rep"}, "type__s": "user"},
+            "record": {"name": "Acme Corp — Enterprise Plan", "module": {"api_name": "Deals"}},
+            "field_history": [
+                {
+                    "api_name": "Stage",
+                    "field_label": "Stage",
+                    "data_type": "picklist",
+                    "_value": {"old": "Demo Scheduled", "new": "Demo Done"},
+                    "actual_value": {"old": "Demo Scheduled", "new": "Demo Done"},
+                    "enable_colour_code": True,
+                    "pick_list_values": [
+                        {"display_value": "Qualification",   "actual_value": "Qualification",   "colour_code": "#5c6bc0", "sequence_number": 1},
+                        {"display_value": "Demo Scheduled",  "actual_value": "Demo Scheduled",  "colour_code": "#26a69a", "sequence_number": 2},
+                        {"display_value": "Demo Done",       "actual_value": "Demo Done",       "colour_code": "#ffa726", "sequence_number": 3},
+                        {"display_value": "Proposal/Price Quote", "actual_value": "Proposal/Price Quote", "colour_code": "#ef5350", "sequence_number": 4},
+                        {"display_value": "Negotiation/Review",   "actual_value": "Negotiation/Review",   "colour_code": "#ab47bc", "sequence_number": 5},
+                    ],
+                }
+            ],
+        },
+        # ── Revenue updated (up) ─────────────────────────────────────────
+        {
+            "action": "updated",
+            "audited_time": _ts(20),
+            "source": "crm_ui",
+            "done_by": {"name": "James Okafor", "profile": {"name": "Sales Manager"}, "type__s": "user"},
+            "record": {"name": "Acme Corp — Enterprise Plan", "module": {"api_name": "Deals"}},
+            "field_history": [
+                {
+                    "api_name": "Expected_Revenue",
+                    "field_label": "Expected Revenue",
+                    "data_type": "currency",
+                    "_value": {"old": "$60,000", "new": "$84,000"},
+                    "actual_value": {"old": "60000", "new": "84000"},
+                }
+            ],
+        },
+        # ── Workflow automation email ─────────────────────────────────────
+        {
+            "action": "email_notification_sent",
+            "audited_time": _ts(18),
+            "source": "workflow",
+            "done_by": {"name": "Zoho Workflow", "profile": {"name": "System"}, "type__s": "admin"},
+            "record": {"name": "Proposal follow-up (auto)", "module": {"api_name": "Emails"}},
+            "field_history": [],
+        },
+        # ── Task added ───────────────────────────────────────────────────
+        {
+            "action": "added",
+            "audited_time": _ts(14),
+            "source": "crm_ui",
+            "done_by": {"name": "Sarah Chen", "profile": {"name": "Sales Rep"}, "type__s": "user"},
+            "record": {"name": "Follow up on contract review", "module": {"api_name": "Tasks"}},
+            "field_history": [],
+        },
+        # ── Stage: Demo Done → Proposal/Price Quote (forward) ────────────
+        {
+            "action": "updated",
+            "audited_time": _ts(12),
+            "source": "crm_ui",
+            "done_by": {"name": "Sarah Chen", "profile": {"name": "Sales Rep"}, "type__s": "user"},
+            "record": {"name": "Acme Corp — Enterprise Plan", "module": {"api_name": "Deals"}},
+            "field_history": [
+                {
+                    "api_name": "Stage",
+                    "field_label": "Stage",
+                    "data_type": "picklist",
+                    "_value": {"old": "Demo Done", "new": "Proposal/Price Quote"},
+                    "actual_value": {"old": "Demo Done", "new": "Proposal/Price Quote"},
+                    "enable_colour_code": True,
+                    "pick_list_values": [
+                        {"display_value": "Qualification",   "actual_value": "Qualification",   "colour_code": "#5c6bc0", "sequence_number": 1},
+                        {"display_value": "Demo Scheduled",  "actual_value": "Demo Scheduled",  "colour_code": "#26a69a", "sequence_number": 2},
+                        {"display_value": "Demo Done",       "actual_value": "Demo Done",       "colour_code": "#ffa726", "sequence_number": 3},
+                        {"display_value": "Proposal/Price Quote", "actual_value": "Proposal/Price Quote", "colour_code": "#ef5350", "sequence_number": 4},
+                        {"display_value": "Negotiation/Review",   "actual_value": "Negotiation/Review",   "colour_code": "#ab47bc", "sequence_number": 5},
+                    ],
+                }
+            ],
+        },
+        # ── Email sent (human, most recent) ──────────────────────────────
+        {
+            "action": "sent",
+            "audited_time": _ts(3),
+            "source": "crm_ui",
+            "done_by": {"name": "Sarah Chen", "profile": {"name": "Sales Rep"}, "type__s": "user"},
+            "record": {"name": "Revised contract for Acme Corp", "module": {"api_name": "Emails"}},
+            "field_history": [],
+        },
+    ]
+}
+
+
+def get_demo_timeline(deal_id: str) -> dict:
+    """Return demo timeline data for any simulated deal."""
+    return DEMO_TIMELINE

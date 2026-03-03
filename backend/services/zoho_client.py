@@ -15,6 +15,7 @@ ZOHO_REDIRECT_URI = os.getenv("ZOHO_REDIRECT_URI", "http://localhost:8000/auth/c
 ZOHO_ACCOUNTS_URL = "https://accounts.zoho.in"   # Change to .com for non-India accounts
 ZOHO_API_BASE = "https://www.zohoapis.in/crm/v2"  # Change to .com for non-India
 ZOHO_API_V8   = "https://www.zohoapis.in/crm/v8"  # v8 required for Emails endpoint with content
+ZOHO_API_V9   = "https://www.zohoapis.in/crm/v9"  # v9 required for Timelines API
 
 
 def get_authorization_url(state: str = "") -> str:
@@ -850,3 +851,62 @@ async def get_all_activity_for_deal(access_token: str, deal_id: str) -> dict:
             "days_since_any_activity": _days_since_str(last_email or last_activity),
         },
     }
+
+
+async def fetch_deal_timeline(access_token: str, deal_id: str) -> dict:
+    """
+    Fetch the Zoho CRM v9 Timelines API for a deal.
+    Returns the raw API response dict, or {"timeline": []} on failure.
+
+    NOTE: Uses /crm/v9/ (not v2/v8) — this endpoint was introduced in v9.
+    The India data centre URL (zohoapis.in) is confirmed in ZOHO_API_V9.
+    """
+    url = f"{ZOHO_API_V9}/Deals/{deal_id}/timelines"
+    params = {
+        "per_page": 25,
+        "include_inner_details": (
+            "field_history.data_type,"
+            "field_history.enable_colour_code,"
+            "field_history.pick_list_values,"
+            "field_history.field_label,"
+            "field_history.actual_value,"
+            "done_by.type__s,"
+            "done_by.profile,"
+            "field_history.associated_module"
+        ),
+        "include_timeline_types": "signals",
+        "include": "extension,type",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.get(
+                url,
+                headers={"Authorization": f"Zoho-oauthtoken {access_token}"},
+                params=params,
+            )
+        if resp.status_code == 204:
+            logger.info("fetch_deal_timeline: deal=%s — no timeline data (204)", deal_id)
+            return {"timeline": []}
+        if not resp.is_success:
+            logger.warning(
+                "fetch_deal_timeline: deal=%s status=%s body=%s",
+                deal_id, resp.status_code, resp.text[:200],
+            )
+            return {"timeline": []}
+        data = resp.json()
+        # Zoho v9 Timelines API returns key "timelines" (plural).
+        # Fallback chain handles any shape variation across API versions.
+        timeline = (
+            data.get("timelines")        # v9 confirmed key
+            or data.get("timeline")      # just in case
+            or data.get("data")          # generic fallback
+            or []
+        )
+        logger.info(
+            "fetch_deal_timeline: deal=%s top_keys=%s entries=%d",
+            deal_id, list(data.keys()), len(timeline),
+        )
+        return {"timeline": timeline}
+    except Exception as e:
+        logger.warning("fetch_deal_timeline: deal=%s error=%s", deal_id, e)
+        return {"timeline": []}

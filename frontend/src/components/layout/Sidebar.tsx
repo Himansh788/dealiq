@@ -19,10 +19,10 @@ import { useSession } from "@/contexts/SessionContext";
 // ── Nav config ────────────────────────────────────────────────────────────────
 
 const TOP_NAV = [
-  { icon: Home,            label: "My Day",     path: "/home" },
-  { icon: LayoutDashboard, label: "Deals",      path: "/dashboard" },
-  { icon: Mail,            label: "Email",      path: "/emails" },
-  { icon: Sparkles,        label: "Ask AI",     path: "/ask" },
+  { icon: Home,            label: "My Day",  path: "/home",      dot: false },
+  { icon: LayoutDashboard, label: "Deals",   path: "/dashboard", dot: false },
+  { icon: Mail,            label: "Email",   path: "/emails",    dot: true  },
+  { icon: Sparkles,        label: "Ask AI",  path: "/ask",       dot: false },
 ] as const;
 
 // ── Nav Item ─────────────────────────────────────────────────────────────────
@@ -30,14 +30,14 @@ const TOP_NAV = [
 function NavItem({
   icon: Icon,
   label,
-  path,
   active,
+  dot,
   onClick,
 }: {
   icon: React.ElementType;
   label: string;
-  path?: string;
   active?: boolean;
+  dot?: boolean;
   onClick: () => void;
 }) {
   return (
@@ -58,6 +58,10 @@ function NavItem({
             <span className="absolute -left-2 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-primary" />
           )}
           <Icon className="h-5 w-5" />
+          {/* Notification dot */}
+          {dot && !active && (
+            <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-health-red ring-2 ring-background" />
+          )}
         </button>
       </TooltipTrigger>
       <TooltipContent side="right" className="text-xs font-medium">
@@ -107,7 +111,7 @@ export default function Sidebar() {
             key={item.path}
             icon={item.icon}
             label={item.label}
-            path={item.path}
+            dot={item.dot}
             active={isActive(item.path)}
             onClick={() => navigate(item.path)}
           />

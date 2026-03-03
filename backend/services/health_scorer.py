@@ -357,6 +357,108 @@ def score_deal_from_zoho(raw_deal: Dict[str, Any]) -> DealHealthResult:
     )
 
 
+def score_from_timeline(timeline_analysis: dict) -> Dict[str, Any]:
+    """
+    Derive three bonus signals from Zoho v9 Timeline analysis.
+    Returns a dict of { signal_name: HealthSignal } to be merged into score_deal().
+
+    Signals added:
+      Stage Momentum  : +15 forward, -0 (but 0/15) backward, neutral if no stage data
+      Email Recency   : replaces activity-based recency with real email send date
+      Deal Engagement : human vs automation ratio signal
+    """
+    signals = timeline_analysis.get("deal_health_signals", {})
+
+    # Stage Momentum (max 15 pts)
+    stage_progression = timeline_analysis.get("stage_progression", [])
+    if not stage_progression:
+        stage_momentum = HealthSignal(
+            name="Stage Momentum",
+            score=8, max_score=15, label="warn",
+            detail="No stage history available from timeline."
+        )
+    elif signals.get("stage_moving_forward"):
+        stage_momentum = HealthSignal(
+            name="Stage Momentum",
+            score=15, max_score=15, label="good",
+            detail=f"Deal moving forward — last change: {stage_progression[-1]['old_stage']} → {stage_progression[-1]['new_stage']}."
+        )
+    else:
+        latest = stage_progression[-1]
+        stage_momentum = HealthSignal(
+            name="Stage Momentum",
+            score=0, max_score=15, label="critical",
+            detail=f"Stage regressed: {latest['old_stage']} → {latest['new_stage']}. Investigate immediately."
+        )
+
+    # Email Recency (max 10 pts — bonus; used to override activity-based recency if better)
+    days = timeline_analysis.get("days_since_last_email")
+    if days is None:
+        email_recency = HealthSignal(
+            name="Email Recency (Timeline)",
+            score=5, max_score=10, label="warn",
+            detail="No email send events found in timeline."
+        )
+    elif days <= 7:
+        email_recency = HealthSignal(
+            name="Email Recency (Timeline)",
+            score=10, max_score=10, label="good",
+            detail=f"Email sent {days} day(s) ago — active communication."
+        )
+    elif days <= 14:
+        email_recency = HealthSignal(
+            name="Email Recency (Timeline)",
+            score=7, max_score=10, label="good",
+            detail=f"Email sent {days} days ago — within acceptable range."
+        )
+    elif days <= 30:
+        email_recency = HealthSignal(
+            name="Email Recency (Timeline)",
+            score=3, max_score=10, label="warn",
+            detail=f"No email in {days} days. Follow up now."
+        )
+    else:
+        email_recency = HealthSignal(
+            name="Email Recency (Timeline)",
+            score=0, max_score=10, label="critical",
+            detail=f"No email in {days} days — risk of buyer going dark."
+        )
+
+    # Deal Engagement — human vs automation ratio (max 10 pts)
+    ratio = signals.get("human_activity_ratio", 0.5)
+    total = timeline_analysis.get("total_entries", 0)
+    if total == 0:
+        engagement = HealthSignal(
+            name="Deal Engagement",
+            score=5, max_score=10, label="warn",
+            detail="No timeline entries to assess engagement quality."
+        )
+    elif ratio >= 0.7:
+        engagement = HealthSignal(
+            name="Deal Engagement",
+            score=10, max_score=10, label="good",
+            detail=f"{int(ratio * 100)}% human-driven activity — strong rep engagement."
+        )
+    elif ratio >= 0.4:
+        engagement = HealthSignal(
+            name="Deal Engagement",
+            score=6, max_score=10, label="warn",
+            detail=f"{int(ratio * 100)}% human activity. Automations handling the rest — rep should be more active."
+        )
+    else:
+        engagement = HealthSignal(
+            name="Deal Engagement",
+            score=2, max_score=10, label="critical",
+            detail=f"Only {int(ratio * 100)}% human activity. This deal is running on autopilot — no real rep engagement."
+        )
+
+    return {
+        "stage_momentum": stage_momentum,
+        "email_recency": email_recency,
+        "deal_engagement": engagement,
+    }
+
+
 def score_deal_with_activities(deal_data: Dict[str, Any], activity_data: dict) -> DealHealthResult:
     """
     Score a deal using Zoho CRM fields + real activity bundle (9 signals, total=100).
@@ -425,6 +527,92 @@ def score_deal_with_activities(deal_data: Dict[str, Any], activity_data: dict) -
         total_score=total,
         health_label=label,
         signals=signals,
+        recommendation=recommendation,
+        action_required=action_required,
+    )
+
+
+def score_deal_with_timeline(
+    deal_data: Dict[str, Any],
+    activity_data: dict,
+    timeline_analysis: dict,
+) -> DealHealthResult:
+    """
+    Score a deal using Zoho CRM fields + activity bundle + v9 Timeline signals.
+
+    Extends score_deal_with_activities (9 signals, 100 pts) by replacing the
+    generic Activity Velocity signal with three timeline-derived signals:
+      Stage Momentum     (15 pts) — forward/backward movement detected from stage history
+      Email Recency      (10 pts) — last email sent date from timeline (more accurate)
+      Deal Engagement    (10 pts) — human vs automation activity ratio
+
+    When timeline_analysis is empty, falls back to score_deal_with_activities.
+    """
+    if not timeline_analysis or not timeline_analysis.get("total_entries"):
+        return score_deal_with_activities(deal_data, activity_data)
+
+    deal_id = deal_data.get("id", "unknown")
+    deal_name = deal_data.get("name", "Unknown Deal")
+    stage = deal_data.get("stage", "Unknown")
+    summary = activity_data.get("summary", {})
+
+    days_in_stage = (
+        deal_data.get("days_in_stage")
+        or _days_since(deal_data.get("modified_time"))
+        or _days_since(deal_data.get("created_time"))
+    )
+    next_step = deal_data.get("next_step") or deal_data.get("description")
+
+    # Prefer timeline email recency over activity summary (more accurate)
+    days_since_email = timeline_analysis.get("days_since_last_email")
+    days_since_inbound = summary.get("days_since_last_inbound")
+    if isinstance(days_since_inbound, int) and days_since_inbound >= 999:
+        days_since_inbound = None
+    best_recency = min(
+        v for v in [days_since_email, days_since_inbound] if v is not None
+    ) if any(v is not None for v in [days_since_email, days_since_inbound]) else None
+
+    emails_out = summary.get("emails_outbound", 0)
+    emails_in = summary.get("emails_inbound", 0)
+    contact_count = summary.get("total_contacts", 0)
+    days_since_any = summary.get("days_since_any_activity", 999)
+
+    core_signals = [
+        _rescale_signal(score_next_step(next_step), 15),
+        score_response_recency(best_recency, stage),
+        _rescale_signal(score_stakeholder_depth(
+            deal_data.get("contact_count", 1),
+            deal_data.get("economic_buyer_engaged", False),
+        ), 10),
+        score_discount_pattern(deal_data.get("discount_mention_count", 0)),
+        _rescale_signal(score_stage_age(stage, days_in_stage), 10),
+        _score_communication_balance(emails_out, emails_in),
+        _score_multithreading(contact_count),
+        _score_activity_momentum(days_since_any),
+    ]
+
+    timeline_signals_map = score_from_timeline(timeline_analysis)
+    timeline_signals = [
+        timeline_signals_map["stage_momentum"],
+        timeline_signals_map["email_recency"],
+        timeline_signals_map["deal_engagement"],
+    ]
+
+    # Rescale core signals (max 90) to 65 pts so timeline signals (max 35) round to 100
+    rescaled_core = [_rescale_signal(s, round(s.max_score * 65 / 90)) for s in core_signals]
+
+    all_signals = rescaled_core + timeline_signals
+    total = min(100, sum(s.score for s in all_signals))
+    label = determine_health_label(total)
+    recommendation = build_recommendation(all_signals, total, stage)
+    action_required = any(s.label == "critical" for s in all_signals)
+
+    return DealHealthResult(
+        deal_id=deal_id,
+        deal_name=deal_name,
+        total_score=total,
+        health_label=label,
+        signals=all_signals,
         recommendation=recommendation,
         action_required=action_required,
     )

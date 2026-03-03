@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Brain, Clock, Phone, Activity, GitMerge, Layers, ScanSearch, GraduationCap, Zap, Sparkles } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
 import HealthBreakdown from "./deal/HealthBreakdown";
@@ -68,12 +69,36 @@ type SectionKey = keyof typeof SECTION_STYLES;
 
 const DEFAULT_OPEN: SectionKey[] = ["timeline", "health", "ai-rep"];
 
-function SectionTrigger({ sectionKey }: { sectionKey: SectionKey }) {
+// Per-section badge previews shown in the collapsed accordion header
+function SectionBadge({ sectionKey, healthScore }: { sectionKey: SectionKey; healthScore?: number }) {
+  if (sectionKey === "health" && healthScore != null) {
+    const color = healthScore >= 65 ? "border-health-green/40 text-health-green bg-health-green/10"
+      : healthScore >= 45 ? "border-health-yellow/40 text-health-yellow bg-health-yellow/10"
+      : "border-health-red/40 text-health-red bg-health-red/10";
+    return (
+      <span className={cn("ml-2 rounded-full border px-2 py-0.5 text-[10px] font-bold tabular-nums", color)}>
+        {healthScore}/100
+      </span>
+    );
+  }
+  if (sectionKey === "ai-rep") {
+    return (
+      <span className="ml-2 flex items-center gap-1 rounded-full border border-blue-500/30 bg-blue-500/10 px-2 py-0.5 text-[10px] font-medium text-blue-400">
+        <span className="h-1.5 w-1.5 rounded-full bg-blue-400" />
+        1 waiting
+      </span>
+    );
+  }
+  return null;
+}
+
+function SectionTrigger({ sectionKey, healthScore }: { sectionKey: SectionKey; healthScore?: number }) {
   const { icon: Icon, label, iconColor } = SECTION_STYLES[sectionKey];
   return (
     <div className="flex items-center gap-2.5">
       <Icon className={cn("h-4 w-4 shrink-0", iconColor)} />
       <span className="text-sm font-semibold text-foreground">{label}</span>
+      <SectionBadge sectionKey={sectionKey} healthScore={healthScore} />
     </div>
   );
 }
@@ -178,10 +203,10 @@ export default function DealDetailPanel({
                 <AccordionItem
                   key={key}
                   value={key}
-                  className="overflow-hidden rounded-lg border border-border/40 bg-card/40 px-0 transition-colors hover:border-border/60 data-[state=open]:border-border/60 data-[state=open]:bg-card/60"
+                  className="overflow-hidden rounded-lg border border-border/40 bg-card/40 px-0 transition-all duration-200 hover:border-border/60 data-[state=open]:border-border/60 data-[state=open]:bg-card/60"
                 >
                   <AccordionTrigger className="border-b-0 px-4 py-3 hover:no-underline hover:bg-transparent [&>svg]:text-muted-foreground/50">
-                    <SectionTrigger sectionKey={key} />
+                    <SectionTrigger sectionKey={key} healthScore={displayScore} />
                   </AccordionTrigger>
                   <AccordionContent className="px-4 pb-4 pt-0">
                     {key === "timeline"    && <DealTimeline dealId={dealId} />}

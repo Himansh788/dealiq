@@ -1,9 +1,12 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
 import {
-  Plus, FileText, Phone, Mail, CheckSquare,
-  Activity, Flag, AlertTriangle, Sparkles, Brain
+  Plus, FileText, Phone, Mail, CheckSquare, MailOpen,
+  Activity, Flag, AlertTriangle, Sparkles, Brain,
+  GitMerge, TrendingUp, TrendingDown, Bot, User,
+  ChevronDown, ChevronUp, Calendar, ExternalLink,
 } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -17,11 +20,51 @@ interface TimelineEvent {
   icon: string;
   is_future?: boolean;
   is_warning?: boolean;
+  is_automation?: boolean;
+  stage_from?: string;
+  stage_to?: string;
+  stage_from_colour?: string;
+  stage_to_colour?: string;
+  direction?: "forward" | "backward";
+  revenue_direction?: "up" | "down";
+  old_value?: number;
+  new_value?: number;
+  email_subject?: string;
 }
 
 interface Signal {
   severity: "critical" | "warning" | "good";
   text: string;
+}
+
+interface TimelineIntelligence {
+  stage_progression: Array<{
+    old_stage: string;
+    new_stage: string;
+    old_colour: string;
+    new_colour: string;
+    direction: string;
+    changed_by: string;
+    days_ago: number;
+  }>;
+  last_email_sent?: string;
+  last_email_subject?: string;
+  days_since_last_email?: number;
+  revenue_changes: Array<{
+    direction: string;
+    old_value: number;
+    new_value: number;
+    changed_by?: string;
+    days_ago?: number;
+  }>;
+  automation_count: number;
+  human_count: number;
+  deal_health_signals: {
+    has_recent_email: boolean;
+    stage_moving_forward: boolean;
+    revenue_growing: boolean;
+    human_activity_ratio: number;
+  };
 }
 
 interface TimelineData {
@@ -35,48 +78,392 @@ interface TimelineData {
   deal_name: string;
   stage: string;
   closing_date: string;
+  timeline_intelligence?: TimelineIntelligence;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function getIcon(iconName: string, isFuture?: boolean, isWarning?: boolean) {
-  const cls = `h-3.5 w-3.5 ${isFuture ? "text-primary" : isWarning ? "text-health-red" : "text-muted-foreground"}`;
-  switch (iconName) {
-    case "plus":          return <Plus className={cls} />;
-    case "file-text":     return <FileText className={cls} />;
-    case "phone":         return <Phone className={cls} />;
-    case "mail":          return <Mail className={cls} />;
-    case "check-square":  return <CheckSquare className={cls} />;
-    case "activity":      return <Activity className={cls} />;
-    case "flag":          return <Flag className={`${cls} text-primary`} />;
-    case "alert-triangle": return <AlertTriangle className={`${cls} text-health-red`} />;
-    default:              return <Activity className={cls} />;
-  }
-}
-
-function formatDaysAgo(days: number, isFuture?: boolean): string {
+function formatTs(days: number, isFuture?: boolean): string {
   if (isFuture) {
     if (days === 0) return "today";
     if (days === 1) return "tomorrow";
-    return `in ${Math.abs(days)} days`;
+    return `in ${Math.abs(days)}d`;
   }
-  if (days === 0) return "today";
-  if (days === 1) return "yesterday";
+  if (days === 0) return "Today";
+  if (days === 1) return "Yesterday";
   if (days < 0) return `${Math.abs(days)}d overdue`;
+  if (days > 30) return `${days}d ago`;
   return `${days}d ago`;
 }
 
-function silenceColor(days: number | null): string {
-  if (days === null) return "text-muted-foreground";
-  if (days >= 30) return "text-health-red";
-  if (days >= 14) return "text-health-orange";
-  if (days >= 7)  return "text-health-yellow";
-  return "text-health-green";
+function fmtCurrency(v: number) {
+  if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(1)}M`;
+  if (v >= 1_000) return `$${Math.round(v / 1_000)}K`;
+  return `$${v}`;
+}
+
+/** Node colour + size for the vertical connector line */
+function nodeCfg(event: TimelineEvent): { dot: string; ring: string; size: string } {
+  switch (event.type) {
+    case "task":           return { dot: "bg-blue-500",    ring: "ring-blue-500/30",   size: "w-3 h-3" };
+    case "email":          return { dot: "bg-purple-500",  ring: "ring-purple-500/30", size: "w-3 h-3" };
+    case "stage_change":   return { dot: "bg-yellow-400",  ring: "ring-yellow-400/30", size: "w-4 h-4" };
+    case "closing_overdue":return { dot: "bg-red-500 animate-pulse", ring: "ring-red-500/30", size: "w-3 h-3" };
+    case "created":        return { dot: "bg-green-500",   ring: "ring-green-500/30",  size: "w-3 h-3" };
+    case "last_activity":  return { dot: "bg-slate-500",   ring: "ring-slate-500/20",  size: "w-2.5 h-2.5" };
+    case "revenue_change": return {
+      dot: event.revenue_direction === "up" ? "bg-green-500" : "bg-orange-500",
+      ring: event.revenue_direction === "up" ? "ring-green-500/30" : "ring-orange-500/30",
+      size: "w-3 h-3",
+    };
+    default: return { dot: "bg-slate-600", ring: "ring-slate-500/20", size: "w-3 h-3" };
+  }
+}
+
+/** Coloured stage pill using Zoho colour_code */
+function StagePill({ label, colour }: { label: string; colour?: string }) {
+  const style = colour
+    ? { borderColor: `${colour}60`, backgroundColor: `${colour}22`, color: colour }
+    : { borderColor: "#4b556340", backgroundColor: "#1e293b", color: "#94a3b8" };
+  return (
+    <span
+      className="inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold whitespace-nowrap"
+      style={style}
+    >
+      {label}
+    </span>
+  );
+}
+
+// ── 1. Summary Bar — stat chips ───────────────────────────────────────────────
+
+function SummaryBar({ intel, totalEvents }: { intel?: TimelineIntelligence; totalEvents: number }) {
+  if (!intel) return null;
+  const { days_since_last_email, stage_progression, automation_count, human_count } = intel;
+  const forwardMoves = stage_progression.filter(s => s.direction === "forward").length;
+  const backMoves    = stage_progression.filter(s => s.direction === "backward").length;
+  const emailLate    = days_since_last_email != null && days_since_last_email > 30;
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {/* Activities */}
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-800 px-3 py-1 text-[11px] text-slate-300">
+        <Calendar className="h-3 w-3 text-slate-400" />
+        {totalEvents} activities
+      </span>
+
+      {/* Last email */}
+      {days_since_last_email != null && (
+        <span className={cn(
+          "inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px]",
+          emailLate
+            ? "bg-red-950 text-red-400 border border-red-800/50"
+            : "bg-slate-800 text-slate-300"
+        )}>
+          <Mail className="h-3 w-3" />
+          Last email: {days_since_last_email === 0 ? "today" : `${days_since_last_email}d ago`}
+          {emailLate && " ⚠"}
+        </span>
+      )}
+
+      {/* Stage moves */}
+      {forwardMoves > 0 && (
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-green-950 px-3 py-1 text-[11px] text-green-400 border border-green-800/50">
+          ↑ Stage: +{forwardMoves} forward
+        </span>
+      )}
+      {backMoves > 0 && (
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-red-950 px-3 py-1 text-[11px] text-red-400 border border-red-800/50">
+          ↓ Stage: {backMoves} backward
+        </span>
+      )}
+    </div>
+  );
+}
+
+// ── 8. Human vs automation ratio bar ─────────────────────────────────────────
+
+function EngagementBar({ intel }: { intel: TimelineIntelligence }) {
+  const { human_count, automation_count } = intel;
+  const total = human_count + automation_count;
+  if (total === 0) return null;
+  const ratio = Math.round((human_count / total) * 100);
+
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between text-[11px]">
+        <span className="flex items-center gap-1 text-slate-400">
+          <User className="h-3 w-3" />
+          {ratio}% human activity
+          <span className="text-slate-600">({human_count} human / {automation_count} automated)</span>
+        </span>
+        <Bot className="h-3 w-3 text-slate-600" />
+      </div>
+      <div className="h-1.5 w-full rounded-full bg-slate-800 overflow-hidden">
+        <div
+          className="h-full rounded-full bg-green-500 transition-all duration-500"
+          style={{ width: `${ratio}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+// ── 3. Signal pills sorted + critical banner ──────────────────────────────────
+
+function SignalPills({ signals }: { signals: Signal[] }) {
+  if (signals.length === 0) return null;
+  const sorted = [...signals].sort((a, b) => {
+    const order = { critical: 0, warning: 1, good: 2 };
+    return order[a.severity] - order[b.severity];
+  });
+  const critCount = sorted.filter(s => s.severity === "critical").length;
+
+  return (
+    <div className="space-y-2">
+      {critCount >= 3 && (
+        <div className="flex items-center gap-2 rounded-lg bg-red-950 border border-red-800/60 px-3 py-2">
+          <span className="text-base">⚠️</span>
+          <span className="text-xs font-semibold text-red-400">This deal needs immediate attention</span>
+        </div>
+      )}
+      <div className="flex flex-wrap gap-1.5">
+        {sorted.map((sig, i) => (
+          <span key={i} className={cn(
+            "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium",
+            sig.severity === "critical"
+              ? "bg-red-900/50 text-red-400 border-red-700"
+              : sig.severity === "warning"
+              ? "bg-yellow-900/50 text-yellow-400 border-yellow-700"
+              : "bg-green-900/50 text-green-400 border-green-700"
+          )}>
+            {sig.severity === "critical"
+              ? <span className="h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse" />
+              : sig.severity === "warning"
+              ? <span className="text-xs">⚠</span>
+              : <span className="text-xs">✓</span>
+            }
+            {sig.text}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── 5. AI Narrative with expand/collapse ──────────────────────────────────────
+
+function NarrativeBox({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const sentences = text.match(/[^.!?]+[.!?]+/g) ?? [text];
+  const preview = sentences.slice(0, 2).join(" ").trim();
+  const hasMore = sentences.length > 2;
+
+  return (
+    <div className="rounded-lg border border-blue-900/60 bg-blue-950/30 p-3 space-y-2">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1.5">
+          <Brain className="h-3.5 w-3.5 text-blue-400" />
+          <span className="text-[11px] font-semibold text-blue-400 uppercase tracking-wider">AI Analysis</span>
+        </div>
+        <span className="inline-flex items-center gap-1 rounded-full border border-blue-700/50 bg-blue-900/50 px-1.5 py-0.5 text-[10px] font-medium text-blue-400">
+          <Sparkles className="h-2.5 w-2.5" /> AI
+        </span>
+      </div>
+      <div className="border-l-2 border-blue-500 pl-3">
+        <p className="text-xs text-slate-300 leading-relaxed">
+          {expanded ? text : preview}
+        </p>
+        {hasMore && (
+          <button
+            onClick={() => setExpanded(v => !v)}
+            className="mt-1.5 flex items-center gap-1 text-[11px] text-blue-400 hover:text-blue-300 transition-colors"
+          >
+            {expanded
+              ? <><ChevronUp className="h-3 w-3" /> Show less</>
+              : <><ChevronDown className="h-3 w-3" /> Read more</>
+            }
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── 6. Revenue change banner ──────────────────────────────────────────────────
+
+function RevenueBanner({ changes }: { changes: TimelineIntelligence["revenue_changes"] }) {
+  if (!changes || changes.length === 0) return null;
+  return (
+    <div className="space-y-1.5">
+      {changes.map((rc, i) => {
+        const isUp = rc.direction === "up";
+        const diff = Math.abs(rc.new_value - rc.old_value);
+        return (
+          <div key={i} className={cn(
+            "flex items-center gap-2 rounded-lg border px-3 py-2",
+            isUp
+              ? "bg-green-950/50 border-green-800/50"
+              : "bg-orange-950/50 border-orange-800/50"
+          )}>
+            {isUp
+              ? <TrendingUp className="h-4 w-4 text-green-400 shrink-0" />
+              : <span className="text-base shrink-0">💸</span>
+            }
+            <div className="flex-1 min-w-0">
+              <p className={cn("text-xs font-semibold", isUp ? "text-green-400" : "text-orange-400")}>
+                Revenue {isUp ? "increased" : "reduced"}: {fmtCurrency(rc.old_value)} → {fmtCurrency(rc.new_value)}
+                <span className={cn("ml-1.5", isUp ? "text-green-500" : "text-red-400")}>
+                  ({isUp ? "+" : "–"}{fmtCurrency(diff)})
+                </span>
+              </p>
+              {rc.changed_by && (
+                <p className="text-[10px] text-slate-500 mt-0.5">
+                  by {rc.changed_by}{rc.days_ago != null ? ` · ${rc.days_ago}d ago` : ""}
+                </p>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── 2. Stage change row ───────────────────────────────────────────────────────
+
+function StageChangeRow({ event, isLast }: { event: TimelineEvent; isLast: boolean }) {
+  const borderColour = event.stage_to_colour || "#facc15";
+  return (
+    <div
+      className={cn("flex-1 min-w-0 rounded-lg px-3 py-2.5 mb-3", !isLast && "mb-3")}
+      style={{
+        backgroundColor: "rgba(15,15,25,0.8)",
+        borderLeft: `3px solid ${borderColour}`,
+        borderTop: "1px solid rgba(255,255,255,0.06)",
+        borderRight: "1px solid rgba(255,255,255,0.04)",
+        borderBottom: "1px solid rgba(255,255,255,0.04)",
+      }}
+    >
+      <div className="flex items-center gap-2 flex-wrap">
+        <StagePill label={event.stage_from || ""} colour={event.stage_from_colour} />
+        <span className="text-slate-500 text-xs">──→</span>
+        <StagePill label={event.stage_to || ""} colour={event.stage_to_colour} />
+        <span className={cn(
+          "ml-1 inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-bold",
+          event.direction === "forward"
+            ? "bg-green-900/60 text-green-400"
+            : "bg-red-900/60 text-red-400"
+        )}>
+          {event.direction === "forward" ? "↑ Forward" : "↓ Backward"}
+        </span>
+        <span className="ml-auto text-[10px] text-slate-500 tabular-nums shrink-0">
+          {formatTs(event.days_ago ?? 0)}
+        </span>
+      </div>
+      {event.detail && (
+        <p className="mt-1 text-[10px] text-slate-500">{event.detail}</p>
+      )}
+    </div>
+  );
+}
+
+// ── 7. Closing overdue banner ─────────────────────────────────────────────────
+
+function ClosingOverdueBanner({ event }: { event: TimelineEvent }) {
+  const daysOverdue = Math.abs(event.days_ago ?? 0);
+  return (
+    <div className="flex-1 min-w-0 mb-3">
+      <div className="flex items-center gap-3 rounded-lg border border-red-700 bg-red-950 px-3 py-2.5">
+        <AlertTriangle className="h-5 w-5 text-red-400 shrink-0" />
+        <div className="flex-1 min-w-0">
+          <p className="text-xs font-semibold text-red-400">
+            Closing Date Passed — {daysOverdue} days overdue
+          </p>
+          <p className="text-[10px] text-slate-500 mt-0.5">
+            {event.detail || `Original close date has passed`}
+          </p>
+        </div>
+        <a
+          href="#"
+          className="shrink-0 flex items-center gap-1 rounded-md border border-red-700/60 bg-red-900/40 px-2 py-1 text-[11px] text-red-400 hover:bg-red-900/70 transition-colors"
+          onClick={e => e.preventDefault()}
+        >
+          Update <ExternalLink className="h-2.5 w-2.5" />
+        </a>
+      </div>
+    </div>
+  );
+}
+
+// ── 10. Task row ──────────────────────────────────────────────────────────────
+
+function TaskRow({ event, isLatest, isLast }: { event: TimelineEvent; isLatest: boolean; isLast: boolean }) {
+  return (
+    <div className={cn(
+      "flex-1 min-w-0 pb-3 border-l-2 pl-2",
+      isLast && "pb-0",
+      "border-yellow-600/40"
+    )}>
+      <div className="flex items-start justify-between gap-2 pt-0.5">
+        <p className="text-xs font-medium text-foreground flex items-center gap-1.5">
+          <CheckSquare className="h-3 w-3 text-yellow-500 shrink-0" />
+          {event.label.replace(/^Task:\s*/, "")}
+          {isLatest && (
+            <span className="ml-1 rounded-full bg-blue-900/60 border border-blue-700/50 px-1.5 py-0.5 text-[9px] font-semibold text-blue-400">
+              Latest
+            </span>
+          )}
+        </p>
+        <span className="shrink-0 text-[11px] text-slate-500 tabular-nums">
+          {formatTs(event.days_ago ?? 0)}
+        </span>
+      </div>
+      {event.detail && (
+        <p className="mt-0.5 text-[11px] text-slate-500">{event.detail}</p>
+      )}
+    </div>
+  );
+}
+
+// ── 11. Last activity row (muted) ─────────────────────────────────────────────
+
+function LastActivityRow({ event, isLast }: { event: TimelineEvent; isLast: boolean }) {
+  return (
+    <div className={cn("flex-1 min-w-0 pb-3", isLast && "pb-0")}>
+      <div className="flex items-center justify-between gap-2 pt-0.5">
+        <p className="text-[11px] text-slate-600 italic">{event.label}</p>
+        <span className="text-[11px] text-slate-700 tabular-nums shrink-0">
+          {formatTs(event.days_ago ?? 0)}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// ── 12. Ghost / no-reply row ──────────────────────────────────────────────────
+
+function NoReplyGhostRow({ days, onEmail }: { days: number; onEmail?: () => void }) {
+  return (
+    <div className="flex items-center gap-3 rounded-lg border border-dashed border-slate-700 bg-slate-900/40 px-3 py-2.5">
+      <MailOpen className="h-4 w-4 text-slate-600 shrink-0" />
+      <div className="flex-1 min-w-0">
+        <p className="text-xs text-slate-500">No reply received from buyer</p>
+        <p className="text-[10px] text-slate-600">Last email sent {days}d ago</p>
+      </div>
+      <button
+        className="shrink-0 text-[11px] text-primary hover:underline whitespace-nowrap"
+        onClick={onEmail}
+      >
+        Send Follow-up →
+      </button>
+    </div>
+  );
 }
 
 // ── Main Component ────────────────────────────────────────────────────────────
 
-export default function DealTimeline({ dealId }: { dealId: string }) {
+export default function DealTimeline({ dealId, onFollowUp }: { dealId: string; onFollowUp?: () => void }) {
   const [data, setData] = useState<TimelineData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -93,15 +480,19 @@ export default function DealTimeline({ dealId }: { dealId: string }) {
 
   if (loading) return (
     <div className="space-y-4 py-2">
-      <div className="space-y-2">
-        <Skeleton className="h-3 w-2/3" />
-        <Skeleton className="h-3 w-full" />
-        <Skeleton className="h-3 w-1/2" />
+      <div className="flex gap-2">
+        <Skeleton className="h-6 w-24 rounded-full" />
+        <Skeleton className="h-6 w-32 rounded-full" />
+        <Skeleton className="h-6 w-28 rounded-full" />
       </div>
-      {[...Array(4)].map((_, i) => (
+      <Skeleton className="h-1.5 w-full rounded-full" />
+      {[...Array(5)].map((_, i) => (
         <div key={i} className="flex gap-3">
-          <Skeleton className="h-7 w-7 rounded-full shrink-0" />
-          <div className="flex-1 space-y-1.5 pt-1">
+          <div className="flex flex-col items-center">
+            <Skeleton className="h-3 w-3 rounded-full" />
+            {i < 4 && <div className="w-px h-8 bg-slate-800 mt-1" />}
+          </div>
+          <div className="flex-1 space-y-1.5 pb-4">
             <Skeleton className="h-3 w-1/2" />
             <Skeleton className="h-3 w-3/4" />
           </div>
@@ -111,103 +502,129 @@ export default function DealTimeline({ dealId }: { dealId: string }) {
   );
 
   if (error) return (
-    <p className="text-xs text-muted-foreground py-3">Could not load timeline: {error}</p>
+    <p className="text-xs text-slate-500 py-3">Could not load timeline: {error}</p>
+  );
+  if (!data || data.events.length === 0) return (
+    <p className="text-xs text-slate-500 py-3">No timeline events found for this deal.</p>
   );
 
-  if (!data || data.events.length === 0) return (
-    <p className="text-xs text-muted-foreground py-3">No timeline events found for this deal.</p>
-  );
+  const intel = data.timeline_intelligence;
+  const taskEvents = data.events.filter(e => e.type === "task");
+  const latestTaskIdx = taskEvents.length > 0
+    ? data.events.findIndex(e => e === taskEvents[taskEvents.length - 1])
+    : -1;
+
+  // Show ghost no-reply row when last email was > 30d ago
+  const showGhost = intel && !intel.deal_health_signals.has_recent_email
+    && intel.days_since_last_email != null && intel.days_since_last_email > 30;
 
   return (
     <div className="space-y-4">
 
-      {/* ── Signal pills ── */}
-      {data.signals.length > 0 && (
-        <div className="flex flex-wrap gap-2">
-          {data.signals.map((sig, i) => (
-            <span key={i} className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium border
-              ${sig.severity === "critical" ? "bg-health-red/10 text-health-red border-health-red/30" :
-                sig.severity === "warning"  ? "bg-health-yellow/10 text-health-yellow border-health-yellow/30" :
-                "bg-health-green/10 text-health-green border-health-green/30"}`}>
-              {sig.severity === "critical" ? "⚠" : sig.severity === "warning" ? "○" : "✓"}
-              {sig.text}
-            </span>
-          ))}
-        </div>
+      {/* 1. Summary stat chips */}
+      <SummaryBar intel={intel} totalEvents={data.total_events} />
+
+      {/* 8. Engagement ratio bar */}
+      {intel && <EngagementBar intel={intel} />}
+
+      {/* 3. Signal pills */}
+      <SignalPills signals={data.signals} />
+
+      {/* 6. Revenue changes */}
+      {intel && intel.revenue_changes.length > 0 && (
+        <RevenueBanner changes={intel.revenue_changes} />
       )}
 
-      {/* ── AI Narrative ── */}
-      {data.narrative && (
-        <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 space-y-1.5">
-          <div className="flex items-center gap-1.5">
-            <Brain className="h-3.5 w-3.5 text-primary" />
-            <span className="text-xs font-semibold text-primary uppercase tracking-wider">AI Timeline Analysis</span>
-            <span className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-xs font-medium text-primary">
-              <Sparkles className="h-2.5 w-2.5" /> AI
-            </span>
-          </div>
-          <p className="text-xs text-foreground/90 leading-relaxed">{data.narrative}</p>
-        </div>
-      )}
-
-      {/* ── Silence indicator ── */}
-      {data.silence_days !== null && (
-        <div className="flex items-center justify-between rounded-lg bg-secondary/50 px-3 py-2">
-          <span className="text-xs text-muted-foreground">Last activity</span>
-          <span className={`text-xs font-bold ${silenceColor(data.silence_days)}`}>
-            {data.silence_days === 0 ? "Today" :
-             data.silence_days === 1 ? "Yesterday" :
-             `${data.silence_days} days ago`}
-            {data.silence_days >= 14 ? " ⚠" : ""}
-          </span>
-        </div>
-      )}
+      {/* 5. AI Narrative */}
+      {data.narrative && <NarrativeBox text={data.narrative} />}
 
       {/* ── Timeline ── */}
-      <div className="relative">
-        {/* Vertical line */}
-        <div className="absolute left-[13px] top-3 bottom-3 w-px bg-border/50" />
+      <div className="relative pl-4">
+        {/* 1. Vertical connector line */}
+        <div className="absolute left-[7px] top-0 bottom-0 w-px bg-slate-700/60" />
 
-        <div className="space-y-1">
+        <div className="space-y-0">
           {data.events.map((event, i) => {
-            const isLast = i === data.events.length - 1;
-            const isPast = !event.is_future;
-            const isNow = event.days_ago === 0;
+            const isLast     = i === data.events.length - 1;
+            const isOverdue  = event.type === "closing_overdue";
+            const isStage    = event.type === "stage_change";
+            const isLastAct  = event.type === "last_activity";
+            const isTask     = event.type === "task";
+            const { dot, ring, size } = nodeCfg(event);
 
             return (
-              <div key={i} className={`relative flex gap-3 group ${event.is_future ? "opacity-70" : ""}`}>
-                {/* Dot */}
-                <div className={`relative z-10 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border
-                  ${event.is_warning  ? "border-health-red/40 bg-health-red/10" :
-                    event.is_future   ? "border-primary/40 bg-primary/10 border-dashed" :
-                    isNow             ? "border-primary bg-primary/20" :
-                    "border-border/60 bg-secondary/80"}`}>
-                  {getIcon(event.icon, event.is_future, event.is_warning)}
+              <div
+                key={i}
+                className={cn(
+                  "relative flex gap-3 group transition-all duration-200",
+                  !isStage && !isOverdue && "hover:bg-slate-800/30 rounded-md -mx-1 px-1",
+                  event.is_future && "opacity-60"
+                )}
+              >
+                {/* Node on the vertical line */}
+                <div className="relative z-10 flex shrink-0 items-center justify-center mt-2"
+                  style={{ width: 16, minWidth: 16 }}>
+                  <span className={cn(
+                    "rounded-full ring-2 ring-offset-1 ring-offset-background block",
+                    dot, ring, size
+                  )} />
                 </div>
 
                 {/* Content */}
-                <div className={`flex-1 min-w-0 pb-4 ${isLast ? "pb-0" : ""}`}>
-                  <div className="flex items-start justify-between gap-2 pt-0.5">
-                    <p className={`text-xs font-medium leading-tight ${
-                      event.is_warning ? "text-health-red" :
-                      event.is_future  ? "text-primary" :
-                      "text-foreground"
-                    }`}>
-                      {event.label}
-                    </p>
-                    <span className={`shrink-0 text-xs tabular-nums ${
-                      event.is_warning ? "text-health-red font-medium" :
-                      event.is_future  ? "text-primary" :
-                      "text-muted-foreground"
-                    }`}>
-                      {formatDaysAgo(event.days_ago ?? 0, event.is_future)}
-                    </span>
-                  </div>
-
-                  {event.detail && (
-                    <p className="mt-0.5 text-xs text-muted-foreground leading-relaxed line-clamp-2">
-                      {event.detail}
-                    </p>
+                <div className="flex-1 min-w-0">
+                  {isOverdue ? (
+                    <ClosingOverdueBanner event={event} />
+                  ) : isStage ? (
+                    <StageChangeRow event={event} isLast={isLast} />
+                  ) : isLastAct ? (
+                    <LastActivityRow event={event} isLast={isLast} />
+                  ) : isTask ? (
+                    <TaskRow event={event} isLatest={i === latestTaskIdx} isLast={isLast} />
+                  ) : event.type === "revenue_change" ? (
+                    <div className={cn("flex-1 min-w-0 pb-3", isLast && "pb-0")}>
+                      <div className="flex items-center gap-2 pt-0.5">
+                        <span className={cn("text-xs font-medium", event.revenue_direction === "up" ? "text-green-400" : "text-red-400")}>
+                          {event.label}
+                        </span>
+                        <span className="ml-auto text-[11px] text-slate-500 tabular-nums shrink-0">
+                          {formatTs(event.days_ago ?? 0)}
+                        </span>
+                      </div>
+                      {event.detail && <p className="text-[10px] text-slate-500 mt-0.5">{event.detail}</p>}
+                    </div>
+                  ) : (
+                    /* Default row — created, email, note, activity, etc. */
+                    <div className={cn("flex-1 min-w-0 pb-3", isLast && "pb-0")}>
+                      <div className="flex items-start justify-between gap-2 pt-0.5">
+                        <p className={cn(
+                          "text-xs font-medium leading-tight",
+                          event.is_warning    ? "text-red-400" :
+                          event.is_future     ? "text-primary" :
+                          event.is_automation ? "text-slate-500" :
+                          event.type === "email" ? "text-slate-200" :
+                          event.type === "created" ? "text-slate-200" :
+                          "text-slate-300"
+                        )}>
+                          {event.label}
+                          {event.is_automation && (
+                            <span className="ml-1.5 text-[9px] font-normal text-slate-600 uppercase tracking-wider">auto</span>
+                          )}
+                        </p>
+                        <span className={cn(
+                          "shrink-0 text-[11px] tabular-nums",
+                          event.is_warning ? "text-red-400 font-medium" :
+                          event.is_future  ? "text-primary" :
+                          "text-slate-500"
+                        )}>
+                          {formatTs(event.days_ago ?? 0, event.is_future)}
+                        </span>
+                      </div>
+                      {event.detail && (
+                        <p className="mt-0.5 text-[11px] text-slate-500 leading-relaxed line-clamp-2">
+                          {event.detail}
+                        </p>
+                      )}
+                    </div>
                   )}
                 </div>
               </div>
@@ -216,11 +633,19 @@ export default function DealTimeline({ dealId }: { dealId: string }) {
         </div>
       </div>
 
-      {/* ── Footer summary ── */}
-      <div className="flex items-center justify-between border-t border-border/30 pt-3 text-xs text-muted-foreground">
+      {/* 12. No-reply ghost row */}
+      {showGhost && (
+        <NoReplyGhostRow
+          days={intel!.days_since_last_email!}
+          onEmail={onFollowUp}
+        />
+      )}
+
+      {/* Footer */}
+      <div className="flex items-center justify-between border-t border-slate-800 pt-3 text-[11px] text-slate-600">
         <span>{data.total_events} recorded events</span>
         {data.closing_date && (
-          <span className={data.days_to_close !== null && data.days_to_close < 0 ? "text-health-red font-medium" : ""}>
+          <span className={data.days_to_close !== null && data.days_to_close < 0 ? "text-red-500 font-medium" : ""}>
             Close: {data.closing_date}
             {data.days_to_close !== null && (
               <span className="ml-1">

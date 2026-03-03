@@ -384,7 +384,27 @@ async def get_deal_health(deal_id: str, authorization: str = Header(...)):
         except Exception as e:
             logger.warning("Activity fetch failed deal=%s: %s", deal_id, e)
 
-    # Score with 9 signals when activity data is available, 6 signals as fallback
+    # Fetch timeline analysis — non-blocking, graceful fallback
+    timeline_analysis = {}
+    if demo:
+        from services.demo_data import get_demo_timeline
+        from services.timeline_analyzer import analyze_timeline
+        demo_tl = get_demo_timeline(deal_id)
+        timeline_analysis = analyze_timeline(demo_tl.get("timeline", []))
+    else:
+        try:
+            from services.zoho_client import fetch_deal_timeline
+            from services.timeline_analyzer import analyze_timeline
+            raw_tl = await fetch_deal_timeline(session["access_token"], deal_id)
+            timeline_analysis = analyze_timeline(raw_tl.get("timeline", []))
+        except Exception as e:
+            logger.warning("Timeline fetch failed deal=%s: %s", deal_id, e)
+
+    # Score with best available signals
+    if activity_data and activity_data.get("summary") and timeline_analysis.get("total_entries"):
+        from services.health_scorer import score_deal_with_timeline
+        return score_deal_with_timeline(raw, activity_data, timeline_analysis)
+
     if activity_data and activity_data.get("summary"):
         from services.health_scorer import score_deal_with_activities
         return score_deal_with_activities(raw, activity_data)
@@ -394,14 +414,24 @@ async def get_deal_health(deal_id: str, authorization: str = Header(...)):
 
 @router.get("/{deal_id}/timeline")
 async def get_deal_timeline(deal_id: str, authorization: str = Header(...)):
-    """Build a full activity timeline for a deal."""
+    """
+    Build a full activity timeline for a deal.
+
+    Sources (merged in priority order):
+    1. Zoho v9 Timelines API — stage changes with colour codes, email events, revenue changes
+    2. Zoho notes + activities (existing build_timeline logic)
+
+    Falls back gracefully: if v9 fails, existing data still renders.
+    """
     session = _decode_session(authorization)
     simulated = _is_demo(session) or deal_id.startswith("sim_")
 
     from services.deal_timeline import build_timeline, generate_timeline_narrative
+    from services.timeline_analyzer import analyze_timeline, enrich_timeline_events
     from datetime import timedelta
 
     if simulated:
+        from services.demo_data import get_demo_timeline
         raw_list = [d for d in SIMULATED_DEALS if d["id"] == deal_id]
         if not raw_list:
             raw_list = [SIMULATED_DEALS[0]]
@@ -440,14 +470,17 @@ async def get_deal_timeline(deal_id: str, authorization: str = Header(...)):
             },
         ]
         notes, activities = demo_notes, demo_activities
-    else:
-        try:
-            from services.zoho_client import fetch_deal_notes, fetch_deal_activities
+        raw_timeline_data = get_demo_timeline(deal_id)
 
-            raw, notes, activities = await asyncio.gather(
+    else:
+        from services.zoho_client import fetch_deal_notes, fetch_deal_activities, fetch_deal_timeline
+
+        try:
+            raw, notes, activities, raw_timeline_data = await asyncio.gather(
                 fetch_single_deal(session["access_token"], deal_id),
                 fetch_deal_notes(session["access_token"], deal_id),
                 fetch_deal_activities(session["access_token"], deal_id),
+                fetch_deal_timeline(session["access_token"], deal_id),
                 return_exceptions=True,
             )
             if isinstance(raw, Exception) or raw is None:
@@ -456,21 +489,84 @@ async def get_deal_timeline(deal_id: str, authorization: str = Header(...)):
                 notes = []
             if isinstance(activities, Exception):
                 activities = []
+            if isinstance(raw_timeline_data, Exception):
+                raw_timeline_data = {"timeline": []}
         except Exception as e:
             return {"error": str(e), "events": [], "signals": [], "narrative": ""}
 
-    timeline = build_timeline(raw, notes, activities)
+    # Build base timeline from notes + activities
+    base_timeline = build_timeline(raw, notes, activities)
+
+    # Parse v9 timeline data
+    v9_entries = raw_timeline_data.get("timeline", []) if isinstance(raw_timeline_data, dict) else []
+    timeline_analysis = analyze_timeline(v9_entries)
+
+    # Merge v9 events into base timeline events
+    enriched_events = enrich_timeline_events(
+        base_timeline["events"],
+        timeline_analysis,
+        v9_entries,
+    )
+    base_timeline["events"] = enriched_events
+    base_timeline["total_events"] = len(enriched_events)
+
+    # Add extra signals derived from v9 data
+    v9_signals = []
+    signals_data = timeline_analysis.get("deal_health_signals", {})
+    if timeline_analysis.get("stage_progression"):
+        latest_stage = timeline_analysis["stage_progression"][-1]
+        if latest_stage["direction"] == "backward":
+            v9_signals.append({
+                "severity": "critical",
+                "text": f"Stage regressed: {latest_stage['old_stage']} → {latest_stage['new_stage']}"
+            })
+        else:
+            v9_signals.append({
+                "severity": "good",
+                "text": f"Stage advancing: → {latest_stage['new_stage']}"
+            })
+
+    days_email = timeline_analysis.get("days_since_last_email")
+    if days_email is not None and days_email > 30:
+        v9_signals.append({"severity": "critical", "text": f"No email sent in {days_email} days"})
+    elif days_email is not None and days_email <= 7:
+        v9_signals.append({"severity": "good", "text": f"Email sent {days_email}d ago"})
+
+    ratio = signals_data.get("human_activity_ratio", 1.0)
+    if ratio < 0.4 and timeline_analysis.get("total_entries", 0) > 3:
+        v9_signals.append({"severity": "warning", "text": "Only automated emails sent — no human touch"})
+
+    if signals_data.get("revenue_growing"):
+        v9_signals.append({"severity": "good", "text": "Revenue growing — deal showing momentum"})
+
+    # Prepend v9 signals (they're more accurate)
+    base_timeline["signals"] = v9_signals + base_timeline.get("signals", [])
+
+    # Generate narrative
     narrative = await generate_timeline_narrative(
         deal_name=raw.get("name", "This deal"),
         stage=raw.get("stage", "Unknown"),
         amount=float(raw.get("amount") or 0),
         health_label=raw.get("health_label", "unknown"),
-        timeline=timeline,
+        timeline=base_timeline,
     )
-    timeline["narrative"] = narrative
-    timeline["deal_name"] = raw.get("name", "")
-    timeline["stage"] = raw.get("stage", "")
-    timeline["closing_date"] = raw.get("closing_date", "")
-    timeline["amount"] = raw.get("amount", 0)
 
-    return timeline
+    base_timeline["narrative"] = narrative
+    base_timeline["deal_name"] = raw.get("name", "")
+    base_timeline["stage"] = raw.get("stage", "")
+    base_timeline["closing_date"] = raw.get("closing_date", "")
+    base_timeline["amount"] = raw.get("amount", 0)
+
+    # Include timeline intelligence summary for frontend
+    base_timeline["timeline_intelligence"] = {
+        "stage_progression": timeline_analysis.get("stage_progression", []),
+        "last_email_sent": timeline_analysis.get("last_email_sent"),
+        "last_email_subject": timeline_analysis.get("last_email_subject"),
+        "days_since_last_email": timeline_analysis.get("days_since_last_email"),
+        "revenue_changes": timeline_analysis.get("revenue_changes", []),
+        "automation_count": timeline_analysis.get("automation_entries", 0),
+        "human_count": timeline_analysis.get("human_entries", 0),
+        "deal_health_signals": signals_data,
+    }
+
+    return base_timeline

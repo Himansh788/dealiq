@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -19,7 +19,24 @@ import {
   X,
   AlarmClockOff,
   Database,
+  Search,
+  Filter,
+  ChevronDown,
+  Flame,
+  RefreshCw,
+  Send,
+  MessageSquare,
+  Phone,
+  Eye,
+  SkipForward,
+  PartyPopper,
 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -32,6 +49,8 @@ interface Action {
   amount: number;
   stage: string;
   urgency_score: number;
+  health_label?: string;
+  days_since_contact?: number;
   context: string;
   suggested_action: string;
   draft?: string;
@@ -48,6 +67,8 @@ interface PendingUpdate {
   context?: string;
 }
 
+type FilterType = "all" | "email" | "call" | "zombie" | "follow_up";
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function greeting(name: string): string {
@@ -62,17 +83,65 @@ function formatCurrency(val: number): string {
   return `$${val}`;
 }
 
-function urgencyLabel(score: number): "URGENT" | "ACTION NEEDED" | "OPPORTUNITY" {
-  if (score >= 80) return "URGENT";
-  if (score >= 50) return "ACTION NEEDED";
-  return "OPPORTUNITY";
+/** Time-ago with color tier based on days */
+function timeAgoLabel(days?: number): { text: string; className: string } | null {
+  if (days == null) return null;
+  if (days > 60)  return { text: `${days}d ago`, className: "text-health-red" };
+  if (days > 14)  return { text: `${days}d ago`, className: "text-health-yellow" };
+  return { text: `${days}d ago`, className: "text-muted-foreground/50" };
 }
 
-const URGENCY_CONFIG = {
-  URGENT:        { cardClass: "border-health-red/30 bg-health-red/5",      dotClass: "bg-health-red",    badgeClass: "text-health-red bg-health-red/10 border-health-red/30" },
-  "ACTION NEEDED": { cardClass: "border-health-orange/30 bg-health-orange/5", dotClass: "bg-health-orange", badgeClass: "text-health-orange bg-health-orange/10 border-health-orange/30" },
-  OPPORTUNITY:   { cardClass: "border-health-green/30 bg-health-green/5",  dotClass: "bg-health-green",  badgeClass: "text-health-green bg-health-green/10 border-health-green/30" },
-} as const;
+/** Card border + bg based on health_label (real deal health, not just urgency score) */
+function cardStyle(action: Action): string {
+  const label = action.health_label;
+  if (label === "critical" || action.urgency_score >= 90)
+    return "border-health-red/30 bg-health-red/5";
+  if (label === "at_risk" || action.urgency_score >= 60)
+    return "border-health-orange/25 bg-health-orange/4";
+  if (label === "watching")
+    return "border-health-yellow/25 bg-health-yellow/4";
+  return "border-border/40 bg-card/40";
+}
+
+/** Dot color for section headers */
+function sectionDot(group: "critical" | "at_risk" | "opportunity"): string {
+  if (group === "critical")   return "bg-health-red";
+  if (group === "at_risk")    return "bg-health-orange";
+  return "bg-health-green";
+}
+
+/** Dynamic CTA label + icon based on deal type/context */
+function ctaConfig(action: Action): { label: string; icon: React.ElementType } {
+  const type = action.type?.toLowerCase() ?? "";
+  const days = action.days_since_contact ?? 0;
+
+  if (type.includes("zombie") || days > 90)
+    return { label: "Revive Deal", icon: Flame };
+  if (type.includes("follow_up") || type.includes("no_response") || days > 30)
+    return { label: "Send Follow-up", icon: Send };
+  if (type.includes("call"))
+    return { label: "Prep Call Brief", icon: Phone };
+  if (type.includes("proposal") || type.includes("price"))
+    return { label: "Send Proposal", icon: Send };
+  if (action.draft)
+    return { label: "Review Draft", icon: Eye };
+  return { label: "Draft Email", icon: Mail };
+}
+
+const SNOOZE_OPTIONS = [
+  { label: "Tomorrow",  hours: 24 },
+  { label: "3 Days",    hours: 72 },
+  { label: "1 Week",    hours: 168 },
+];
+
+const SECTION_LABELS: Record<string, string> = {
+  critical:    "Critical — Needs Immediate Attention",
+  at_risk:     "At Risk — Follow Up Soon",
+  opportunity: "On Track — Proactive Actions",
+};
+
+// localStorage key for collapsed sections
+const LS_COLLAPSED = "home_collapsed_sections";
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
@@ -80,11 +149,20 @@ export default function Home() {
   const { session } = useSession();
   const { toast } = useToast();
 
-  const [actions, setActions] = useState<Action[]>([]);
+  const [actions, setActions]               = useState<Action[]>([]);
   const [pendingUpdates, setPendingUpdates] = useState<PendingUpdate[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
-  const [composer, setComposer] = useState<{ dealId: string; dealName: string; draft?: string } | null>(null);
+  const [loading, setLoading]               = useState(true);
+  const [dismissed, setDismissed]           = useState<Set<string>>(new Set());
+  const [snoozed, setSnoozed]               = useState<Set<string>>(new Set());
+  const [composer, setComposer]             = useState<{ dealId: string; dealName: string; draft?: string } | null>(null);
+  const [search, setSearch]                 = useState("");
+  const [filterType, setFilterType]         = useState<FilterType>("all");
+  const [collapsed, setCollapsed]           = useState<Set<string>>(() => {
+    try {
+      const stored = localStorage.getItem(LS_COLLAPSED);
+      return stored ? new Set(JSON.parse(stored)) : new Set();
+    } catch { return new Set(); }
+  });
 
   useEffect(() => {
     Promise.all([api.getTodayActions(), api.getPendingCrmUpdates()])
@@ -98,11 +176,57 @@ export default function Home() {
       .finally(() => setLoading(false));
   }, []);
 
-  const visibleActions = actions.filter((a) => !dismissed.has(a.id));
-  const urgentActions = visibleActions.filter((a) => a.urgency_score >= 80);
-  const otherActions = visibleActions.filter((a) => a.urgency_score < 80);
-  const atRiskValue = visibleActions.reduce((sum, a) => sum + (a.amount || 0), 0);
+  // Persist collapsed state to localStorage
+  function toggleCollapse(group: string) {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      next.has(group) ? next.delete(group) : next.add(group);
+      try { localStorage.setItem(LS_COLLAPSED, JSON.stringify([...next])); } catch {}
+      return next;
+    });
+  }
 
+  const visibleActions = useMemo(() => {
+    let list = actions.filter((a) => !dismissed.has(a.id) && !snoozed.has(a.id));
+
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      list = list.filter(
+        (a) =>
+          a.deal_name.toLowerCase().includes(q) ||
+          a.company?.toLowerCase().includes(q) ||
+          a.context.toLowerCase().includes(q)
+      );
+    }
+
+    if (filterType !== "all") {
+      list = list.filter((a) => {
+        const t = a.type?.toLowerCase() ?? "";
+        if (filterType === "email")      return t.includes("email") || t.includes("draft");
+        if (filterType === "call")       return t.includes("call");
+        if (filterType === "zombie")     return t.includes("zombie") || (a.days_since_contact ?? 0) > 90;
+        if (filterType === "follow_up")  return t.includes("follow") || t.includes("no_response");
+        return true;
+      });
+    }
+
+    return list;
+  }, [actions, dismissed, snoozed, search, filterType]);
+
+  const snoozedActions = useMemo(
+    () => actions.filter((a) => snoozed.has(a.id)),
+    [actions, snoozed]
+  );
+
+  // Grouping: critical (score≥80 or health_label=critical), at_risk, opportunity
+  const groups = useMemo(() => {
+    const critical    = visibleActions.filter((a) => a.health_label === "critical" || a.urgency_score >= 80);
+    const at_risk     = visibleActions.filter((a) => !critical.includes(a) && (a.health_label === "at_risk" || a.urgency_score >= 50));
+    const opportunity = visibleActions.filter((a) => !critical.includes(a) && !at_risk.includes(a));
+    return { critical, at_risk, opportunity };
+  }, [visibleActions]);
+
+  const atRiskValue = visibleActions.reduce((sum, a) => sum + (a.amount || 0), 0);
   const displayName = session?.display_name ?? "there";
 
   async function handleDismiss(id: string) {
@@ -110,10 +234,11 @@ export default function Home() {
     await api.dismissAction(id).catch(() => null);
   }
 
-  async function handleSnooze(id: string) {
-    setDismissed((prev) => new Set([...prev, id]));
+  async function handleSnooze(id: string, hours: number) {
+    setSnoozed((prev) => new Set([...prev, id]));
     await api.snoozeAction(id).catch(() => null);
-    toast({ title: "Snoozed 24h", description: "Action will reappear tomorrow." });
+    const label = hours <= 24 ? "tomorrow" : hours <= 72 ? "in 3 days" : "in a week";
+    toast({ title: `Snoozed — reappears ${label}` });
   }
 
   async function handleApproveUpdate(id: string) {
@@ -131,27 +256,81 @@ export default function Home() {
     <>
       <div className="min-h-screen bg-background">
 
-        {/* ── Header ── */}
-        <div className="border-b border-border/40 bg-background/95 backdrop-blur-sm px-6 py-4">
-          <div className="flex items-center justify-between max-w-5xl mx-auto">
-            <div>
-              <h1 className="text-lg font-semibold text-foreground">{greeting(displayName)}</h1>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                {loading
-                  ? "Loading your day…"
-                  : `${visibleActions.length} action${visibleActions.length !== 1 ? "s" : ""} today · ${formatCurrency(atRiskValue)} at risk${pendingUpdates.length > 0 ? ` · ${pendingUpdates.length} CRM update${pendingUpdates.length !== 1 ? "s" : ""} pending` : ""}`}
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-violet-500/20">
-                <Sparkles className="h-3.5 w-3.5 text-violet-400" />
+        {/* ── Hero Header ── */}
+        <div className="relative overflow-hidden border-b border-border/40 bg-gradient-to-r from-primary/5 via-background to-accent/5 px-6 py-5">
+          <div className="max-w-5xl mx-auto">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <h1 className="text-lg font-semibold text-foreground">{greeting(displayName)}</h1>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {loading ? "Loading your day…" : "Here's what needs your attention today."}
+                </p>
               </div>
-              <span className="text-xs text-muted-foreground">AI-prioritised</span>
+
+              {/* Stat pills */}
+              {!loading && (
+                <div className="hidden sm:flex items-center gap-2 flex-wrap justify-end">
+                  {groups.critical.length > 0 && (
+                    <span className="inline-flex items-center gap-1.5 rounded-full border border-health-red/30 bg-health-red/10 px-3 py-1 text-[11px] font-semibold text-health-red">
+                      <span className="h-1.5 w-1.5 rounded-full bg-health-red animate-pulse" />
+                      {groups.critical.length} Critical
+                    </span>
+                  )}
+                  {groups.at_risk.length > 0 && (
+                    <span className="inline-flex items-center gap-1.5 rounded-full border border-health-orange/30 bg-health-orange/10 px-3 py-1 text-[11px] font-semibold text-health-orange">
+                      {groups.at_risk.length} At Risk
+                    </span>
+                  )}
+                  {atRiskValue > 0 && (
+                    <span className="inline-flex items-center gap-1.5 rounded-full border border-border/40 bg-secondary/50 px-3 py-1 text-[11px] font-semibold text-foreground/70">
+                      {formatCurrency(atRiskValue)} at risk
+                    </span>
+                  )}
+                  {pendingUpdates.length > 0 && (
+                    <span className="inline-flex items-center gap-1.5 rounded-full border border-blue-400/30 bg-blue-400/10 px-3 py-1 text-[11px] font-semibold text-blue-400">
+                      {pendingUpdates.length} CRM updates
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </div>
 
-        <div className="max-w-5xl mx-auto px-6 py-6 space-y-6">
+        <div className="max-w-5xl mx-auto px-6 py-5 space-y-5">
+
+          {/* ── Search + Filter bar ── */}
+          {!loading && visibleActions.length > 0 && (
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1 max-w-xs">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/50" />
+                <input
+                  type="text"
+                  placeholder="Search deals…"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="h-8 w-full rounded-lg border border-border/40 bg-secondary/30 pl-8 pr-3 text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-border/70 focus:outline-none focus:ring-0"
+                />
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                {(["all", "email", "call", "zombie", "follow_up"] as FilterType[]).map((f) => (
+                  <button
+                    key={f}
+                    onClick={() => setFilterType(f)}
+                    className={cn(
+                      "h-7 rounded-md px-2.5 text-[11px] font-medium transition-colors",
+                      filterType === f
+                        ? "bg-primary/15 text-primary"
+                        : "text-muted-foreground/60 hover:text-foreground hover:bg-secondary/50"
+                    )}
+                  >
+                    {f === "all" ? "All" : f === "follow_up" ? "Follow-up" : f.charAt(0).toUpperCase() + f.slice(1)}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* ── Pending CRM Updates Banner ── */}
           {!loading && pendingUpdates.length > 0 && (
@@ -202,63 +381,112 @@ export default function Home() {
             </section>
           )}
 
-          {/* ── Urgent Actions ── */}
+          {/* ── Main Content ── */}
           {loading ? (
             <div className="space-y-2">
-              {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-20 w-full rounded-xl" />)}
+              {[...Array(4)].map((_, i) => (
+                <div key={i} className="rounded-xl border border-border/30 bg-card/30 px-4 py-3 space-y-2 animate-pulse">
+                  <Skeleton className="h-4 w-48" />
+                  <Skeleton className="h-3 w-full" />
+                  <Skeleton className="h-3 w-3/4" />
+                  <div className="flex gap-2 pt-1">
+                    <Skeleton className="h-7 w-28 rounded-md" />
+                    <Skeleton className="h-7 w-16 rounded-md" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : visibleActions.length === 0 && !search && filterType === "all" ? (
+            /* All clear empty state */
+            <div className="flex flex-col items-center gap-3 rounded-xl border border-border/30 bg-card/40 px-6 py-14">
+              <PartyPopper className="h-10 w-10 text-health-green/60" />
+              <p className="text-sm font-semibold text-foreground">All caught up!</p>
+              <p className="text-xs text-muted-foreground text-center max-w-xs">
+                No critical or at-risk deals need your attention right now. Check back later or explore your pipeline.
+              </p>
+              <Link
+                to="/dashboard"
+                className="mt-1 inline-flex items-center gap-1.5 text-xs text-primary hover:underline"
+              >
+                View full pipeline <ChevronRight className="h-3 w-3" />
+              </Link>
             </div>
           ) : visibleActions.length === 0 ? (
+            /* No search results */
             <div className="flex flex-col items-center gap-2 rounded-xl border border-border/30 bg-card/40 px-6 py-10">
-              <CheckCircle className="h-8 w-8 text-health-green" />
-              <p className="text-sm font-medium text-foreground">All clear — pipeline looks healthy!</p>
-              <p className="text-xs text-muted-foreground">No critical or at-risk deals need attention right now.</p>
+              <Search className="h-7 w-7 text-muted-foreground/30" />
+              <p className="text-sm text-muted-foreground">No actions match your filter.</p>
+              <button
+                className="text-xs text-primary hover:underline"
+                onClick={() => { setSearch(""); setFilterType("all"); }}
+              >
+                Clear filters
+              </button>
             </div>
           ) : (
-            <>
-              {urgentActions.length > 0 && (
-                <ActionSection
-                  title="URGENT"
-                  dotClass={URGENCY_CONFIG.URGENT.dotClass}
-                  actions={urgentActions}
-                  onEmail={(a) => setComposer({ dealId: a.deal_id, dealName: a.deal_name, draft: a.draft })}
-                  onDismiss={handleDismiss}
-                  onSnooze={handleSnooze}
-                />
-              )}
+            <div className="space-y-4">
+              {(["critical", "at_risk", "opportunity"] as const).map((group) => {
+                const list = groups[group];
+                if (list.length === 0) return null;
+                const isCollapsed = collapsed.has(group);
 
-              {otherActions.length > 0 && (
-                <ActionSection
-                  title="ACTION NEEDED"
-                  dotClass={URGENCY_CONFIG["ACTION NEEDED"].dotClass}
-                  actions={otherActions}
-                  onEmail={(a) => setComposer({ dealId: a.deal_id, dealName: a.deal_name, draft: a.draft })}
-                  onDismiss={handleDismiss}
-                  onSnooze={handleSnooze}
-                />
-              )}
-            </>
+                return (
+                  <section key={group}>
+                    {/* Sticky section header */}
+                    <button
+                      onClick={() => toggleCollapse(group)}
+                      className="sticky top-0 z-10 w-full flex items-center gap-2 rounded-lg bg-background/90 px-2 py-1.5 backdrop-blur-sm mb-2 hover:bg-secondary/30 transition-colors"
+                    >
+                      <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", sectionDot(group))} />
+                      <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60 flex-1 text-left">
+                        {SECTION_LABELS[group]} · {list.length}
+                      </span>
+                      <ChevronDown className={cn("h-3.5 w-3.5 text-muted-foreground/40 transition-transform", isCollapsed && "-rotate-90")} />
+                    </button>
+
+                    {!isCollapsed && (
+                      <div className="space-y-2">
+                        {list.map((action) => (
+                          <ActionCard
+                            key={action.id}
+                            action={action}
+                            onEmail={() => setComposer({ dealId: action.deal_id, dealName: action.deal_name, draft: action.draft })}
+                            onDismiss={() => handleDismiss(action.id)}
+                            onSnooze={(hours) => handleSnooze(action.id, hours)}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </section>
+                );
+              })}
+            </div>
           )}
 
-          {/* ── Quick Links ── */}
-          <section className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-            {[
-              { href: "/dashboard", icon: AlertTriangle, label: "Pipeline",   desc: "All deals" },
-              { href: "/ask",       icon: Sparkles,      label: "Ask AI",     desc: "Deal Q&A engine" },
-              { href: "/settings",  icon: Clock,         label: "Integrations", desc: "Connect Outlook & Zoho" },
-            ].map(({ href, icon: Icon, label, desc }) => (
-              <Link
-                key={href}
-                to={href}
-                className="flex flex-col gap-1.5 rounded-xl border border-border/30 bg-card/40 px-3 py-3 transition-colors hover:border-primary/30 hover:bg-primary/5"
-              >
-                <Icon className="h-4 w-4 text-muted-foreground" />
-                <div>
-                  <p className="text-xs font-semibold text-foreground">{label}</p>
-                  <p className="text-[10px] text-muted-foreground">{desc}</p>
-                </div>
-              </Link>
-            ))}
-          </section>
+          {/* ── Snoozed Section ── */}
+          {snoozedActions.length > 0 && (
+            <section>
+              <div className="flex items-center gap-2 mb-2">
+                <AlarmClockOff className="h-3.5 w-3.5 text-muted-foreground/40" />
+                <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/40">
+                  Snoozed · {snoozedActions.length}
+                </span>
+              </div>
+              <div className="space-y-1.5">
+                {snoozedActions.map((a) => (
+                  <div key={a.id} className="flex items-center gap-3 rounded-lg border border-border/20 bg-secondary/20 px-3 py-2 opacity-60">
+                    <p className="text-xs text-muted-foreground flex-1 truncate">{a.deal_name}</p>
+                    <button
+                      className="text-[11px] text-primary hover:underline shrink-0"
+                      onClick={() => setSnoozed((prev) => { const n = new Set(prev); n.delete(a.id); return n; })}
+                    >
+                      Unsnooze
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
 
         </div>
       </div>
@@ -276,44 +504,7 @@ export default function Home() {
   );
 }
 
-// ── Sub-components ─────────────────────────────────────────────────────────────
-
-function ActionSection({
-  title,
-  dotClass,
-  actions,
-  onEmail,
-  onDismiss,
-  onSnooze,
-}: {
-  title: string;
-  dotClass: string;
-  actions: Action[];
-  onEmail: (a: Action) => void;
-  onDismiss: (id: string) => void;
-  onSnooze: (id: string) => void;
-}) {
-  return (
-    <section>
-      <div className="flex items-center gap-2 mb-2">
-        <Zap className="h-3.5 w-3.5 text-muted-foreground/60" />
-        <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", dotClass)} />
-        <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">{title}</span>
-      </div>
-      <div className="space-y-2">
-        {actions.map((action) => (
-          <ActionCard
-            key={action.id}
-            action={action}
-            onEmail={() => onEmail(action)}
-            onDismiss={() => onDismiss(action.id)}
-            onSnooze={() => onSnooze(action.id)}
-          />
-        ))}
-      </div>
-    </section>
-  );
-}
+// ── ActionCard ────────────────────────────────────────────────────────────────
 
 function ActionCard({
   action,
@@ -324,39 +515,39 @@ function ActionCard({
   action: Action;
   onEmail: () => void;
   onDismiss: () => void;
-  onSnooze: () => void;
+  onSnooze: (hours: number) => void;
 }) {
-  const label = urgencyLabel(action.urgency_score);
-  const cfg = URGENCY_CONFIG[label];
+  const cta = ctaConfig(action);
+  const CtaIcon = cta.icon;
+  const timeAgo = timeAgoLabel(action.days_since_contact);
 
   return (
-    <div className={cn(
-      "rounded-xl border px-4 py-3 transition-colors",
-      cfg.cardClass,
-    )}>
-      {/* Top row: deal name + amount + dismiss */}
-      <div className="flex items-start gap-3">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <p className="text-sm font-semibold text-foreground truncate">{action.deal_name}</p>
-            <span className="text-[10px] text-muted-foreground/50 shrink-0">{action.company}</span>
-            <span className="text-[10px] text-muted-foreground/50 shrink-0">{formatCurrency(action.amount)}</span>
-            <Badge variant="outline" className={cn("text-[10px] h-4 px-1.5 shrink-0", cfg.badgeClass)}>
+    <div className={cn("rounded-xl border px-4 py-3 transition-colors hover:border-border/70", cardStyle(action))}>
+
+      {/* Row 1: deal name + badges + dismiss */}
+      <div className="flex items-center gap-2 min-w-0">
+        <p className="text-sm font-semibold text-foreground truncate flex-1">{action.deal_name}</p>
+
+        <div className="flex items-center gap-1.5 shrink-0">
+          {action.stage && (
+            <Badge variant="outline" className="text-[10px] h-4 px-1.5 border-border/40 text-muted-foreground">
               {action.stage}
             </Badge>
-          </div>
-          {/* AI context */}
-          <p className="text-xs text-muted-foreground mt-1">{action.context}</p>
-          {/* Suggested action */}
-          <p className="text-[11px] text-foreground/70 mt-0.5 flex items-start gap-1">
-            <ChevronRight className="h-3 w-3 mt-0.5 shrink-0 text-muted-foreground/40" />
-            {action.suggested_action}
-          </p>
+          )}
+          {action.amount > 0 && (
+            <span className="text-[10px] text-muted-foreground/50 font-medium tabular-nums">
+              {formatCurrency(action.amount)}
+            </span>
+          )}
+          {timeAgo && (
+            <span className={cn("text-[10px] font-medium shrink-0", timeAgo.className)}>
+              {timeAgo.text}
+            </span>
+          )}
         </div>
 
-        {/* Dismiss button */}
         <button
-          className="text-muted-foreground/30 hover:text-muted-foreground shrink-0 mt-0.5"
+          className="text-muted-foreground/30 hover:text-muted-foreground shrink-0 ml-1"
           onClick={onDismiss}
           aria-label="Dismiss"
         >
@@ -364,24 +555,42 @@ function ActionCard({
         </button>
       </div>
 
-      {/* Action buttons */}
-      <div className="flex items-center gap-2 mt-3">
+      {/* Row 2: insight text */}
+      <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">{action.context}</p>
+
+      {/* Row 3: action buttons */}
+      <div className="flex items-center gap-2 mt-2.5">
         <Button
           size="sm"
           variant="outline"
           className="h-7 px-3 text-xs border-border/50 hover:border-primary/40 hover:text-primary"
           onClick={onEmail}
         >
-          <Mail className="mr-1.5 h-3 w-3" />
-          {action.draft ? "Review Draft" : "Draft Email"}
+          <CtaIcon className="mr-1.5 h-3 w-3" />
+          {cta.label}
         </Button>
-        <button
-          className="text-[11px] text-muted-foreground/50 hover:text-muted-foreground flex items-center gap-1"
-          onClick={onSnooze}
-        >
-          <AlarmClockOff className="h-3 w-3" />
-          Snooze
-        </button>
+
+        {/* Snooze dropdown */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button className="flex items-center gap-1 text-[11px] text-muted-foreground/50 hover:text-muted-foreground transition-colors">
+              <AlarmClockOff className="h-3 w-3" />
+              Snooze
+              <ChevronDown className="h-2.5 w-2.5" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-32 border-border/40 bg-card shadow-xl">
+            {SNOOZE_OPTIONS.map((opt) => (
+              <DropdownMenuItem
+                key={opt.label}
+                className="text-xs cursor-pointer"
+                onClick={() => onSnooze(opt.hours)}
+              >
+                {opt.label}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </div>
   );
