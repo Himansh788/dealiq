@@ -44,6 +44,15 @@ class Deal(Base):
     amount: Mapped[float | None] = mapped_column(Numeric(15, 2))
     owner_email: Mapped[str | None] = mapped_column(String(255))
     is_demo: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Cache fields — populated when deal is synced from Zoho
+    synced_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    raw_data: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    closing_date: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    last_activity_time: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    next_step: Mapped[str | None] = mapped_column(Text, nullable=True)
+    health_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    health_label: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    sync_source: Mapped[str | None] = mapped_column(String(50), nullable=True, default="zoho")  # zoho | manual | demo
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime | None] = mapped_column(DateTime, onupdate=func.now())
 
@@ -77,6 +86,7 @@ class HealthScore(Base):
     health_label: Mapped[str] = mapped_column(String(20), nullable=False)  # healthy/at_risk/critical/zombie
     recommendation: Mapped[str | None] = mapped_column(Text)
     scored_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    score_version: Mapped[int | None] = mapped_column(Integer, nullable=True, default=1)  # bump when algorithm changes
 
     deal: Mapped["Deal"] = relationship(back_populates="health_scores")
 
@@ -140,6 +150,8 @@ class Email(Base):
     direction: Mapped[str] = mapped_column(String(10), nullable=False)  # inbound/outbound
     classification: Mapped[str | None] = mapped_column(String(50), nullable=True)
     is_analysed: Mapped[bool] = mapped_column(Boolean, default=False)
+    synced_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    zoho_email_id: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     deal: Mapped["Deal | None"] = relationship(back_populates="emails")
@@ -168,6 +180,7 @@ class EmailAnalysis(Base):
     result: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
     health_impact: Mapped[int | None] = mapped_column(Integer, nullable=True)
     analysed_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    model_version: Mapped[str | None] = mapped_column(String(50), nullable=True, default="claude-haiku")  # stale if model upgraded
 
     email: Mapped["Email"] = relationship(back_populates="analyses")
 

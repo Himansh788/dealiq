@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Header, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from typing import Optional, List
 import asyncio
 import base64
@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 import httpx
 
 logger = logging.getLogger(__name__)
+from database import get_db
 from services.zoho_client import (
     fetch_deals, map_zoho_deal, fetch_single_deal, search_deals,
     fetch_deal_activities_closed, fetch_deal_contact_roles, fetch_deal_emails,
@@ -260,6 +261,7 @@ async def list_deals(
     page: int = Query(default=1, ge=1),
     per_page: int = Query(default=15, le=200),
     search: Optional[str] = Query(default=None, max_length=200),
+    db=Depends(get_db),
 ):
     """
     Returns active current-quarter deals, paginated.
@@ -353,21 +355,48 @@ async def list_deals(
         )
 
     # ── Full pipeline list path (no search) ───────────────────────────────────
+    cache_meta: dict = {}
     if simulated:
         raw_deals = SIMULATED_DEALS
     else:
-        try:
-            raw_deals = await _fetch_all_zoho_deals(session["access_token"])
-        except Exception:
-            raw_deals = SIMULATED_DEALS
-            simulated = True
+        from services.deal_db import get_cached_deals, upsert_deals
+        from services.cache_manager import get_cache_status
+        user_email = session.get("email", "")
+        cached, cache_meta = await get_cached_deals(db, user_email)
+
+        if cached is not None:
+            raw_deals = cached
+            # Background sync if >30% stale — user gets data instantly
+            if cache_meta.get("needs_background_sync"):
+                async def _bg_sync():
+                    try:
+                        fresh = await _fetch_all_zoho_deals(session["access_token"])
+                        await upsert_deals(db, fresh, user_email)
+                    except Exception as exc:
+                        logger.warning("Background sync failed: %s", exc)
+                asyncio.create_task(_bg_sync())
+        else:
+            # No data at all — blocking fetch required (first load or cleared DB)
+            try:
+                raw_deals = await _fetch_all_zoho_deals(session["access_token"])
+                asyncio.create_task(upsert_deals(db, raw_deals, user_email))
+                cache_meta = get_cache_status(datetime.now(timezone.utc), "deals")
+                cache_meta["source"] = "zoho"
+            except Exception:
+                raw_deals = SIMULATED_DEALS
+                simulated = True
 
     active_raw = [r for r in raw_deals if is_active_deal(r, quarter_start, quarter_end)]
 
+    # Score all deals and collect health results for batch persistence
+    health_results: dict = {}
     scored_all: List[Deal] = []
     for raw in active_raw:
         _enrich_deal(raw)
         result = score_deal_from_zoho(raw)
+        zoho_id = str(raw.get("id") or "")
+        if zoho_id:
+            health_results[zoho_id] = result
         scored_all.append(Deal(
             id=raw["id"],
             name=raw["name"],
@@ -385,6 +414,19 @@ async def list_deals(
             next_step=raw.get("next_step"),
         ))
 
+    # Persist scores + fetch trends in parallel (non-blocking)
+    if not simulated and health_results and db is not None:
+        from services.score_db import persist_health_score, batch_get_trends
+        async def _persist_all():
+            for zid, hr in health_results.items():
+                await persist_health_score(db, zid, hr)
+        trends = await batch_get_trends(db, list(health_results.keys()))
+        asyncio.create_task(_persist_all())
+        for deal in scored_all:
+            deal.score_trend = trends.get(deal.id)
+    else:
+        trends = {}
+
     scored_all.sort(key=lambda d: d.health_score or 0)
 
     real_total = len(scored_all)
@@ -399,6 +441,7 @@ async def list_deals(
         has_next=(page * per_page) < real_total,
         has_prev=page > 1,
         simulated=simulated,
+        cache_meta=cache_meta or None,
     )
 
 
@@ -667,3 +710,78 @@ async def get_deal_timeline(deal_id: str, authorization: str = Header(...)):
     }
 
     return base_timeline
+
+
+# ── DB-backed endpoints ────────────────────────────────────────────────────────
+
+@router.post("/{deal_id}/refresh")
+async def force_refresh_deal(
+    deal_id: str,
+    authorization: str = Header(...),
+    db=Depends(get_db),
+):
+    """Bypass the cache for a single deal and re-fetch it from Zoho."""
+    session = _decode_session(authorization)
+    if _is_demo(session):
+        raise HTTPException(status_code=400, detail="Cannot refresh demo deals")
+    # Invalidate → next list fetch will pick it up fresh
+    from services.deal_db import invalidate_deal
+    await invalidate_deal(db, deal_id)
+    # Also fetch inline so the caller gets fresh data immediately
+    try:
+        raw = await fetch_single_deal(session["access_token"], deal_id)
+        if raw:
+            from services.deal_db import upsert_deals
+            await upsert_deals(db, [raw], session.get("email", ""))
+        from services.cache_manager import get_cache_status
+        from datetime import datetime, timezone
+        return {
+            "refreshed": True,
+            "deal_id": deal_id,
+            "_cache": get_cache_status(datetime.now(timezone.utc), "deals"),
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Zoho fetch failed: {exc}")
+
+
+@router.post("/sync")
+async def force_sync_deals(
+    authorization: str = Header(...),
+    db=Depends(get_db),
+):
+    """Force a full Zoho refresh, bypassing the 5-minute cache."""
+    session = _decode_session(authorization)
+    if _is_demo(session):
+        return {"synced": 0, "message": "Demo mode — no sync needed"}
+    try:
+        raw_deals = await _fetch_all_zoho_deals(session["access_token"])
+        from services.deal_db import upsert_deals
+        await upsert_deals(db, raw_deals, session.get("email", ""))
+        return {"synced": len(raw_deals), "message": f"Synced {len(raw_deals)} deals"}
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Sync failed: {exc}")
+
+
+@router.get("/{deal_id}/score-history")
+async def get_score_history(
+    deal_id: str,
+    days: int = Query(default=30, ge=1, le=90),
+    authorization: str = Header(...),
+    db=Depends(get_db),
+):
+    """Return health score history for trend charts (newest first)."""
+    _decode_session(authorization)
+    from services.score_db import get_score_history
+    return {"deal_id": deal_id, "history": await get_score_history(db, deal_id, days=days)}
+
+
+@router.get("/{deal_id}/decisions")
+async def get_deal_decisions(
+    deal_id: str,
+    authorization: str = Header(...),
+    db=Depends(get_db),
+):
+    """Return ACK decision history for a deal."""
+    _decode_session(authorization)
+    from services.decision_db import get_deal_decisions
+    return {"deal_id": deal_id, "decisions": await get_deal_decisions(db, deal_id)}

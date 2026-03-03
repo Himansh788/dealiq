@@ -50,6 +50,7 @@ interface Deal {
   amount: number;
   health_score: number;
   health_label: string;
+  score_trend?: string | null;  // "improving" | "declining" | "stable" | null
   owner?: string;
   last_activity_time?: string;
   next_step?: string;
@@ -324,6 +325,7 @@ export default function Dashboard() {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalDeals, setTotalDeals]   = useState(0);
   const [totalPages, setTotalPages]   = useState(1);
+  const [cacheMeta, setCacheMeta]     = useState<{fresh?: boolean; source?: string; age_seconds?: number; needs_background_sync?: boolean} | null>(null);
   const PER_PAGE = 15;
 
   // Derived — don't rely solely on API flags; compute locally as reliable fallback
@@ -406,6 +408,7 @@ export default function Dashboard() {
           owner:                typeof d.owner === "object" ? d.owner?.name : d.owner || "—",
           last_activity_time:   d.last_activity_time,
           next_step:            d.next_step ?? undefined,
+          score_trend:          d.score_trend ?? null,
           discount_mention_count: d.discount_mention_count ?? 0,
         }));
         setAllDeals(mapped);
@@ -413,6 +416,7 @@ export default function Dashboard() {
         const apiPages = data.total_pages ?? (Math.ceil(apiTotal / PER_PAGE) || 1);
         setTotalDeals(apiTotal);
         setTotalPages(apiPages);
+        if (data.cache_meta) setCacheMeta(data.cache_meta);
       })
       .catch((err: unknown) => {
         if (cancelled) return;
@@ -850,6 +854,31 @@ export default function Dashboard() {
               </div>
             ) : (
               <>
+                {/* Cache freshness indicator */}
+                {cacheMeta && (
+                  <div className="flex items-center gap-1.5 px-6 py-2 border-b border-border/20 text-xs text-muted-foreground/60">
+                    {cacheMeta.needs_background_sync ? (
+                      <>
+                        <span className="h-1.5 w-1.5 rounded-full bg-yellow-400 animate-pulse" />
+                        <span>Syncing in background…</span>
+                      </>
+                    ) : cacheMeta.source === "zoho" ? (
+                      <>
+                        <span className="h-1.5 w-1.5 rounded-full bg-blue-400" />
+                        <span>Just updated from Zoho</span>
+                      </>
+                    ) : cacheMeta.fresh ? (
+                      <>
+                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                        <span>Live · {cacheMeta.age_seconds != null && cacheMeta.age_seconds < 60
+                          ? `${cacheMeta.age_seconds}s ago`
+                          : cacheMeta.age_seconds != null
+                            ? `${Math.round(cacheMeta.age_seconds / 60)}m ago`
+                            : "cached"}</span>
+                      </>
+                    ) : null}
+                  </div>
+                )}
                 <Table>
                   <TableHeader>
                     <TableRow className="border-border/30 hover:bg-transparent">
@@ -949,7 +978,18 @@ export default function Dashboard() {
                               className="flex flex-col items-center gap-0.5"
                               title={`Health Score: ${deal.health_score}/100 — ${scoreLabel}`}
                             >
-                              <HealthRing score={deal.health_score} />
+                              <div className="flex items-center gap-1">
+                                <HealthRing score={deal.health_score} />
+                                {deal.score_trend === "improving" && (
+                                  <span className="text-xs text-health-green" title="Score improving">↗</span>
+                                )}
+                                {deal.score_trend === "declining" && (
+                                  <span className="text-xs text-destructive" title="Score declining">↘</span>
+                                )}
+                                {deal.score_trend === "stable" && (
+                                  <span className="text-xs text-muted-foreground" title="Score stable">→</span>
+                                )}
+                              </div>
                               <div className="w-full h-1 max-w-[40px] rounded-full bg-border/40 overflow-hidden">
                                 <div
                                   className={cn("h-full rounded-full transition-all", scoreBarColor)}

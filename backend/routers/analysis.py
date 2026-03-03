@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
+from database import get_db
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 import base64
@@ -321,8 +322,21 @@ async def log_ack_decision(
     deal_id: str,
     decision: ACKDecision,
     authorization: str = Header(...),
+    db=Depends(get_db),
 ):
-    _decode_session(authorization)
+    session = _decode_session(authorization)
+    user_email = session.get("email", "unknown")
+
+    # Persist to DB (no-ops gracefully if DB unavailable)
+    from services.decision_db import persist_decision
+    await persist_decision(
+        db,
+        deal_zoho_id=deal_id,
+        action=decision.decision,
+        user_email=user_email,
+        reasoning=decision.notes,
+    )
+
     return {
         "deal_id": deal_id,
         "decision": decision.decision,

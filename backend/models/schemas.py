@@ -41,6 +41,7 @@ class Deal(BaseModel):
     health_label: Optional[str] = None  # "healthy" | "at_risk" | "critical" | "zombie"
     days_in_stage: Optional[int] = None
     next_step: Optional[str] = None
+    score_trend: Optional[str] = None   # "improving" | "declining" | "stable" | None
 
 
 class DealList(BaseModel):
@@ -50,6 +51,7 @@ class DealList(BaseModel):
     has_next: bool = False
     has_prev: bool = False
     simulated: bool = False  # True if using demo data
+    cache_meta: Optional[dict] = None  # freshness info for frontend indicator
 
 
 # ── Health Score ──────────────────────────────────────────────────────────────
