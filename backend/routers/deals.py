@@ -273,6 +273,12 @@ async def list_deals(
 
     if search:
         # ── Server-side search path ──────────────────────────────────────────
+        token = session.get("access_token", "")
+        logger.info(
+            "list_deals search: token_present=%s search=%r page=%d simulated=%s",
+            bool(token), search, page, simulated,
+        )
+
         if simulated:
             term = search.lower()
             raw_deals = [
@@ -283,15 +289,17 @@ async def list_deals(
         else:
             try:
                 records, more_records_from_zoho = await search_deals(
-                    session["access_token"], search, page=page, per_page=per_page
+                    token, search, page=page, per_page=per_page
                 )
                 raw_deals = [map_zoho_deal(r) for r in records]
-            except Exception:
-                raw_deals = []
-                simulated = True
+                logger.info("list_deals search: zoho returned %d records more_records=%s", len(raw_deals), more_records_from_zoho)
+            except Exception as exc:
+                logger.error("list_deals search: zoho search failed: %s", exc, exc_info=True)
+                raise HTTPException(status_code=502, detail=f"Zoho search failed: {exc}")
 
-        # Apply stage/date filter to search results
-        active_raw = [r for r in raw_deals if is_active_deal(r, quarter_start, quarter_end)]
+        # Search results are NOT filtered by quarter/stage — user is searching by name
+        # and expects to find any matching deal regardless of close date.
+        active_raw = raw_deals
 
         # Score and enrich
         scored: List[Deal] = []

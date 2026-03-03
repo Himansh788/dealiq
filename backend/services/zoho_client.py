@@ -14,6 +14,7 @@ ZOHO_CLIENT_SECRET = os.getenv("ZOHO_CLIENT_SECRET")
 ZOHO_REDIRECT_URI = os.getenv("ZOHO_REDIRECT_URI", "http://localhost:8000/auth/callback")
 ZOHO_ACCOUNTS_URL = "https://accounts.zoho.in"   # Change to .com for non-India accounts
 ZOHO_API_BASE = "https://www.zohoapis.in/crm/v2"  # Change to .com for non-India
+ZOHO_API_V6   = "https://www.zohoapis.in/crm/v6"  # v6 required for Deals/search criteria endpoint
 ZOHO_API_V8   = "https://www.zohoapis.in/crm/v8"  # v8 required for Emails endpoint with content
 ZOHO_API_V9   = "https://www.zohoapis.in/crm/v9"  # v9 required for Timelines API
 
@@ -126,7 +127,7 @@ async def search_deals(
     )
     async with httpx.AsyncClient() as client:
         resp = await client.get(
-            f"{ZOHO_API_BASE}/Deals/search",
+            f"{ZOHO_API_V6}/Deals/search",
             headers={"Authorization": f"Zoho-oauthtoken {access_token}"},
             params={
                 "criteria": f"(Deal_Name:contains:{search})",
@@ -135,9 +136,12 @@ async def search_deals(
                 "per_page": per_page,
             },
         )
+        logger.info("search_deals: status=%s url=%s", resp.status_code, resp.url)
         if resp.status_code == 204:
             return [], False
-        resp.raise_for_status()
+        if not resp.is_success:
+            logger.warning("search_deals: non-2xx response body=%s", resp.text[:500])
+            resp.raise_for_status()
         data = resp.json()
         records = data.get("data", [])
         more_records = data.get("info", {}).get("more_records", False)
