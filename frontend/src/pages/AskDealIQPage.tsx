@@ -49,8 +49,11 @@ export default function AskDealIQPage() {
   const [open,           setOpen]           = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
+
     api.getAllDeals()
       .then((data) => {
+        if (cancelled) return;
         const list = Array.isArray(data) ? data : [];
         const mapped: Deal[] = list.map((d: any) => ({
           id:           d.id,
@@ -63,10 +66,15 @@ export default function AskDealIQPage() {
         }));
         setDeals(mapped);
       })
-      .catch((err: Error) =>
-        toast({ title: "Failed to load deals", description: err.message, variant: "destructive" })
-      )
-      .finally(() => setLoading(false));
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        if (err instanceof Error && err.name === "AbortError") return;
+        toast({ title: "Couldn't load deals", description: "Please refresh to try again.", variant: "destructive" });
+      })
+      .finally(() => { if (!cancelled) setLoading(false); });
+
+    return () => { cancelled = true; };
   }, [toast]);
 
   const selectedDeal = deals.find((d) => d.id === selectedDealId);

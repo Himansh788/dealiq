@@ -165,15 +165,27 @@ export default function Home() {
   });
 
   useEffect(() => {
-    Promise.all([api.getTodayActions(), api.getPendingCrmUpdates()])
+    const controller = new AbortController();
+    let cancelled = false;
+
+    Promise.all([
+      api.getTodayActions(controller.signal),
+      api.getPendingCrmUpdates(controller.signal),
+    ])
       .then(([actionsData, updatesData]) => {
+        if (cancelled) return;
         setActions(actionsData.actions ?? []);
         setPendingUpdates(updatesData.updates ?? []);
       })
-      .catch((err: Error) =>
-        toast({ title: "Failed to load actions", description: err.message, variant: "destructive" })
-      )
-      .finally(() => setLoading(false));
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        if (err instanceof Error && err.name === "AbortError") return;
+        toast({ title: "Couldn't load your day", description: "Please refresh to try again.", variant: "destructive" });
+      })
+      .finally(() => { if (!cancelled) setLoading(false); });
+
+    return () => { cancelled = true; controller.abort(); };
   }, []);
 
   // Persist collapsed state to localStorage

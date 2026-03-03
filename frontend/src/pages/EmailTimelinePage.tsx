@@ -983,8 +983,11 @@ export default function EmailTimelinePage() {
 
   // Normalize deal names (deal_name vs name)
   useEffect(() => {
+    let cancelled = false;
+
     api.getAllDeals()
       .then(data => {
+        if (cancelled) return;
         const list = Array.isArray(data) ? data : [];
         setDeals(list.map((d: any) => ({
           id:           d.id,
@@ -994,18 +997,36 @@ export default function EmailTimelinePage() {
           amount:       d.amount ?? 0,
         })));
       })
-      .catch((err: Error) => toast({ title: "Failed to load deals", description: err.message, variant: "destructive" }))
-      .finally(() => setDealsLoading(false));
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        if (err instanceof Error && err.name === "AbortError") return;
+        toast({ title: "Couldn't load deals", description: "Please refresh to try again.", variant: "destructive" });
+      })
+      .finally(() => { if (!cancelled) setDealsLoading(false); });
+
+    return () => { cancelled = true; };
   }, []);
 
   useEffect(() => {
     if (!selectedDealId) { setThread(null); return; }
+
+    const controller = new AbortController();
+    let cancelled = false;
     setThreadLoading(true);
     setThread(null);
-    api.getEmailThread(selectedDealId)
-      .then(setThread)
-      .catch((err: Error) => toast({ title: "Failed to load emails", description: err.message, variant: "destructive" }))
-      .finally(() => setThreadLoading(false));
+
+    api.getEmailThread(selectedDealId, controller.signal)
+      .then(data => { if (!cancelled) setThread(data); })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        if (err instanceof Error && err.name === "AbortError") return;
+        toast({ title: "Couldn't load emails", description: "Please try again.", variant: "destructive" });
+      })
+      .finally(() => { if (!cancelled) setThreadLoading(false); });
+
+    return () => { cancelled = true; controller.abort(); };
   }, [selectedDealId]);
 
   async function handleSync() {
@@ -1015,8 +1036,8 @@ export default function EmailTimelinePage() {
       const result = await api.syncEmailsForDeal(selectedDealId);
       toast({ title: "Sync complete", description: `${result.threads_found ?? 0} email(s) found.` });
       setThread(await api.getEmailThread(selectedDealId));
-    } catch (err: any) {
-      toast({ title: "Sync failed", description: err.message, variant: "destructive" });
+    } catch {
+      toast({ title: "Sync failed", description: "Couldn't sync emails. Please try again.", variant: "destructive" });
     } finally {
       setSyncing(false);
     }
@@ -1031,8 +1052,8 @@ export default function EmailTimelinePage() {
         setThread(prev => prev ? { ...prev, extracted: result.extracted } : prev);
         toast({ title: "Analysis updated" });
       }
-    } catch (err: any) {
-      toast({ title: "Analysis failed", description: err.message, variant: "destructive" });
+    } catch {
+      toast({ title: "Analysis failed", description: "Couldn't re-analyse this thread. Please try again.", variant: "destructive" });
     } finally {
       setAnalysing(false);
     }

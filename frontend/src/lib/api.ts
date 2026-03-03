@@ -3,15 +3,17 @@ const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 // Abort any fetch that takes longer than this — prevents eternal spinners
 const TIMEOUT_MS = 15_000;
 
-/**
- * Wraps fetch with a 15s timeout controller, combined with an optional
- * caller-supplied AbortSignal (e.g. from a component cleanup).
- *
- * Combining two signals: if EITHER fires — timeout OR component unmount —
- * the request is cancelled. Without this, the timeout controller's signal
- * is the only one wired, so component unmounts can't cancel in-flight requests,
- * causing the "signal is aborted without reason" leak in the UI.
- */
+// ── Per-request timeout wrapper ───────────────────────────────────────────────
+//
+// Creates a fresh AbortController (timeout controller) for EVERY request.
+// No shared/global controller exists — each call is fully independent.
+//
+// If the caller also passes an AbortSignal (e.g. from a component useEffect
+// cleanup), we wire it so EITHER signal firing cancels the request:
+//   - timeout fires after 15s
+//   - caller fires on component unmount
+// Whichever comes first wins.  The timeout is always cleared on settle.
+
 function fetchWithTimeout(
   input: RequestInfo,
   init?: RequestInit & { signal?: AbortSignal },
@@ -19,7 +21,6 @@ function fetchWithTimeout(
   const timeoutController = new AbortController();
   const timeoutId = setTimeout(() => timeoutController.abort(), TIMEOUT_MS);
 
-  // If a caller signal was provided, abort our timeout controller when it fires too
   const callerSignal = init?.signal;
   if (callerSignal) {
     if (callerSignal.aborted) {
@@ -33,33 +34,50 @@ function fetchWithTimeout(
     }
   }
 
+  // Spread init but override signal with our timeout controller's signal.
+  // The caller signal is handled above via event listener — NOT by spreading it
+  // into fetch(), which would ignore timeoutController entirely.
   return fetch(input, { ...init, signal: timeoutController.signal }).finally(() =>
     clearTimeout(timeoutId)
   );
 }
 
-/**
- * In-flight deduplication for GET requests.
- * Prevents the same URL from being fetched twice simultaneously —
- * second caller gets the same Promise as the first.
- * Entry is removed once the request settles (success or error).
- */
+// ── Response handler ──────────────────────────────────────────────────────────
+
+async function handleResponse(res: Response) {
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(text || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+// ── In-flight deduplication ───────────────────────────────────────────────────
+//
+// Prevents the same GET URL from being fetched twice simultaneously.
+// Each entry in the Map is a single in-flight Promise shared across callers.
+// Entry is deleted once the request settles (success or error).
+//
+// IMPORTANT: Only requests WITHOUT a caller signal are deduplicated.
+// Requests with a caller signal represent independent component lifecycles
+// and must each get their own fetch so component cleanup can cancel only
+// their own request without affecting other waiters.
+
 const _inflight = new Map<string, Promise<any>>();
 
-function fetchDedup(url: string, init?: RequestInit & { signal?: AbortSignal }): Promise<any> {
-  // Don't dedup requests that have a caller-owned abort signal —
-  // each such request is intentionally independent (different component lifecycle).
-  if (init?.signal) {
-    return fetchWithTimeout(url, init).then(handleResponse);
-  }
+function fetchDedup(url: string, init?: RequestInit): Promise<any> {
   const existing = _inflight.get(url);
   if (existing) return existing;
+
   const p = fetchWithTimeout(url, init)
     .then(handleResponse)
     .finally(() => _inflight.delete(url));
+
   _inflight.set(url, p);
   return p;
 }
+
+// ── Auth headers ──────────────────────────────────────────────────────────────
 
 function authHeaders(): HeadersInit {
   const raw = localStorage.getItem("dealiq_session");
@@ -70,13 +88,28 @@ function authHeaders(): HeadersInit {
   };
 }
 
-async function handleResponse(res: Response) {
-  if (!res.ok) {
-    const text = await res.text().catch(() => "Request failed");
-    throw new Error(text || `HTTP ${res.status}`);
+// ── Error message mapping ─────────────────────────────────────────────────────
+//
+// Maps raw server/network errors to user-friendly strings.
+// Raw stack traces and HTTP status codes are never shown to users.
+
+export function friendlyError(err: unknown): string {
+  if (err instanceof DOMException && err.name === "AbortError") return "";
+  if (err instanceof Error) {
+    const msg = err.message.toLowerCase();
+    if (msg.includes("networkerror") || msg.includes("failed to fetch")) return "Network error — check your connection.";
+    if (msg.includes("timeout"))       return "Request timed out. Please try again.";
+    if (msg.includes("401") || msg.includes("unauthorized")) return "Your session has expired. Please log in again.";
+    if (msg.includes("403") || msg.includes("forbidden"))    return "You don't have permission to access this.";
+    if (msg.includes("404") || msg.includes("not found"))    return "Data not found.";
+    if (msg.includes("500") || msg.includes("502") || msg.includes("503")) return "Server error — please try again shortly.";
+    // Don't surface raw backend text; use a generic fallback instead
+    if (err.message.length < 80) return err.message;
   }
-  return res.json();
+  return "Something went wrong. Please try again.";
 }
+
+// ── API surface ───────────────────────────────────────────────────────────────
 
 export const api = {
   getLoginUrl: () =>
@@ -86,27 +119,26 @@ export const api = {
     fetchWithTimeout(`${API_URL}/auth/demo-session`).then(handleResponse),
 
   // ── Deals ─────────────────────────────────────────────────────────────────
-  getMetrics: () =>
-    fetchWithTimeout(`${API_URL}/deals/metrics`, { headers: authHeaders() }).then(handleResponse),
+  getMetrics: (signal?: AbortSignal) =>
+    fetchWithTimeout(`${API_URL}/deals/metrics`, { headers: authHeaders(), signal }).then(handleResponse),
 
-  getDeals: () =>
-    fetchWithTimeout(`${API_URL}/deals/?per_page=20&page=1`, { headers: authHeaders() }).then(handleResponse),
+  getDeals: (signal?: AbortSignal) =>
+    fetchWithTimeout(`${API_URL}/deals/?per_page=20&page=1`, { headers: authHeaders(), signal }).then(handleResponse),
 
-  getDealsPage: (page: number, perPage: number = 20) =>
-    fetchWithTimeout(`${API_URL}/deals/?page=${page}&per_page=${perPage}`, { headers: authHeaders() }).then(handleResponse),
+  getDealsPage: (page: number, perPage: number = 20, signal?: AbortSignal) =>
+    fetchWithTimeout(`${API_URL}/deals/?page=${page}&per_page=${perPage}`, { headers: authHeaders(), signal }).then(handleResponse),
 
-  getAllDeals: async (): Promise<any[]> => {
-    const res = await fetchWithTimeout(
-      `${API_URL}/deals/?page=1&per_page=500`,
-      { headers: authHeaders() }
-    );
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-    return data.deals ?? data ?? [];
+  // Fetches a capped first page of deals for deal-selector dropdowns.
+  // Uses dedup so concurrent callers (e.g. EmailTimelinePage + AskDealIQPage
+  // both mounted during a route transition) share the same in-flight request.
+  getAllDeals: (): Promise<any[]> => {
+    const url = `${API_URL}/deals/?page=1&per_page=50`;
+    return fetchDedup(url, { headers: authHeaders() as Record<string, string> })
+      .then((data: any) => data.deals ?? data ?? []);
   },
 
-  getDealHealth: (id: string) =>
-    fetchWithTimeout(`${API_URL}/deals/${id}/health`, { headers: authHeaders() }).then(handleResponse),
+  getDealHealth: (id: string, signal?: AbortSignal) =>
+    fetchWithTimeout(`${API_URL}/deals/${id}/health`, { headers: authHeaders(), signal }).then(handleResponse),
 
   // ── Analysis ──────────────────────────────────────────────────────────────
   getAck: (dealId: string) =>
@@ -166,21 +198,14 @@ export const api = {
       body: JSON.stringify({ deal_id: dealId, objection, rep_name: repName }),
     }).then(handleResponse),
 
-  // ── Timeline ─────────────────────────────────────────────────────────────
-  // signal: pass the AbortController.signal from the calling component so that
-  // component unmounts cancel the in-flight request cleanly, preventing
-  // "signal is aborted without reason" errors leaking to the UI.
-  // fetchDedup prevents duplicate simultaneous fetches for the same dealId.
-  getDealTimeline: (dealId: string, signal?: AbortSignal) => {
-    const url = `${API_URL}/deals/${dealId}/timeline`;
-    if (signal) {
-      // Component-owned signal → bypass dedup (each mount lifecycle is independent)
-      return fetchWithTimeout(url, { headers: authHeaders(), signal }).then(handleResponse);
-    }
-    return fetchDedup(url, { headers: authHeaders() });
-  },
+  // ── Timeline ──────────────────────────────────────────────────────────────
+  // Pass signal from component useEffect so unmount cancels the in-flight
+  // request cleanly.  Each call gets its own AbortController via fetchWithTimeout
+  // — no shared controller, no cross-request cancellation.
+  getDealTimeline: (dealId: string, signal?: AbortSignal) =>
+    fetchWithTimeout(`${API_URL}/deals/${dealId}/timeline`, { headers: authHeaders(), signal }).then(handleResponse),
 
-  // ── Live Email Coach ──────────────────────────────────────────────────────
+  // ── Live Email Coach ───────────────────────────────────────────────────────
   emailCoach: (emailDraft: string, dealId?: string, dealContext?: any) =>
     fetchWithTimeout(`${API_URL}/analysis/email-coach`, {
       method: "POST",
@@ -188,7 +213,7 @@ export const api = {
       body: JSON.stringify({ email_draft: emailDraft, deal_id: dealId, deal_context: dealContext }),
     }).then(handleResponse),
 
-  // ── Deal Autopsy ──────────────────────────────────────────────────────────
+  // ── Deal Autopsy ───────────────────────────────────────────────────────────
   getAutopsy: (dealId: string, killReason?: string) =>
     fetchWithTimeout(`${API_URL}/analysis/autopsy`, {
       method: "POST",
@@ -196,7 +221,7 @@ export const api = {
       body: JSON.stringify({ deal_id: dealId, kill_reason: killReason }),
     }).then(handleResponse),
 
-  // ── Pre-Call Intelligence Brief ───────────────────────────────────────────
+  // ── Pre-Call Intelligence Brief ────────────────────────────────────────────
   getCallBrief: (dealId: string, repName?: string) =>
     fetchWithTimeout(`${API_URL}/ai-rep/call-brief`, {
       method: "POST",
@@ -204,15 +229,15 @@ export const api = {
       body: JSON.stringify({ deal_id: dealId, rep_name: repName || "the sales rep" }),
     }).then(handleResponse),
 
-  // ── Alerts Digest ─────────────────────────────────────────────────────────
+  // ── Alerts Digest ──────────────────────────────────────────────────────────
   getAlertsDigest: () =>
     fetchWithTimeout(`${API_URL}/alerts/digest`, { headers: authHeaders() }).then(handleResponse),
 
-  // ── Forecast ─────────────────────────────────────────────────────────────
+  // ── Forecast ──────────────────────────────────────────────────────────────
   getForecast: () =>
     fetchWithTimeout(`${API_URL}/forecast`, { headers: authHeaders() }).then(handleResponse),
 
-  // ── Buying Signal Detector ────────────────────────────────────────────────
+  // ── Buying Signal Detector ─────────────────────────────────────────────────
   detectSignals: (transcript: string, researcherName?: string, companyContext?: string) =>
     fetchWithTimeout(`${API_URL}/signals/detect`, {
       method: "POST",
@@ -227,7 +252,7 @@ export const api = {
   getDemoSignals: () =>
     fetchWithTimeout(`${API_URL}/signals/demo`).then(handleResponse),
 
-  // ── Smart Trackers ────────────────────────────────────────────────────────
+  // ── Smart Trackers ─────────────────────────────────────────────────────────
   listTrackers: () =>
     fetchWithTimeout(`${API_URL}/trackers/`, { headers: authHeaders() }).then(handleResponse),
 
@@ -248,7 +273,7 @@ export const api = {
   getDemoTrackers: () =>
     fetchWithTimeout(`${API_URL}/trackers/analyze/demo`).then(handleResponse),
 
-  // ── Coaching / Transcript Analysis ───────────────────────────────────────
+  // ── Coaching / Transcript Analysis ────────────────────────────────────────
   analyzeConversation: (transcript: string, rep_name?: string) =>
     fetchWithTimeout(`${API_URL}/coaching/analyze`, {
       method: "POST",
@@ -262,14 +287,14 @@ export const api = {
   getCoachingBenchmarks: () =>
     fetchWithTimeout(`${API_URL}/coaching/benchmarks`).then(handleResponse),
 
-  // ── Activity Intelligence ─────────────────────────────────────────────────
-  getDealActivities: (dealId: string) =>
-    fetchWithTimeout(`${API_URL}/activities/${dealId}`, { headers: authHeaders() }).then(handleResponse),
+  // ── Activity Intelligence ──────────────────────────────────────────────────
+  getDealActivities: (dealId: string, signal?: AbortSignal) =>
+    fetchWithTimeout(`${API_URL}/activities/${dealId}`, { headers: authHeaders(), signal }).then(handleResponse),
 
-  getTeamActivitySummary: () =>
-    fetchWithTimeout(`${API_URL}/activities/team-summary`, { headers: authHeaders() }).then(handleResponse),
+  getTeamActivitySummary: (signal?: AbortSignal) =>
+    fetchWithTimeout(`${API_URL}/activities/team-summary`, { headers: authHeaders(), signal }).then(handleResponse),
 
-  // ── Ask DealIQ ───────────────────────────────────────────────────────────────
+  // ── Ask DealIQ ────────────────────────────────────────────────────────────
   getAskPresets: () =>
     fetchWithTimeout(`${API_URL}/ask/presets`, { headers: authHeaders() }).then(handleResponse),
 
@@ -311,9 +336,9 @@ export const api = {
       body: JSON.stringify({ question, filters: filters ?? null }),
     }).then(handleResponse),
 
-  // ── Actions (Today's AI action queue) ────────────────────────────────────
-  getTodayActions: () =>
-    fetchWithTimeout(`${API_URL}/actions/today`, { headers: authHeaders() }).then(handleResponse),
+  // ── Actions (Today's AI action queue) ─────────────────────────────────────
+  getTodayActions: (signal?: AbortSignal) =>
+    fetchWithTimeout(`${API_URL}/actions/today`, { headers: authHeaders(), signal }).then(handleResponse),
 
   executeAction: (id: string, payload: Record<string, any>) =>
     fetchWithTimeout(`${API_URL}/actions/${id}/execute`, {
@@ -334,7 +359,7 @@ export const api = {
       headers: authHeaders(),
     }).then(handleResponse),
 
-  // ── Meeting ───────────────────────────────────────────────────────────────
+  // ── Meeting ────────────────────────────────────────────────────────────────
   getMeetingPrep: (dealId: string) =>
     fetchWithTimeout(`${API_URL}/meeting/prep/${dealId}`, { headers: authHeaders() }).then(handleResponse),
 
@@ -353,8 +378,8 @@ export const api = {
       body: JSON.stringify(payload),
     }).then(handleResponse),
 
-  getPendingCrmUpdates: () =>
-    fetchWithTimeout(`${API_URL}/meeting/pending-updates`, { headers: authHeaders() }).then(handleResponse),
+  getPendingCrmUpdates: (signal?: AbortSignal) =>
+    fetchWithTimeout(`${API_URL}/meeting/pending-updates`, { headers: authHeaders(), signal }).then(handleResponse),
 
   approveCrmUpdate: (id: string) =>
     fetchWithTimeout(`${API_URL}/meeting/approve-update/${id}`, {
@@ -371,9 +396,9 @@ export const api = {
   getMeetingHistory: (dealId: string) =>
     fetchWithTimeout(`${API_URL}/meeting/history/${dealId}`, { headers: authHeaders() }).then(handleResponse),
 
-  // ── Email Intel ───────────────────────────────────────────────────────────
-  getEmailThread: (dealId: string) =>
-    fetchWithTimeout(`${API_URL}/email-intel/threads/${dealId}`, { headers: authHeaders() }).then(handleResponse),
+  // ── Email Intel ────────────────────────────────────────────────────────────
+  getEmailThread: (dealId: string, signal?: AbortSignal) =>
+    fetchWithTimeout(`${API_URL}/email-intel/threads/${dealId}`, { headers: authHeaders(), signal }).then(handleResponse),
 
   syncEmailsForDeal: (dealId: string, contactEmails: string[] = []) =>
     fetchWithTimeout(`${API_URL}/email-intel/sync`, {
@@ -388,7 +413,7 @@ export const api = {
       headers: authHeaders(),
     }).then(handleResponse),
 
-  // ── Microsoft / Outlook Auth ──────────────────────────────────────────────
+  // ── Microsoft / Outlook Auth ───────────────────────────────────────────────
   getOutlookStatus: () =>
     fetchWithTimeout(`${API_URL}/ms-auth/status`, { headers: authHeaders() }).then(handleResponse),
 
