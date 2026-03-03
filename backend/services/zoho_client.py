@@ -275,13 +275,31 @@ async def _fetch_email_body(
 
 
 def _extract_obj_from_response(data: dict) -> dict:
-    """Pull the email object out of however Zoho wrapped the response."""
+    """
+    Pull the actual email object out of however Zoho wrapped the View Email response.
+
+    Confirmed response shapes from server logs:
+      v8 View Email: {"Emails": [{...email with content...}]}
+      v2 View Email: {"email_related_list": [{...email with content...}]}
+      Sometimes:     {"data": [{...}]} or {"data": {...}} or root-level object
+    """
+    # v8 View Email endpoint: {"Emails": [{...}]}
+    emails_list = data.get("Emails")
+    if isinstance(emails_list, list) and emails_list:
+        return emails_list[0]
+
+    # v2 View Email endpoint: {"email_related_list": [{...}]}
+    erl = data.get("email_related_list")
+    if isinstance(erl, list) and erl:
+        return erl[0]
+
+    # Generic {"data": [...]} or {"data": {...}}
     if isinstance(data.get("data"), list) and data["data"]:
         return data["data"][0]
     if isinstance(data.get("data"), dict):
         return data["data"]
-    # Zoho sometimes returns the email directly at the root level
-    # (confirmed for View Email endpoint: {"content":"<html>...","sent_time":"...","linked_deal":{...}})
+
+    # Root-level object (content field directly on response)
     return data
 
 
