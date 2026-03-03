@@ -1,13 +1,14 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
-import { Skull, X } from "lucide-react";
+import { CheckCircle2, Skull, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
 import AutopsyPanel from "./AutopsyPanel";
+import { cn } from "@/lib/utils";
 
 interface AckData {
   recommendation: string;
@@ -37,15 +38,28 @@ function recColor(rec: string) {
   }
 }
 
+const DECISION_LABELS: Record<string, string> = {
+  advance:  "Marked as Advance",
+  escalate: "Marked as Escalate",
+  kill:     "Marked as Kill",
+};
+
 type Mode = "idle" | "kill_confirm" | "decided" | "killed";
 
-export default function AckSection({ dealId }: { dealId: string }) {
+interface Props {
+  dealId: string;
+  dealName?: string;
+}
+
+export default function AckSection({ dealId, dealName }: Props) {
   const [data, setData] = useState<AckData | null>(null);
   const [loading, setLoading] = useState(true);
   const [deciding, setDeciding] = useState(false);
   const [mode, setMode] = useState<Mode>("idle");
   const [killReason, setKillReason] = useState("");
   const [decisionMade, setDecisionMade] = useState("");
+  const [canChange, setCanChange] = useState(false);
+  const reEnableTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -53,6 +67,8 @@ export default function AckSection({ dealId }: { dealId: string }) {
     setData(null);
     setMode("idle");
     setKillReason("");
+    setDecisionMade("");
+    setCanChange(false);
     api.getAck(dealId)
       .then((raw: any) => {
         setData({
@@ -64,6 +80,10 @@ export default function AckSection({ dealId }: { dealId: string }) {
       })
       .catch(() => setData(DEMO_ACK))
       .finally(() => setLoading(false));
+
+    return () => {
+      if (reEnableTimerRef.current) clearTimeout(reEnableTimerRef.current);
+    };
   }, [dealId]);
 
   const handleDecision = async (decision: string) => {
@@ -75,16 +95,34 @@ export default function AckSection({ dealId }: { dealId: string }) {
     try {
       await api.postDecision(dealId, decision);
     } catch {
-      // log locally
+      // log locally only
     }
     setDecisionMade(decision);
     if (decision === "kill") {
       setMode("killed");
+      toast({
+        title: "Deal killed",
+        description: dealName ? `"${dealName}" has been marked as killed.` : "Decision recorded.",
+      });
     } else {
       setMode("decided");
-      toast({ title: "Decision recorded", description: `Deal marked as: ${decision}` });
+      toast({
+        title: "Decision recorded",
+        description: dealName
+          ? `"${dealName}" — ${DECISION_LABELS[decision] ?? decision}`
+          : `Deal marked as: ${decision}`,
+      });
+      // Re-enable after 2 seconds so user can change their mind
+      setCanChange(false);
+      reEnableTimerRef.current = setTimeout(() => setCanChange(true), 2000);
     }
     setDeciding(false);
+  };
+
+  const resetDecision = () => {
+    setMode("idle");
+    setDecisionMade("");
+    setCanChange(false);
   };
 
   if (loading) return (
@@ -168,38 +206,81 @@ export default function AckSection({ dealId }: { dealId: string }) {
         </Card>
       )}
 
-      {/* Advance / Escalate / Kill buttons */}
-      {mode === "idle" && (
-        <div className="flex gap-2">
-          <Button
-            className="flex-1 bg-health-green hover:bg-health-green/80 text-background font-semibold"
-            disabled={deciding}
-            onClick={() => handleDecision("advance")}
-          >
-            Advance
-          </Button>
-          <Button
-            className="flex-1 bg-health-orange hover:bg-health-orange/80 text-background font-semibold"
-            disabled={deciding}
-            onClick={() => handleDecision("escalate")}
-          >
-            Escalate
-          </Button>
-          <Button
-            className="flex-1 bg-health-red hover:bg-health-red/80 text-background font-semibold"
-            disabled={deciding}
-            onClick={() => handleDecision("kill")}
-          >
-            Kill
-          </Button>
-        </div>
-      )}
+      {/* Advance / Escalate / Kill buttons — idle or decided */}
+      {(mode === "idle" || mode === "decided") && (
+        <div className="space-y-2">
+          <div className="flex gap-2">
+            {/* Advance */}
+            <Button
+              className={cn(
+                "flex-1 font-semibold transition-all",
+                mode === "decided" && decisionMade === "advance"
+                  ? "bg-health-green/20 text-health-green border border-health-green/40 hover:bg-health-green/30"
+                  : "bg-health-green hover:bg-health-green/80 text-background"
+              )}
+              disabled={deciding || (mode === "decided" && decisionMade !== "advance" && !canChange)}
+              onClick={() => mode === "idle" || canChange ? handleDecision("advance") : undefined}
+            >
+              {mode === "decided" && decisionMade === "advance" ? (
+                <span className="flex items-center gap-1.5">
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  Marked as Advance
+                </span>
+              ) : "Advance"}
+            </Button>
 
-      {/* After non-kill decision */}
-      {mode === "decided" && (
-        <p className="text-sm text-center text-muted-foreground py-2">
-          Decision recorded: <span className="font-semibold text-foreground capitalize">{decisionMade}</span>
-        </p>
+            {/* Escalate */}
+            <Button
+              className={cn(
+                "flex-1 font-semibold transition-all",
+                mode === "decided" && decisionMade === "escalate"
+                  ? "bg-health-orange/20 text-health-orange border border-health-orange/40 hover:bg-health-orange/30"
+                  : "bg-health-orange hover:bg-health-orange/80 text-background"
+              )}
+              disabled={deciding || (mode === "decided" && decisionMade !== "escalate" && !canChange)}
+              onClick={() => mode === "idle" || canChange ? handleDecision("escalate") : undefined}
+            >
+              {mode === "decided" && decisionMade === "escalate" ? (
+                <span className="flex items-center gap-1.5">
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  Marked as Escalate
+                </span>
+              ) : "Escalate"}
+            </Button>
+
+            {/* Kill */}
+            <Button
+              className={cn(
+                "flex-1 font-semibold transition-all",
+                mode === "decided" && decisionMade === "kill"
+                  ? "bg-health-red/20 text-health-red border border-health-red/40"
+                  : "bg-health-red hover:bg-health-red/80 text-background"
+              )}
+              disabled={deciding || (mode === "decided" && decisionMade !== "kill" && !canChange)}
+              onClick={() => mode === "idle" || canChange ? handleDecision("kill") : undefined}
+            >
+              Kill
+            </Button>
+          </div>
+
+          {/* Change-decision hint */}
+          {mode === "decided" && canChange && (
+            <p className="text-center text-[11px] text-muted-foreground/60">
+              Changed your mind?{" "}
+              <button
+                onClick={resetDecision}
+                className="text-primary underline hover:text-primary/80"
+              >
+                Reset decision
+              </button>
+            </p>
+          )}
+          {mode === "decided" && !canChange && (
+            <p className="text-center text-[11px] text-muted-foreground/50 animate-fade-in">
+              Decision recorded for {dealName ? `"${dealName}"` : "this deal"}
+            </p>
+          )}
+        </div>
       )}
 
       {/* After kill — show autopsy */}

@@ -1,8 +1,9 @@
 import { useEffect, useState, useMemo } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
-  AlertTriangle, Activity, DollarSign, Users, Search, X, Filter, ChevronRight,
-  Users2, TrendingUp, TrendingDown, Minus, RefreshCw,
+  AlertTriangle, Activity, DollarSign, Users, Search, X, Filter,
+  ChevronRight, Users2, TrendingUp, TrendingDown, Minus, RefreshCw,
+  ArrowUpDown, BarChart2, Inbox, ClipboardCheck, Map,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -26,6 +27,7 @@ import AlertsDigestPanel from "@/components/AlertsDigestPanel";
 import BuyingSignalPanel from "@/components/BuyingSignalPanel";
 import NavBar from "@/components/NavBar";
 import PipelineQABar from "@/components/PipelineQABar";
+import DemoTour from "@/components/DemoTour";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -83,6 +85,18 @@ function scoreColor(score: number) {
   if (score >= 75) return "text-health-green";
   if (score >= 50) return "text-health-yellow";
   return "text-health-red";
+}
+
+function healthDotColor(score: number) {
+  if (score >= 75) return "bg-health-green";
+  if (score >= 50) return "bg-health-yellow";
+  return "bg-health-red";
+}
+
+function healthStatusLabel(score: number) {
+  if (score >= 75) return "Healthy pipeline";
+  if (score >= 50) return "At risk — needs attention";
+  return "Critical — immediate action";
 }
 
 function healthColor(label: string) {
@@ -171,6 +185,57 @@ function OwnerAvatar({ name }: { name: string }) {
   );
 }
 
+// Metric card skeleton
+function MetricCardSkeleton() {
+  return (
+    <Card className="border-border/40 bg-card/60">
+      <CardContent className="flex items-center gap-4 p-5">
+        <Skeleton className="h-11 w-11 shrink-0 rounded-xl" />
+        <div className="space-y-2">
+          <Skeleton className="h-3 w-20" />
+          <Skeleton className="h-8 w-16" />
+          <Skeleton className="h-3 w-24" />
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// Empty state — no deals connected yet
+function EmptyDealsState({ onConnectCRM, onTryDemo }: { onConnectCRM: () => void; onTryDemo: () => void }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-24 text-center px-6">
+      {/* Icon */}
+      <div className="mb-6 flex h-20 w-20 items-center justify-center rounded-3xl border border-border/40 bg-secondary/30">
+        <Inbox className="h-9 w-9 text-muted-foreground/30" />
+      </div>
+
+      <h3 className="text-base font-semibold text-foreground">No deals connected yet</h3>
+      <p className="mt-2 max-w-xs text-sm text-muted-foreground/70 leading-relaxed">
+        Connect your Zoho CRM to see real deal health scores, or explore with demo data.
+      </p>
+
+      <div className="mt-6 flex flex-col sm:flex-row gap-3">
+        <Button
+          onClick={onConnectCRM}
+          className="gap-2"
+        >
+          <BarChart2 className="h-4 w-4" />
+          Connect Zoho CRM →
+        </Button>
+        <Button
+          variant="outline"
+          onClick={onTryDemo}
+          className="gap-2 border-border/40"
+        >
+          <Map className="h-4 w-4" />
+          Try Demo Mode →
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 // Health pill config — static class strings for Tailwind JIT
 const HEALTH_PILLS = [
   {
@@ -227,7 +292,7 @@ const DEMO_DEALS: Deal[] = [
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function Dashboard() {
-  const { session } = useSession();
+  const { session, isDemo } = useSession();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { toast } = useToast();
@@ -238,11 +303,16 @@ export default function Dashboard() {
   const [loadingMetrics, setLoadingMetrics] = useState(true);
   const [loadingDeals, setLoadingDeals]     = useState(true);
   const [selectedDealId, setSelectedDealId] = useState<string | null>(null);
+  const [panelInitialSection, setPanelInitialSection] = useState<string | undefined>(undefined);
   const [digestOpen, setDigestOpen]         = useState(false);
   const [digestCriticalCount, setDigestCriticalCount] = useState<number | undefined>(undefined);
   const [signalPanelOpen, setSignalPanelOpen] = useState(false);
   const [teamSummary, setTeamSummary]         = useState<TeamActivitySummary | null>(null);
   const [loadingTeam, setLoadingTeam]         = useState(false);
+  const [tourActive, setTourActive]           = useState(false);
+
+  // Sort
+  const [sortAsc, setSortAsc] = useState(false); // false = worst health first (default)
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
@@ -304,7 +374,7 @@ export default function Dashboard() {
     setLoadingTeam(true);
     api.getTeamActivitySummary()
       .then(setTeamSummary)
-      .catch(() => { /* silent — team card just won't render */ })
+      .catch(() => { /* silent */ })
       .finally(() => setLoadingTeam(false));
   };
 
@@ -325,9 +395,9 @@ export default function Dashboard() {
     return stages.sort();
   }, [allDeals]);
 
-  // Client-side filtering
-  const filteredDeals = useMemo(() => {
-    return allDeals.filter(deal => {
+  // Client-side filtering + sorting
+  const filteredAndSortedDeals = useMemo(() => {
+    const filtered = allDeals.filter(deal => {
       if (searchName && !deal.deal_name.toLowerCase().includes(searchName.toLowerCase()) &&
           !deal.company.toLowerCase().includes(searchName.toLowerCase())) return false;
       if (filterOwner !== "all" && deal.owner !== filterOwner) return false;
@@ -335,7 +405,11 @@ export default function Dashboard() {
       if (filterHealth !== "all" && deal.health_label !== filterHealth) return false;
       return true;
     });
-  }, [allDeals, searchName, filterOwner, filterStage, filterHealth]);
+    // sortAsc=false means worst (lowest score) first
+    return [...filtered].sort((a, b) =>
+      sortAsc ? b.health_score - a.health_score : a.health_score - b.health_score
+    );
+  }, [allDeals, searchName, filterOwner, filterStage, filterHealth, sortAsc]);
 
   const hasActiveFilters = searchName || filterOwner !== "all" || filterStage !== "all" || filterHealth !== "all";
 
@@ -362,12 +436,83 @@ export default function Dashboard() {
     }
   }, [searchParams, allDeals, setSearchParams]);
 
+  // Open most-at-risk deal on the mismatch section (FAB / nav button)
+  const openMismatchForMostAtRisk = () => {
+    const atRisk = allDeals
+      .filter(d => d.health_label !== "healthy")
+      .sort((a, b) => a.health_score - b.health_score);
+    const target = atRisk[0] ?? allDeals[0];
+    if (!target) {
+      toast({ title: "No deals loaded yet", description: "Load your pipeline first." });
+      return;
+    }
+    setPanelInitialSection("mismatch");
+    setSelectedDealId(target.id);
+  };
+
+  // Handle connect CRM — reuse login URL flow
+  const handleConnectCRM = async () => {
+    try {
+      const data = await api.getLoginUrl();
+      if (data?.url) window.location.href = data.url;
+    } catch {
+      toast({ title: "Could not reach auth endpoint", variant: "destructive" });
+    }
+  };
+
+  // Handle try demo
+  const handleTryDemo = async () => {
+    try {
+      const data = await api.getDemoSession();
+      if (data?.session) {
+        localStorage.setItem("dealiq_session", data.session);
+        window.location.reload();
+      }
+    } catch {
+      toast({ title: "Could not start demo session", variant: "destructive" });
+    }
+  };
+
+  const avgScore = metrics?.average_health_score ?? 0;
+
   const summaryCards = [
-    { label: "Total Deals",    value: metrics?.total_deals,           icon: Users,         format: (v: number) => String(v),              isAlert: false },
-    { label: "Pipeline Value", value: metrics?.total_value,           icon: DollarSign,    format: formatCurrency,                        isAlert: false },
-    { label: "Avg Health",     value: metrics?.average_health_score,  icon: Activity,      format: (v: number) => String(Math.round(v)),  isAlert: false, colorFn: (v: number) => scoreColor(v) },
-    { label: "Needs Action",   value: metrics?.deals_needing_action,  icon: AlertTriangle, format: (v: number) => String(v),              isAlert: true },
+    {
+      label: "Total Deals",
+      value: metrics?.total_deals,
+      icon: Users,
+      format: (v: number) => String(v),
+      isAlert: false,
+      subtext: metrics ? `${metrics.healthy_count} healthy · ${metrics.at_risk_count + metrics.critical_count + metrics.zombie_count} need attention` : null,
+    },
+    {
+      label: "Pipeline Value",
+      value: metrics?.total_value,
+      icon: DollarSign,
+      format: formatCurrency,
+      isAlert: false,
+      subtext: "Active current-quarter deals",
+    },
+    {
+      label: "Avg Health",
+      value: metrics?.average_health_score,
+      icon: Activity,
+      format: (v: number) => `${Math.round(v)} / 100`,
+      isAlert: false,
+      colorFn: (v: number) => scoreColor(v),
+      subtext: metrics ? healthStatusLabel(avgScore) : null,
+      dot: metrics ? healthDotColor(avgScore) : null,
+    },
+    {
+      label: "Needs Action",
+      value: metrics?.deals_needing_action,
+      icon: AlertTriangle,
+      format: (v: number) => String(v),
+      isAlert: true,
+      subtext: metrics ? `(${metrics.deals_needing_action} of ${metrics.total_deals} deals)` : null,
+    },
   ];
+
+  const noDealsLoaded = !loadingDeals && allDeals.length === 0;
 
   return (
     <div className="min-h-screen bg-background">
@@ -378,14 +523,32 @@ export default function Dashboard() {
         onOpenSignal={() => setSignalPanelOpen(true)}
         digestCriticalCount={digestCriticalCount}
         deals={allDeals}
-        onSelectDeal={(id) => setSelectedDealId(id)}
+        onSelectDeal={(id) => { setPanelInitialSection(undefined); setSelectedDealId(id); }}
+        onOpenMismatch={openMismatchForMostAtRisk}
       />
 
       <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 space-y-5">
 
+        {/* ── Demo tour button (demo mode only) ── */}
+        {isDemo && (
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-muted-foreground/60">
+              Exploring demo data · Connect Zoho CRM for live metrics
+            </p>
+            <button
+              onClick={() => setTourActive(true)}
+              className="flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-semibold text-primary transition-colors hover:bg-primary/20"
+            >
+              🗺 Take a Tour
+            </button>
+          </div>
+        )}
+
         {/* ── Summary Cards ── */}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {summaryCards.map((card, idx) => (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4" data-tour="metric-cards">
+          {loadingMetrics
+            ? [...Array(4)].map((_, i) => <MetricCardSkeleton key={i} />)
+            : summaryCards.map((card, idx) => (
             <Card
               key={card.label}
               className="group relative overflow-hidden border-border/40 bg-card/60 transition-all duration-200 hover:border-border/70 hover:shadow-xl hover:shadow-black/25 animate-slide-up"
@@ -409,14 +572,17 @@ export default function Dashboard() {
                   <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/60 mb-0.5">
                     {card.label}
                   </p>
-                  {loadingMetrics ? (
-                    <Skeleton className="mt-1 h-8 w-20" />
-                  ) : (
-                    <p className={cn(
-                      "text-3xl font-black tracking-tight tabular-nums",
-                      card.colorFn ? card.colorFn(card.value ?? 0) : card.isAlert ? "text-health-red" : "text-foreground"
-                    )}>
-                      {card.value != null ? card.format(card.value) : "—"}
+                  <p className={cn(
+                    "text-2xl font-black tracking-tight tabular-nums leading-tight",
+                    card.colorFn ? card.colorFn(card.value ?? 0) : card.isAlert ? "text-health-red" : "text-foreground"
+                  )}>
+                    {card.value != null ? card.format(card.value) : "—"}
+                  </p>
+                  {/* Subtext with colored dot for Avg Health */}
+                  {card.subtext && (
+                    <p className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground/60 leading-tight">
+                      {card.dot && <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", card.dot)} />}
+                      {card.subtext}
                     </p>
                   )}
                 </div>
@@ -457,11 +623,11 @@ export default function Dashboard() {
 
         {/* ── Pipeline Q&A ── */}
         <div className="animate-slide-up" style={{ animationDelay: "165ms" }}>
-          <PipelineQABar onSelectDeal={(id) => setSelectedDealId(id)} />
+          <PipelineQABar onSelectDeal={(id) => { setPanelInitialSection(undefined); setSelectedDealId(id); }} />
         </div>
 
         {/* ── Deal Pipeline Table ── */}
-        <Card className="overflow-hidden border-border/40 bg-card/60 animate-slide-up" style={{ animationDelay: "180ms" }}>
+        <Card className="overflow-hidden border-border/40 bg-card/60 animate-slide-up" style={{ animationDelay: "180ms" }} data-tour="deals-table">
 
           {/* Table header / filters */}
           <div className="p-5 pb-4 space-y-3.5">
@@ -471,7 +637,7 @@ export default function Dashboard() {
                 <p className="mt-0.5 text-xs text-muted-foreground/70">
                   Worst health first · Active current-quarter deals
                   {!hasActiveFilters && totalDeals > 0 && ` · ${startItem}–${endItem} of ${totalDeals}`}
-                  {hasActiveFilters && ` · ${filteredDeals.length} match${filteredDeals.length !== 1 ? "es" : ""}`}
+                  {hasActiveFilters && ` · ${filteredAndSortedDeals.length} match${filteredAndSortedDeals.length !== 1 ? "es" : ""}`}
                 </p>
               </div>
               {hasActiveFilters && (
@@ -535,13 +701,30 @@ export default function Dashboard() {
                 </SelectContent>
               </Select>
             </div>
+
+            {/* Sort label */}
+            {!loadingDeals && filteredAndSortedDeals.length > 0 && (
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] text-muted-foreground/50">
+                  {sortAsc ? "Sorted by urgency — best deals first" : "Sorted by urgency — deals needing attention first"}
+                </span>
+                <button
+                  onClick={() => setSortAsc(v => !v)}
+                  className="flex items-center gap-1 rounded border border-border/40 bg-secondary/30 px-2 py-0.5 text-[11px] text-muted-foreground/60 transition-colors hover:bg-secondary/60 hover:text-foreground"
+                >
+                  <ArrowUpDown className="h-3 w-3" />
+                  {sortAsc ? "Worst first" : "Best first"}
+                </button>
+              </div>
+            )}
           </div>
 
           <CardContent className="p-0">
+            {/* Skeleton loaders */}
             {loadingDeals ? (
               <div className="divide-y divide-border/20 px-6 py-2">
                 {[...Array(6)].map((_, i) => (
-                  <div key={i} className="flex items-center gap-4 py-4">
+                  <div key={i} className="flex items-center gap-4 py-4 animate-pulse">
                     <Skeleton className="h-8 w-8 shrink-0 rounded-lg" />
                     <div className="flex-1 space-y-2">
                       <Skeleton className="h-3.5 w-44" />
@@ -554,7 +737,11 @@ export default function Dashboard() {
                   </div>
                 ))}
               </div>
-            ) : filteredDeals.length === 0 ? (
+            ) : noDealsLoaded ? (
+              /* Empty state — no deals in CRM */
+              <EmptyDealsState onConnectCRM={handleConnectCRM} onTryDemo={handleTryDemo} />
+            ) : filteredAndSortedDeals.length === 0 ? (
+              /* Filtered empty state */
               <div className="flex flex-col items-center justify-center py-20 text-center">
                 <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-border/40 bg-secondary/30">
                   <Filter className="h-6 w-6 text-muted-foreground/30" />
@@ -572,116 +759,106 @@ export default function Dashboard() {
                 <Table>
                   <TableHeader>
                     <TableRow className="border-border/30 hover:bg-transparent">
-                      <TableHead className="py-3 pl-6 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/50">
-                        Deal
-                      </TableHead>
-                      <TableHead className="py-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/50">
-                        Stage
-                      </TableHead>
-                      <TableHead className="py-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/50">
-                        Owner
-                      </TableHead>
-                      <TableHead className="py-3 text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/50">
-                        Amount
-                      </TableHead>
-                      <TableHead className="py-3 text-center text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/50">
-                        Score
-                      </TableHead>
-                      <TableHead className="py-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/50">
-                        Status
-                      </TableHead>
+                      <TableHead className="py-3 pl-6 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/50">Deal</TableHead>
+                      <TableHead className="py-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/50">Stage</TableHead>
+                      <TableHead className="py-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/50">Owner</TableHead>
+                      <TableHead className="py-3 text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/50">Amount</TableHead>
+                      <TableHead className="py-3 text-center text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/50">Score</TableHead>
+                      <TableHead className="py-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/50">Status</TableHead>
                       <TableHead className="w-8" />
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredDeals.map((deal) => {
+                    {filteredAndSortedDeals.map((deal, idx) => {
                       const whyLine = getDealWhyLine(deal);
                       return (
-                      <TableRow
-                        key={deal.id}
-                        onClick={() => setSelectedDealId(deal.id)}
-                        className={cn(
-                          "group cursor-pointer border-border/20 transition-colors duration-100",
-                          selectedDealId === deal.id
-                            ? "bg-primary/10 hover:bg-primary/[0.13]"
-                            : "hover:bg-secondary/40"
-                        )}
-                      >
-                        {/* Deal + Company */}
-                        <TableCell className="py-3.5 pl-6">
-                          <div className="flex items-center gap-3 min-w-0">
-                            <div className={cn(
-                              "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-xs font-bold",
-                              dealInitialClass(deal.health_label)
-                            )}>
-                              {deal.deal_name.charAt(0).toUpperCase()}
-                            </div>
-                            <div className="min-w-0">
-                              <p className="truncate text-sm font-semibold leading-tight text-foreground">
-                                {deal.deal_name}
-                              </p>
-                              <p className="mt-0.5 truncate text-xs text-muted-foreground/60">
-                                {deal.company}
-                              </p>
-                              {whyLine && (
-                                <p className="mt-0.5 truncate text-[10px] text-muted-foreground/45 italic">
-                                  {whyLine}
-                                </p>
-                              )}
-                            </div>
-                          </div>
-                        </TableCell>
-
-                        {/* Stage */}
-                        <TableCell className="py-3.5">
-                          <span className={cn(
-                            "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium whitespace-nowrap",
-                            stagePillClass(deal.stage)
-                          )}>
-                            {deal.stage}
-                          </span>
-                        </TableCell>
-
-                        {/* Owner */}
-                        <TableCell className="py-3.5 max-w-[150px]">
-                          <OwnerAvatar name={deal.owner ?? "—"} />
-                        </TableCell>
-
-                        {/* Amount */}
-                        <TableCell className="py-3.5 text-right">
-                          <span className="tabular-nums text-sm font-semibold text-foreground/90">
-                            {formatCurrency(deal.amount)}
-                          </span>
-                        </TableCell>
-
-                        {/* Health Ring */}
-                        <TableCell className="py-3.5 text-center">
-                          <div className="flex justify-center">
-                            <HealthRing score={deal.health_score} />
-                          </div>
-                        </TableCell>
-
-                        {/* Status Badge */}
-                        <TableCell className="py-3.5">
-                          <Badge variant="outline" className={cn(
-                            "border text-xs font-medium capitalize",
-                            healthColor(deal.health_label)
-                          )}>
-                            {deal.health_label.replace("_", " ")}
-                          </Badge>
-                        </TableCell>
-
-                        {/* Chevron */}
-                        <TableCell className="py-3.5 pr-4 w-8">
-                          <ChevronRight className={cn(
-                            "h-4 w-4 transition-all duration-150",
+                        <TableRow
+                          key={deal.id}
+                          onClick={() => { setPanelInitialSection(undefined); setSelectedDealId(deal.id); }}
+                          className={cn(
+                            "group cursor-pointer border-border/20 transition-colors duration-100",
                             selectedDealId === deal.id
-                              ? "text-primary opacity-100"
-                              : "text-muted-foreground opacity-0 group-hover:opacity-50"
-                          )} />
-                        </TableCell>
-                      </TableRow>
-                    );
+                              ? "bg-primary/10 hover:bg-primary/[0.13]"
+                              : "hover:bg-secondary/40"
+                          )}
+                          // Mark first row for tour
+                          {...(idx === 0 ? { "data-tour": "analyse-btn" } : {})}
+                        >
+                          {/* Deal + Company */}
+                          <TableCell className="py-3.5 pl-6">
+                            <div className="flex items-center gap-3 min-w-0">
+                              <div className={cn(
+                                "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-xs font-bold",
+                                dealInitialClass(deal.health_label)
+                              )}>
+                                {deal.deal_name.charAt(0).toUpperCase()}
+                              </div>
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-semibold leading-tight text-foreground">
+                                  {deal.deal_name}
+                                </p>
+                                <p className="mt-0.5 truncate text-xs text-muted-foreground/60">
+                                  {deal.company}
+                                </p>
+                                {whyLine && (
+                                  <p className="mt-0.5 truncate text-[10px] text-muted-foreground/45 italic">
+                                    {whyLine}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          </TableCell>
+
+                          {/* Stage */}
+                          <TableCell className="py-3.5">
+                            <span className={cn(
+                              "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium whitespace-nowrap",
+                              stagePillClass(deal.stage)
+                            )}>
+                              {deal.stage}
+                            </span>
+                          </TableCell>
+
+                          {/* Owner */}
+                          <TableCell className="py-3.5 max-w-[150px]">
+                            <OwnerAvatar name={deal.owner ?? "—"} />
+                          </TableCell>
+
+                          {/* Amount */}
+                          <TableCell className="py-3.5 text-right">
+                            <span className="tabular-nums text-sm font-semibold text-foreground/90">
+                              {formatCurrency(deal.amount)}
+                            </span>
+                          </TableCell>
+
+                          {/* Health Ring */}
+                          <TableCell className="py-3.5 text-center">
+                            <div className="flex justify-center">
+                              <HealthRing score={deal.health_score} />
+                            </div>
+                          </TableCell>
+
+                          {/* Status Badge */}
+                          <TableCell className="py-3.5">
+                            <Badge variant="outline" className={cn(
+                              "border text-xs font-medium capitalize",
+                              healthColor(deal.health_label)
+                            )}>
+                              {deal.health_label.replace("_", " ")}
+                            </Badge>
+                          </TableCell>
+
+                          {/* Chevron */}
+                          <TableCell className="py-3.5 pr-4 w-8">
+                            <ChevronRight className={cn(
+                              "h-4 w-4 transition-all duration-150",
+                              selectedDealId === deal.id
+                                ? "text-primary opacity-100"
+                                : "text-muted-foreground opacity-0 group-hover:opacity-50"
+                            )} />
+                          </TableCell>
+                        </TableRow>
+                      );
                     })}
                   </TableBody>
                 </Table>
@@ -724,6 +901,7 @@ export default function Dashboard() {
             )}
           </CardContent>
         </Card>
+
         {/* ── Team Activity Card ── */}
         {(loadingTeam || teamSummary) && (
           <Card className="overflow-hidden border-border/40 bg-card/60 animate-slide-up" style={{ animationDelay: "240ms" }}>
@@ -755,7 +933,7 @@ export default function Dashboard() {
               {loadingTeam ? (
                 <div className="space-y-2 px-5">
                   {[...Array(3)].map((_, i) => (
-                    <Skeleton key={i} className="h-10 w-full rounded-lg" />
+                    <Skeleton key={i} className="h-10 w-full rounded-lg animate-pulse" />
                   ))}
                 </div>
               ) : teamSummary && teamSummary.reps.length > 0 ? (
@@ -793,10 +971,7 @@ export default function Dashboard() {
                           <span className="text-xs text-muted-foreground"> / {rep.deals_active}</span>
                         </div>
                         <div className="text-center">
-                          <span className={cn(
-                            "text-sm font-bold tabular-nums",
-                            scoreColor(rep.avg_health_score)
-                          )}>
+                          <span className={cn("text-sm font-bold tabular-nums", scoreColor(rep.avg_health_score))}>
                             {Math.round(rep.avg_health_score)}
                           </span>
                         </div>
@@ -807,22 +982,13 @@ export default function Dashboard() {
                         </div>
                         <div className="flex items-center justify-end gap-1">
                           {rep.activity_trend === "active" && (
-                            <>
-                              <TrendingUp className="h-3.5 w-3.5 text-health-green" />
-                              <span className="text-xs text-health-green font-medium">Active</span>
-                            </>
+                            <><TrendingUp className="h-3.5 w-3.5 text-health-green" /><span className="text-xs text-health-green font-medium">Active</span></>
                           )}
                           {rep.activity_trend === "slowing" && (
-                            <>
-                              <Minus className="h-3.5 w-3.5 text-health-yellow" />
-                              <span className="text-xs text-health-yellow font-medium">Slowing</span>
-                            </>
+                            <><Minus className="h-3.5 w-3.5 text-health-yellow" /><span className="text-xs text-health-yellow font-medium">Slowing</span></>
                           )}
                           {rep.activity_trend === "inactive" && (
-                            <>
-                              <TrendingDown className="h-3.5 w-3.5 text-health-red" />
-                              <span className="text-xs text-health-red font-medium">Inactive ⚠</span>
-                            </>
+                            <><TrendingDown className="h-3.5 w-3.5 text-health-red" /><span className="text-xs text-health-red font-medium">Inactive ⚠</span></>
                           )}
                         </div>
                       </div>
@@ -838,6 +1004,22 @@ export default function Dashboard() {
 
       </main>
 
+      {/* ── Floating Action Button — Check Email Before Sending ── */}
+      <div
+        className="fixed bottom-6 right-6 z-30"
+        data-tour="mismatch-fab"
+      >
+        <button
+          onClick={openMismatchForMostAtRisk}
+          className="group flex items-center gap-2.5 rounded-full border border-amber-500/40 bg-card px-4 py-3 text-sm font-semibold text-amber-400 shadow-xl shadow-black/30 transition-all duration-200 hover:border-amber-500/70 hover:bg-amber-500/10 hover:shadow-amber-900/20"
+        >
+          <ClipboardCheck className="h-4 w-4 shrink-0 transition-transform group-hover:scale-110" />
+          <span className="hidden sm:inline">📋 Check Email Before Sending →</span>
+          <span className="sm:hidden">📋 Check Email</span>
+        </button>
+      </div>
+
+      {/* ── Panels ── */}
       <DealDetailPanel
         dealId={selectedDealId}
         dealName={selectedDeal?.deal_name ?? ""}
@@ -846,10 +1028,14 @@ export default function Dashboard() {
         amount={selectedDeal?.amount}
         healthScore={selectedDeal?.health_score}
         healthLabel={selectedDeal?.health_label}
-        onClose={() => setSelectedDealId(null)}
+        onClose={() => { setSelectedDealId(null); setPanelInitialSection(undefined); }}
+        initialSection={panelInitialSection}
       />
       <AlertsDigestPanel open={digestOpen} onClose={() => setDigestOpen(false)} />
       <BuyingSignalPanel open={signalPanelOpen} onClose={() => setSignalPanelOpen(false)} />
+
+      {/* ── Guided tour ── */}
+      {tourActive && <DemoTour onEnd={() => setTourActive(false)} />}
     </div>
   );
 }

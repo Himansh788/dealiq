@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   BarChart3, LogOut, Search,
-  ChevronDown, Settings,
+  ChevronDown, Settings, ClipboardCheck,
 } from "lucide-react";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
@@ -11,6 +11,7 @@ import {
 import { useSession } from "@/contexts/SessionContext";
 import { AlertsBell } from "@/components/AlertsDigestPanel";
 import CommandPalette from "@/components/CommandPalette";
+import DemoUpgradeModal from "@/components/DemoUpgradeModal";
 
 interface NavDeal {
   id: string;
@@ -26,6 +27,8 @@ interface NavBarProps {
   digestCriticalCount?: number;
   deals?: NavDeal[];
   onSelectDeal?: (dealId: string) => void;
+  /** Called when user clicks "Check Email Before Sending" nav button */
+  onOpenMismatch?: () => void;
 }
 
 export default function NavBar({
@@ -34,10 +37,12 @@ export default function NavBar({
   digestCriticalCount,
   deals,
   onSelectDeal,
+  onOpenMismatch,
 }: NavBarProps) {
   const { session, logout, isDemo } = useSession();
   const navigate  = useNavigate();
   const [cmdOpen, setCmdOpen] = useState(false);
+  const [upgradeOpen, setUpgradeOpen] = useState(false);
 
   const userInitials = (session?.display_name ?? "U")
     .split(" ")
@@ -76,14 +81,28 @@ export default function NavBar({
             </div>
             <span className="text-xl font-bold tracking-tight text-foreground">DealIQ</span>
             {isDemo && (
-              <span className="ml-1 rounded-full border border-health-orange/40 bg-health-orange/10 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-health-orange">
+              <button
+                onClick={(e) => { e.stopPropagation(); setUpgradeOpen(true); }}
+                className="ml-1 rounded-full border border-health-orange/40 bg-health-orange/10 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-health-orange transition-colors hover:bg-health-orange/20 hover:border-health-orange/60"
+              >
                 Demo
-              </span>
+              </button>
             )}
           </button>
 
           {/* Right-side nav */}
           <div className="flex items-center gap-2">
+
+            {/* Check Email Before Sending — only shown when handler is provided */}
+            {onOpenMismatch && (
+              <button
+                onClick={onOpenMismatch}
+                className="hidden sm:flex items-center gap-1.5 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-400 transition-colors hover:border-amber-500/50 hover:bg-amber-500/15"
+              >
+                <ClipboardCheck className="h-3.5 w-3.5" />
+                Check Email
+              </button>
+            )}
 
             {/* Cmd+K search trigger */}
             <button
@@ -124,8 +143,19 @@ export default function NavBar({
                   <DropdownMenuSeparator className="bg-border/40" />
                   <DropdownMenuItem className="cursor-default gap-2 text-muted-foreground focus:bg-transparent focus:text-muted-foreground">
                     <div className="h-2 w-2 rounded-full bg-health-green" />
-                    <span className="text-xs">CRM: Zoho connected</span>
+                    <span className="text-xs">
+                      {isDemo ? "Demo mode active" : "CRM: Zoho connected"}
+                    </span>
                   </DropdownMenuItem>
+                  {isDemo && (
+                    <DropdownMenuItem
+                      className="gap-2 text-primary focus:bg-primary/10 focus:text-primary"
+                      onClick={() => setUpgradeOpen(true)}
+                    >
+                      <BarChart3 className="h-3.5 w-3.5" />
+                      <span className="text-xs">Connect Zoho CRM</span>
+                    </DropdownMenuItem>
+                  )}
                   <DropdownMenuItem
                     className="gap-2 text-muted-foreground opacity-50 focus:bg-transparent"
                     disabled
@@ -157,7 +187,6 @@ export default function NavBar({
           if (onSelectDeal) {
             onSelectDeal(id);
           } else {
-            // Navigating from a non-dashboard page — go to dashboard and open deal
             navigate(`/dashboard?deal=${id}`);
           }
         }}
@@ -174,6 +203,8 @@ export default function NavBar({
           onOpenDigest();
         }}
       />
+
+      <DemoUpgradeModal open={upgradeOpen} onClose={() => setUpgradeOpen(false)} />
     </>
   );
 }

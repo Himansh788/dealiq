@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Brain, Clock, Phone, Activity, GitMerge, Layers, ScanSearch, GraduationCap, Zap, Sparkles } from "lucide-react";
@@ -24,6 +24,8 @@ interface Props {
   healthScore?: number;
   healthLabel?: string;
   onClose: () => void;
+  /** Accordion section to auto-expand on open (e.g. "mismatch") */
+  initialSection?: string;
 }
 
 function formatCurrency(val: number): string {
@@ -50,19 +52,21 @@ function stagePillClass(stage: string): string {
 }
 
 const SECTION_STYLES = {
-  timeline:   { icon: Clock,     label: "Deal Timeline",                    iconColor: "text-sky-400",    activeBorder: "border-l-sky-400/50" },
-  health:     { icon: Activity,  label: "Health Score Breakdown",           iconColor: "text-primary",    activeBorder: "border-l-primary/50" },
-  activity:   { icon: Zap,       label: "Activity Feed",                    iconColor: "text-blue-400",   activeBorder: "border-l-blue-400/50" },
-  "ai-rep":   { icon: Brain,     label: "AI Sales Rep",                     iconColor: "text-accent",     activeBorder: "border-l-accent/50" },
-  "call-brief": { icon: Phone,   label: "Pre-Call Intelligence Brief",      iconColor: "text-green-400",  activeBorder: "border-l-green-400/50" },
-  mismatch:   { icon: GitMerge,    label: "Narrative Check + Live Email Coach", iconColor: "text-amber-400",  activeBorder: "border-l-amber-400/50" },
-  trackers:   { icon: ScanSearch, label: "Smart Trackers",                    iconColor: "text-primary",    activeBorder: "border-l-primary/50" },
-  ack:        { icon: Layers,       label: "Advance / Close / Kill",            iconColor: "text-health-red",  activeBorder: "border-l-health-red/50" },
-  coaching:   { icon: GraduationCap, label: "Call Coaching",                    iconColor: "text-cyan-400",    activeBorder: "border-l-cyan-400/50" },
-  ask:        { icon: Sparkles,      label: "Ask DealIQ",                        iconColor: "text-violet-400",  activeBorder: "border-l-violet-400/50" },
+  timeline:   { icon: Clock,        label: "Deal Timeline",                      iconColor: "text-sky-400",    activeBorder: "border-l-sky-400/50" },
+  health:     { icon: Activity,     label: "Health Score Breakdown",             iconColor: "text-primary",    activeBorder: "border-l-primary/50" },
+  activity:   { icon: Zap,          label: "Activity Feed",                      iconColor: "text-blue-400",   activeBorder: "border-l-blue-400/50" },
+  "ai-rep":   { icon: Brain,        label: "AI Sales Rep",                       iconColor: "text-accent",     activeBorder: "border-l-accent/50" },
+  "call-brief": { icon: Phone,      label: "Pre-Call Intelligence Brief",        iconColor: "text-green-400",  activeBorder: "border-l-green-400/50" },
+  mismatch:   { icon: GitMerge,     label: "Narrative Check + Live Email Coach", iconColor: "text-amber-400",  activeBorder: "border-l-amber-400/50" },
+  trackers:   { icon: ScanSearch,   label: "Smart Trackers",                     iconColor: "text-primary",    activeBorder: "border-l-primary/50" },
+  ack:        { icon: Layers,       label: "Advance / Close / Kill",             iconColor: "text-health-red", activeBorder: "border-l-health-red/50" },
+  coaching:   { icon: GraduationCap,label: "Call Coaching",                      iconColor: "text-cyan-400",   activeBorder: "border-l-cyan-400/50" },
+  ask:        { icon: Sparkles,     label: "Ask DealIQ",                         iconColor: "text-violet-400", activeBorder: "border-l-violet-400/50" },
 } as const;
 
 type SectionKey = keyof typeof SECTION_STYLES;
+
+const DEFAULT_OPEN: SectionKey[] = ["timeline", "health", "ai-rep"];
 
 function SectionTrigger({ sectionKey }: { sectionKey: SectionKey }) {
   const { icon: Icon, label, iconColor } = SECTION_STYLES[sectionKey];
@@ -75,7 +79,7 @@ function SectionTrigger({ sectionKey }: { sectionKey: SectionKey }) {
 }
 
 export default function DealDetailPanel({
-  dealId, dealName, repName, stage, amount, healthScore, healthLabel, onClose
+  dealId, dealName, repName, stage, amount, healthScore, healthLabel, onClose, initialSection
 }: Props) {
   const [liveScore, setLiveScore] = useState<number | undefined>(undefined);
   const [liveLabel, setLiveLabel] = useState<string | undefined>(undefined);
@@ -92,13 +96,36 @@ export default function DealDetailPanel({
       .catch(() => { /* fall back to stale list score */ });
   }, [dealId]);
 
+  // Escape key — close panel
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    if (e.key === "Escape") onClose();
+  }, [onClose]);
+
+  useEffect(() => {
+    if (!dealId) return;
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [dealId, handleKeyDown]);
+
   const displayScore = liveScore ?? healthScore;
   const displayLabel = liveLabel ?? healthLabel;
   const showMeta = stage || (amount != null && amount > 0) || displayScore != null;
 
+  // Build default open sections, adding initialSection if supplied
+  const defaultOpen: string[] = initialSection && !DEFAULT_OPEN.includes(initialSection as SectionKey)
+    ? [...DEFAULT_OPEN, initialSection]
+    : [...DEFAULT_OPEN];
+
   return (
     <Sheet open={!!dealId} onOpenChange={(open) => !open && onClose()}>
-      <SheetContent side="right" className="w-full overflow-y-auto border-l border-border/40 bg-background p-0 sm:max-w-2xl">
+      <SheetContent
+        side="right"
+        className="w-full overflow-y-auto border-l border-border/40 bg-background p-0 sm:max-w-2xl transition-transform duration-300"
+      >
+        {/* Drag handle indicator */}
+        <div className="absolute left-0 top-1/2 -translate-y-1/2 flex flex-col items-center gap-1 py-4 px-1.5 opacity-30 hover:opacity-60 transition-opacity cursor-grab">
+          <div className="h-8 w-1 rounded-full bg-muted-foreground/60" />
+        </div>
 
         {/* Panel header */}
         <div className="sticky top-0 z-10 border-b border-border/40 bg-background/95 px-6 py-5 backdrop-blur-sm">
@@ -142,8 +169,11 @@ export default function DealDetailPanel({
         {/* Accordion sections */}
         {dealId && (
           <div className="px-4 py-4">
-            <Accordion type="multiple" defaultValue={["timeline", "health", "ai-rep"]} className="space-y-2">
-
+            <Accordion
+              type="multiple"
+              defaultValue={defaultOpen}
+              className="space-y-2"
+            >
               {(Object.keys(SECTION_STYLES) as SectionKey[]).map(key => (
                 <AccordionItem
                   key={key}
@@ -161,13 +191,12 @@ export default function DealDetailPanel({
                     {key === "call-brief"  && <CallBriefPanel dealId={dealId} repName={repName} />}
                     {key === "mismatch"    && <MismatchChecker dealId={dealId} />}
                     {key === "trackers"    && <TrackerPanel dealId={dealId} />}
-                    {key === "ack"         && <AckSection dealId={dealId} />}
+                    {key === "ack"         && <AckSection dealId={dealId} dealName={dealName} />}
                     {key === "coaching"    && <CoachingPanel dealId={dealId} repName={repName} />}
                     {key === "ask"         && <AskDealIQPanel dealId={dealId} dealName={dealName} />}
                   </AccordionContent>
                 </AccordionItem>
               ))}
-
             </Accordion>
           </div>
         )}
