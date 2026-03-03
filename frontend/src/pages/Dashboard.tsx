@@ -399,7 +399,7 @@ export default function Dashboard() {
         }));
         setAllDeals(mapped);
         setTotalDeals(data.total ?? mapped.length);
-        setTotalPages(data.total_pages ?? Math.ceil((data.total ?? mapped.length) / PER_PAGE) || 1);
+        setTotalPages(data.total_pages ?? (Math.ceil((data.total ?? mapped.length) / PER_PAGE) || 1));
         setHasNext(data.has_next ?? false);
         setHasPrev(data.has_prev ?? false);
       })
