@@ -50,12 +50,24 @@ export default function AskDealIQPage() {
 
   useEffect(() => {
     api.getAllDeals()
-      .then((data) => setDeals(Array.isArray(data) ? data : []))
+      .then((data) => {
+        const list = Array.isArray(data) ? data : [];
+        const mapped: Deal[] = list.map((d: any) => ({
+          id:           d.id,
+          name:         d.name ?? d.deal_name ?? "Unnamed Deal",
+          company:      d.account_name ?? d.company ?? "—",
+          stage:        d.stage ?? "Unknown",
+          amount:       d.amount ?? 0,
+          health_score: d.health_score ?? 0,
+          health_label: d.health_label ?? "critical",
+        }));
+        setDeals(mapped);
+      })
       .catch((err: Error) =>
         toast({ title: "Failed to load deals", description: err.message, variant: "destructive" })
       )
       .finally(() => setLoading(false));
-  }, []);
+  }, [toast]);
 
   const selectedDeal = deals.find((d) => d.id === selectedDealId);
 
