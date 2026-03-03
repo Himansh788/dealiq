@@ -14,6 +14,8 @@ DealIQ sits between your CRM and your communication stack and answers the questi
 | Feature | Description |
 |---------|-------------|
 | **Deal Health Score** | 9-signal, 0–100 score per deal (recency, velocity, stakeholder depth, engagement, discount pressure, and more) |
+| **Health Score Trends** | Improving / declining / stable arrows — backed by persisted score history in MySQL |
+| **Cache Freshness System** | Serve deals from DB in ~50ms; background Zoho sync when >30% stale |
 | **Activity Intelligence** | Engagement velocity scoring, ghost stakeholder detection, team activity summary |
 | **AI Sales Rep** | Next Best Action → approve → draft email → approve → send. Objection handler included. |
 | **Pre-Call Intelligence Brief** | AI-generated call prep: key risks, stakeholder map, suggested questions |
@@ -21,11 +23,10 @@ DealIQ sits between your CRM and your communication stack and answers the questi
 | **Live Email Coach** | Real-time coaching as the rep types an email (debounced, keystroke-driven) |
 | **Ask DealIQ** | 4-tab AI Q&A panel: open Q&A chat, MEDDIC analysis, Deal Brief, Follow-up Email generator |
 | **Context Engine** | Rules-based rep style analyser + AI transcript pre-processing for all email generation |
-| **Deal Autopsy** | AI post-mortem triggered when a deal is killed |
-| **Advance / Close / Kill** | Decision-forcing surface for stalled deals with supporting signal evidence |
+| **Deal Autopsy** | AI post-mortem triggered when a deal is killed — persisted to DB |
+| **Advance / Close / Kill** | Decision-forcing surface for stalled deals — decisions stored with full history |
 | **AI Forecast** | Pipeline narrative + at-risk deal rescue recommendations + rep coaching |
 | **Smart Trackers** | Buying signal and risk signal detection |
-| **Call Coaching** | Real-time coaching panel |
 | **Alerts Digest** | Prioritised deal alerts across the pipeline |
 
 ---
@@ -36,20 +37,28 @@ DealIQ sits between your CRM and your communication stack and answers the questi
 React 18 + TypeScript + Shadcn UI (Vite)
            ↓ REST API
 FastAPI (Python) — localhost:8000
-     ↓                    ↓
-CRM Adapter Layer      Groq API (LLaMA models)
-  ├── Zoho CRM         llama-3.3-70b-versatile (quality)
-  └── Demo Mode        llama-3.1-8b-instant (speed)
+     ↓                         ↓
+MySQL (cache + history)    Anthropic API (Claude)
+  ├── deals (5-min TTL)    claude-haiku-4-5 (speed tasks)
+  ├── health_scores        claude-haiku-4-5 (quality tasks)
+  ├── decisions
+  └── email_analyses            ↓
+                           Zoho CRM (OAuth2)
+                           or Demo Mode (in-memory)
 ```
 
-### CRM Adapter Layer
-
-The backend uses an abstraction layer so switching CRM providers requires no route changes:
+### Cache Freshness Flow
 
 ```
-CRMFactory.get_adapter(token)
-  ├── ZohoAdapter   → real Zoho CRM API (OAuth2)
-  └── DemoAdapter   → SIMULATED_DEALS in-memory data
+GET /deals/ — first request:
+  DB empty → blocking Zoho fetch → save 100+ deals → return (~3s one-time)
+
+GET /deals/ — within 5 minutes:
+  DB fresh → return immediately (~50ms)
+
+GET /deals/ — after 5 minutes:
+  DB stale → return stale data immediately + trigger background Zoho sync
+  User sees data in ~50ms; DB refreshed behind the scenes
 ```
 
 ---
@@ -63,7 +72,18 @@ git clone https://github.com/himansh788/dealiq.git
 cd dealiq
 ```
 
-### Step 2 — Backend
+### Step 2 — Database (MySQL)
+
+```bash
+# Create the database (requires MySQL running locally)
+cd backend
+python create_db.py
+# Output: [OK] Database 'dealiq' ready
+```
+
+Tables are created automatically on first backend start via `create_tables()`.
+
+### Step 3 — Backend
 
 ```bash
 cd backend
@@ -78,7 +98,7 @@ uvicorn main:app --reload
 Backend: `http://localhost:8000`
 Swagger docs: `http://localhost:8000/docs`
 
-### Step 3 — Frontend
+### Step 4 — Frontend
 
 ```bash
 cd frontend
@@ -88,27 +108,35 @@ npm run dev
 
 Frontend: `http://localhost:5173`
 
-### Step 4 — Test without any API keys (Demo Mode)
+### Step 5 — Test without any API keys (Demo Mode)
 
 ```bash
 # Get a demo session token
 curl http://localhost:8000/auth/demo-session
 
 # Use DEMO_MODE as the bearer token for all API calls
-# No Zoho account or Groq key required — all data is simulated
+# No Zoho, no Anthropic key, no database required — all data is simulated
 ```
 
 ---
 
 ## Key Setup
 
-### 1. Groq API Key (AI inference)
+### 1. Anthropic API Key (AI inference)
 
-1. Sign up at https://console.groq.com
+1. Sign up at [console.anthropic.com](https://console.anthropic.com)
 2. Create an API key
-3. Add to `.env`: `GROQ_API_KEY=gsk_...`
+3. Add to `.env`: `ANTHROPIC_API_KEY=sk-ant-...`
 
-### 2. Zoho CRM OAuth2 (optional — demo mode works without it)
+### 2. MySQL Database (optional — demo mode works without it)
+
+1. Install MySQL 8+ locally or use a cloud instance
+2. Run `python create_db.py` to create the `dealiq` schema
+3. Add to `.env`: `DATABASE_URL=mysql+aiomysql://user:password@localhost:3306/dealiq`
+
+Tables and columns are created/migrated automatically on startup — no manual migrations needed.
+
+### 3. Zoho CRM OAuth2 (optional — demo mode works without it)
 
 > India users: use `zoho.in` domains. Everyone else: `zoho.com`
 
@@ -122,7 +150,7 @@ curl http://localhost:8000/auth/demo-session
 ### .env reference
 
 ```env
-GROQ_API_KEY=gsk_...
+ANTHROPIC_API_KEY=sk-ant-...
 
 ZOHO_CLIENT_ID=...
 ZOHO_CLIENT_SECRET=...
@@ -131,8 +159,8 @@ ZOHO_REGION=in            # or com
 
 FRONTEND_URL=http://localhost:5173
 
-# Optional — only if using DB-backed features (transcript storage, email extractions)
-DATABASE_URL=postgresql+asyncpg://...
+# Optional — enables deal caching, score history, decision persistence
+DATABASE_URL=mysql+aiomysql://root:password@localhost:3306/dealiq
 ```
 
 ---
@@ -143,93 +171,95 @@ DATABASE_URL=postgresql+asyncpg://...
 dealiq/
 ├── backend/
 │   ├── main.py                          # FastAPI app — registers all routers
+│   ├── create_db.py                     # One-time MySQL schema setup script
+│   ├── database/
+│   │   ├── connection.py                # Async engine + get_db() dependency
+│   │   ├── models.py                    # SQLAlchemy ORM models (11 tables)
+│   │   └── init_db.py                   # create_all + column migrations on startup
 │   ├── routers/
 │   │   ├── auth.py                      # Zoho OAuth2 + demo session
-│   │   ├── deals.py                     # List deals, metrics
-│   │   ├── health.py                    # Deal health signals
+│   │   ├── deals.py                     # List deals, metrics, health, timeline, cache ops
 │   │   ├── analysis.py                  # Mismatch, email-coach, autopsy, ACK, discount
 │   │   ├── ai_rep.py                    # NBA, draft-email, objection, call-brief
 │   │   ├── activities.py                # Activity feed + team summary
 │   │   ├── ask.py                       # Ask DealIQ (auth-required, 7 routes)
 │   │   ├── ask_demo.py                  # Ask DealIQ (demo mode, 5 routes)
 │   │   ├── forecast.py                  # AI pipeline forecast
-│   │   ├── alerts.py                    # Alerts digest
-│   │   ├── signals.py                   # Buying signal detection
-│   │   ├── trackers.py                  # Smart trackers
-│   │   └── coaching.py                  # Call coaching
+│   │   └── alerts.py                    # Alerts digest
 │   ├── services/
-│   │   ├── context_engine.py            # RepStyle + DealContext, rules-based analyser, transcript pre-processing
-│   │   ├── email_generator.py           # 2-pass email generation with commitment coverage check
+│   │   ├── cache_manager.py             # TTL config, is_fresh(), get_cache_status()
+│   │   ├── deal_db.py                   # Deal cache: get/upsert/invalidate, stale-ratio check
+│   │   ├── score_db.py                  # Health score persistence + batch trend queries
+│   │   ├── decision_db.py               # ACK decision persistence + history
+│   │   ├── health_scorer.py             # 9-signal scorer (score_deal_with_activities)
+│   │   ├── context_engine.py            # RepStyle + DealContext, transcript pre-processing
+│   │   ├── email_generator.py           # 2-pass email generation with commitment coverage
 │   │   ├── ai_rep.py                    # NBA, objection, call-brief logic
-│   │   ├── ask_dealiq_service.py        # Ask Q&A engine (deal Q&A, MEDDIC, brief, follow-up email)
+│   │   ├── ask_dealiq_service.py        # Ask Q&A engine (deal Q&A, MEDDIC, brief, follow-up)
 │   │   ├── ask_dealiq_prompts.py        # All Ask DealIQ AI prompts + PRESET_QUESTIONS
-│   │   ├── ask_demo_data.py             # Demo transcript/emails for Ask feature
-│   │   ├── ai_router_ask.py             # Groq wrapper for Ask tasks
 │   │   ├── activity_intelligence.py     # Engagement velocity scoring + ghost detection
-│   │   ├── health_scorer.py             # 9-signal health scorer (score_deal_with_activities)
 │   │   ├── deal_autopsy.py              # Post-mortem generation
 │   │   ├── email_coach.py               # Real-time email coaching
-│   │   ├── claude_client.py             # Mismatch + discount + insights
-│   │   ├── deal_timeline.py             # Deal event timeline
-│   │   ├── smart_tracker.py             # Smart tracker logic
-│   │   ├── signal_detector.py           # Buying/risk signal detection
-│   │   ├── transcript_analyzer.py       # Transcript analysis
-│   │   ├── email_analyzer.py            # Email thread analysis
-│   │   ├── alerts_digest.py             # Alerts digest generation
-│   │   ├── ai_forecast_narrative.py     # Forecast narrative generation
-│   │   ├── crm_adapter.py               # CRM adapter base interface
-│   │   ├── crm_factory.py               # CRM adapter factory (Zoho or Demo)
-│   │   ├── crm_errors.py                # Shared CRM error types
-│   │   ├── zoho_adapter.py              # Zoho CRM adapter implementation
-│   │   ├── demo_adapter.py              # Demo mode adapter implementation
 │   │   ├── zoho_client.py               # Raw Zoho API client
-│   │   └── demo_data.py                 # SIMULATED_DEALS + SIMULATED_ACTIVITIES + SIMULATED_EMAILS
+│   │   └── demo_data.py                 # SIMULATED_DEALS + activities + emails
 │   ├── models/
-│   │   ├── schemas.py                   # Core Pydantic schemas
-│   │   ├── activity_schemas.py          # Activity feed schemas
-│   │   ├── coaching_schemas.py          # Coaching schemas
-│   │   └── tracker_schemas.py           # Tracker schemas
+│   │   ├── schemas.py                   # Core Pydantic schemas (incl. cache_meta in DealList)
+│   │   └── activity_schemas.py          # Activity feed schemas
 │   ├── requirements.txt
 │   └── .env.example
 ├── frontend/
 │   ├── src/
 │   │   ├── pages/
 │   │   │   ├── Login.tsx                # Zoho OAuth + demo login
-│   │   │   ├── Dashboard.tsx            # Pipeline table + filters + deal panel
+│   │   │   ├── Dashboard.tsx            # Pipeline table + filters + cache indicator
 │   │   │   ├── Home.tsx                 # AI to-dos: greeting + metrics + priority deals
 │   │   │   ├── ForecastPage.tsx         # AI forecast + rescue opps + rep coaching
 │   │   │   ├── AskDealIQPage.tsx        # Full Ask DealIQ page with deal selector
-│   │   │   ├── AlertsPage.tsx           # Alerts digest
-│   │   │   ├── TrackersPage.tsx         # Smart trackers
-│   │   │   └── TrendsPage.tsx           # (coming soon)
+│   │   │   └── AlertsPage.tsx           # Alerts digest
 │   │   ├── components/
 │   │   │   ├── DealDetailPanel.tsx      # Main slide-out panel (10 accordion sections)
 │   │   │   ├── NavBar.tsx               # Shared top nav (alerts bell, Cmd+K, user)
 │   │   │   ├── CommandPalette.tsx       # Cmd+K search across deals + navigation
-│   │   │   ├── PipelineQABar.tsx        # Pipeline-level Q&A bar
 │   │   │   ├── layout/
 │   │   │   │   ├── AppLayout.tsx        # Root layout: Sidebar + main content
 │   │   │   │   └── Sidebar.tsx          # 60px icon-only sidebar nav
-│   │   │   ├── deal/
-│   │   │   │   ├── DealTimeline.tsx     # Deal event timeline
-│   │   │   │   ├── HealthBreakdown.tsx  # 9-signal health display
-│   │   │   │   ├── ActivityFeedPanel.tsx # Engagement velocity + ghost alerts
-│   │   │   │   ├── AIRepPanel.tsx       # NBA → approve → email draft → approve
-│   │   │   │   ├── CallBriefPanel.tsx   # Pre-call intelligence brief
-│   │   │   │   ├── MismatchChecker.tsx  # Narrative check + live email coach
-│   │   │   │   ├── TrackerPanel.tsx     # Smart trackers
-│   │   │   │   ├── AckSection.tsx       # Advance/Close/Kill + autopsy on kill
-│   │   │   │   ├── AutopsyPanel.tsx     # Deal post-mortem
-│   │   │   │   ├── AskDealIQPanel.tsx   # 4-tab Ask panel
-│   │   │   │   └── CoachingPanel.tsx    # Call coaching
-│   │   │   └── email/
-│   │   │       └── EmailComposer.tsx    # AI email composer dialog
+│   │   │   └── deal/
+│   │   │       ├── DealTimeline.tsx     # Deal event timeline
+│   │   │       ├── HealthBreakdown.tsx  # 9-signal health display
+│   │   │       ├── ActivityFeedPanel.tsx # Engagement velocity + ghost alerts
+│   │   │       ├── AIRepPanel.tsx       # NBA → approve → email draft → approve
+│   │   │       ├── CallBriefPanel.tsx   # Pre-call intelligence brief
+│   │   │       ├── MismatchChecker.tsx  # Narrative check + live email coach
+│   │   │       ├── AckSection.tsx       # Advance/Close/Kill + autopsy on kill
+│   │   │       ├── AutopsyPanel.tsx     # Deal post-mortem
+│   │   │       ├── AskDealIQPanel.tsx   # 4-tab Ask panel
+│   │   │       └── CoachingPanel.tsx    # Call coaching
 │   │   └── lib/
 │   │       └── api.ts                   # All API calls (typed)
 │   └── package.json
 ├── README.md
 └── .gitignore
 ```
+
+---
+
+## Database Schema (11 Tables)
+
+| Table | Purpose | TTL |
+|-------|---------|-----|
+| `deals` | Zoho deal cache — avoids API on every page load | 5 min |
+| `health_scores` | Score history per deal — powers trend arrows | 15 min |
+| `decisions` | ACK decisions (advance/close/kill) with full history | permanent |
+| `emails` | Email thread cache | 10 min |
+| `email_analyses` | Mismatch / discount analysis results — avoid re-running Claude | 24 hr |
+| `transcripts` | Call transcripts | permanent |
+| `transcript_summaries` | Pre-processed call intelligence | permanent |
+| `email_extractions` | Extracted next-steps / commitments per email | permanent |
+| `meeting_log` | Meeting timeline with AI summary and action items | 1 hr |
+| `pending_crm_update` | Async Zoho write-back queue (pending/approved/rejected) | — |
+| `audit_log` | User action log | permanent |
+
+All tables are created and column migrations applied automatically on startup.
 
 ---
 
@@ -245,10 +275,14 @@ dealiq/
 ### Deals
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/deals/` | List all deals |
+| GET | `/deals/` | List deals (cache-first, includes `cache_meta`) |
 | GET | `/deals/metrics` | Pipeline summary metrics |
 | GET | `/deals/{id}/health` | 9-signal health breakdown |
 | GET | `/deals/{id}/timeline` | Deal event timeline |
+| GET | `/deals/{id}/score-history` | Health score history (default 30 days) |
+| GET | `/deals/{id}/decisions` | ACK decision history |
+| POST | `/deals/{id}/refresh` | Force re-fetch single deal from Zoho |
+| POST | `/deals/sync` | Force full Zoho sync for all deals |
 
 ### AI Sales Rep
 | Method | Endpoint | Description |
@@ -267,13 +301,14 @@ dealiq/
 | POST | `/analysis/email-coach` | Real-time email coaching |
 | POST | `/analysis/autopsy` | Deal post-mortem generation |
 | GET | `/analysis/ack/{deal_id}` | Advance/Close/Kill recommendation |
+| POST | `/analysis/ack/{deal_id}/decide` | Log ACK decision (persisted to DB) |
 | POST | `/analysis/discount` | Email thread discount pressure analysis |
 
 ### Activity Intelligence
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/activities/{deal_id}` | Activity feed + engagement score + ghost stakeholders |
-| GET | `/activities/team-summary` | Rep activity summary (5-min server cache) |
+| GET | `/activities/team-summary` | Rep activity summary |
 
 ### Ask DealIQ
 | Method | Endpoint | Description |
@@ -291,8 +326,7 @@ dealiq/
 |--------|----------|-------------|
 | GET | `/forecast` | AI pipeline forecast narrative |
 | GET | `/alerts/digest` | Prioritised alerts digest |
-| GET | `/signals/{deal_id}` | Buying/risk signal detection |
-| GET | `/trackers/{deal_id}` | Smart tracker status |
+| GET | `/health/db` | MySQL connectivity check |
 
 **All endpoints except `/auth/*` and demo variants require:**
 ```
@@ -305,20 +339,18 @@ Use `DEMO_MODE` as the token to activate demo mode with simulated data.
 
 ## Deal Detail Panel — 10 Sections
 
-The slide-out panel that opens per deal has 10 accordion sections:
-
-| # | Section | Icon | Description |
-|---|---------|------|-------------|
-| 1 | Deal Timeline | Clock | Chronological deal event history |
-| 2 | Health Score Breakdown | Activity | 9 signals with scores and recommendations |
-| 3 | Activity Feed | Zap (blue) | Engagement velocity, ghost stakeholder alerts, activity log |
-| 4 | AI Sales Rep | Brain | NBA → approve → email draft → approve → send |
-| 5 | Pre-Call Intelligence Brief | Phone | AI-generated call prep brief |
-| 6 | Narrative Check + Email Coach | GitMerge | Mismatch detection + live email coaching |
-| 7 | Smart Trackers | ScanSearch | Buying signal and risk tracker status |
-| 8 | Advance / Close / Kill | Layers | Decision surface + autopsy on kill |
-| 9 | Call Coaching | GraduationCap (cyan) | Real-time coaching feedback |
-| 10 | Ask DealIQ | Sparkles (violet) | 4-tab AI Q&A: chat, MEDDIC, brief, follow-up email |
+| # | Section | Description |
+|---|---------|-------------|
+| 1 | Deal Timeline | Chronological deal event history |
+| 2 | Health Score Breakdown | 9 signals with scores and recommendations |
+| 3 | Activity Feed | Engagement velocity, ghost stakeholder alerts, activity log |
+| 4 | AI Sales Rep | NBA → approve → email draft → approve → send |
+| 5 | Pre-Call Intelligence Brief | AI-generated call prep brief |
+| 6 | Narrative Check + Email Coach | Mismatch detection + live email coaching |
+| 7 | Smart Trackers | Buying signal and risk tracker status |
+| 8 | Advance / Close / Kill | Decision surface + autopsy on kill |
+| 9 | Call Coaching | Real-time coaching feedback |
+| 10 | Ask DealIQ | 4-tab AI Q&A: chat, MEDDIC, brief, follow-up email |
 
 ---
 
@@ -339,32 +371,57 @@ The slide-out panel that opens per deal has 10 accordion sections:
 
 Score thresholds: **Healthy ≥75** | **At Risk ≥50** | **Critical ≥25** | **Zombie <25**
 
+Score trends (from DB history): **↗ improving** | **→ stable** | **↘ declining**
+
 ---
 
 ## AI Models
 
 | Task | Model | Reason |
 |------|-------|--------|
-| Ask Q&A, MEDDIC, Deal Brief | `llama-3.3-70b-versatile` | Quality — needs reasoning depth |
-| Email drafting, pipeline questions | `llama-3.1-8b-instant` | Speed — latency-sensitive |
-| Email coaching (real-time) | `llama-3.1-8b-instant` | Debounced, must be fast |
-| NBA, call brief, objection | `llama-3.3-70b-versatile` | Quality — sales-critical output |
+| Ask Q&A, MEDDIC, Deal Brief | `claude-haiku-4-5-20251001` | Reasoning depth |
+| Email drafting, pipeline questions | `claude-haiku-4-5-20251001` | Speed + quality |
+| Email coaching (real-time) | `claude-haiku-4-5-20251001` | Debounced, must be fast |
+| NBA, call brief, objection | `claude-haiku-4-5-20251001` | Sales-critical output |
 
-All AI calls use `GROQ_API_KEY` via the Groq API.
+All AI calls use `ANTHROPIC_API_KEY` via the Anthropic API.
+
+---
+
+## Cache Freshness System
+
+Every API response that uses the DB cache includes a `_cache` / `cache_meta` block:
+
+```json
+{
+  "cached": true,
+  "fresh": true,
+  "source": "cache",
+  "age_seconds": 47,
+  "ttl_seconds": 300,
+  "expires_in_seconds": 253,
+  "needs_background_sync": false
+}
+```
+
+The dashboard shows a live status indicator:
+- 🟢 **Live** — data is fresh, served from DB
+- 🟡 **Syncing in background…** — stale data served instantly, Zoho sync running
+- 🔵 **Just updated from Zoho** — first load or forced refresh
 
 ---
 
 ## Demo Mode
 
-Use token `DEMO_MODE` to run the full app without Zoho or a database.
+Use token `DEMO_MODE` to run the full app without Zoho, Anthropic, or a database.
 
-Demo deals available:
-- `sim_001` — Acme Corp (healthy deal)
+Demo deals:
+- `sim_001` — Acme Corp (healthy)
 - `sim_002` — Globex Inc (at risk)
 - `sim_003` — Initech (critical)
 - `sim_004` — FinanceFlow (zombie — best for autopsy demo)
 
-Demo endpoints also available at `/ask/demo/*`, `/ai-rep/demo-*`, `/analysis/*/demo`.
+Demo endpoints: `/ask/demo/*`, `/ai-rep/demo-*`, `/analysis/*/demo`
 
 ---
 
@@ -372,15 +429,14 @@ Demo endpoints also available at `/ask/demo/*`, `/ai-rep/demo-*`, `/analysis/*/d
 
 1. Open app → "Try demo without login"
 2. Dashboard loads with 4 pre-scored deals across all health states
-3. Click into **FinanceFlow** (red/zombie)
+3. Click into **FinanceFlow** (zombie)
    - Health Breakdown: all 9 signals with explanations
-   - ACK: "Kill" recommendation with supporting evidence
-   - Trigger autopsy → AI post-mortem generates
+   - ACK: "Kill" recommendation with supporting evidence → trigger autopsy
 4. Switch to **Acme Corp** → Narrative Mismatch section
    - Load demo transcript + email draft → "Check Before Sending"
-   - 3 mismatch flags: missing discount commitment, timeline, follow-up date
-5. Open Activity Feed: engagement velocity score + ghost stakeholder alerts
-6. Open Ask DealIQ tab → MEDDIC tab → "Run MEDDIC Analysis"
+   - Flags: missing discount commitment, timeline mismatch, follow-up date
+5. Open Activity Feed → engagement velocity score + ghost stakeholder alerts
+6. Open Ask DealIQ → MEDDIC tab → "Run MEDDIC Analysis"
 7. Open AI Sales Rep → generate NBA → approve → draft email → copy
 
 ---
@@ -391,9 +447,9 @@ Demo endpoints also available at `/ask/demo/*`, `/ai-rep/demo-*`, `/analysis/*/d
 |-------|-----------|
 | Frontend | React 18, TypeScript, Vite, Tailwind CSS, Shadcn UI |
 | Backend | Python, FastAPI, Pydantic v2, SQLAlchemy (async) |
-| AI Inference | Groq API (LLaMA 3.1/3.3) |
+| AI Inference | Anthropic API (Claude Haiku) |
 | CRM | Zoho CRM (OAuth2) + Demo mode |
-| Database | PostgreSQL (async via asyncpg) — optional for demo |
+| Database | MySQL 8+ (async via aiomysql) — optional, degrades gracefully |
 
 ---
 
