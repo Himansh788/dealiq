@@ -127,8 +127,8 @@ function StagePill({ label, colour }: { label: string; colour?: string }) {
     : { borderColor: "#4b556340", backgroundColor: "#1e293b", color: "#94a3b8" };
   return (
     <span
-      className="inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold whitespace-nowrap"
-      style={style}
+      className="inline-flex items-center rounded-full border px-3.5 text-[10px] font-semibold whitespace-nowrap leading-[1.4]"
+      style={{ ...style, padding: "5px 14px" }}
     >
       {label}
     </span>
@@ -345,25 +345,32 @@ function StageChangeRow({ event, isLast }: { event: TimelineEvent; isLast: boole
         borderBottom: "1px solid rgba(255,255,255,0.04)",
       }}
     >
-      <div className="flex items-center gap-2 flex-wrap">
-        <StagePill label={event.stage_from || ""} colour={event.stage_from_colour} />
-        <span className="text-slate-500 text-xs">──→</span>
-        <StagePill label={event.stage_to || ""} colour={event.stage_to_colour} />
-        <span className={cn(
-          "ml-1 inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-bold",
-          event.direction === "forward"
-            ? "bg-green-900/60 text-green-400"
-            : "bg-red-900/60 text-red-400"
-        )}>
-          {event.direction === "forward" ? "↑ Forward" : "↓ Backward"}
-        </span>
-        <span className="ml-auto text-[10px] text-slate-500 tabular-nums shrink-0">
-          {formatTs(event.days_ago ?? 0)}
-        </span>
+      <div className="flex flex-col gap-1">
+        {/* Pill row — all items share the same inline-flex baseline */}
+        <div className="inline-flex items-center gap-2">
+          <StagePill label={event.stage_from || ""} colour={event.stage_from_colour} />
+          <span className="text-slate-500 text-xs leading-none">→</span>
+          <StagePill label={event.stage_to || ""} colour={event.stage_to_colour} />
+          <span className="ml-auto text-[10px] text-slate-500 tabular-nums shrink-0">
+            {formatTs(event.days_ago ?? 0)}
+          </span>
+        </div>
+
+        {/* Meta row — direction badge + detail on their own line */}
+        <div className="flex items-center gap-2">
+          <span className={cn(
+            "inline-flex items-center rounded-full text-[10px] font-bold leading-[1.4]",
+            event.direction === "forward"
+              ? "bg-green-900/60 text-green-400"
+              : "bg-red-900/60 text-red-400"
+          )} style={{ padding: "5px 14px" }}>
+            {event.direction === "forward" ? "↑ Forward" : "↓ Backward"}
+          </span>
+          {event.detail && (
+            <span className="text-[10px] text-slate-500">{event.detail}</span>
+          )}
+        </div>
       </div>
-      {event.detail && (
-        <p className="mt-1 text-[10px] text-slate-500">{event.detail}</p>
-      )}
     </div>
   );
 }
