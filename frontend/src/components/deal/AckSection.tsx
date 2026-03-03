@@ -63,14 +63,17 @@ export default function AckSection({ dealId, dealName }: Props) {
   const { toast } = useToast();
 
   useEffect(() => {
+    let cancelled = false;
     setLoading(true);
     setData(null);
     setMode("idle");
     setKillReason("");
     setDecisionMade("");
     setCanChange(false);
+
     api.getAck(dealId)
       .then((raw: any) => {
+        if (cancelled) return;
         setData({
           recommendation: raw.recommendation || "advance",
           days_stalled: raw.days_stalled || 0,
@@ -78,10 +81,16 @@ export default function AckSection({ dealId, dealName }: Props) {
           supporting_signals: raw.supporting_signals || raw.signals || [],
         });
       })
-      .catch(() => setData(DEMO_ACK))
-      .finally(() => setLoading(false));
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        if (err instanceof Error && err.name === "AbortError") return;
+        setData(DEMO_ACK);
+      })
+      .finally(() => { if (!cancelled) setLoading(false); });
 
     return () => {
+      cancelled = true;
       if (reEnableTimerRef.current) clearTimeout(reEnableTimerRef.current);
     };
   }, [dealId]);

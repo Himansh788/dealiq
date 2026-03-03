@@ -179,10 +179,19 @@ export default function TrackersPage() {
 
   useEffect(() => {
     if (!session) { navigate("/", { replace: true }); return; }
+    let cancelled = false;
+
     api.listTrackers()
-      .then((data: Tracker[]) => setTrackers(data))
-      .catch(() => {})
-      .finally(() => setLoadingTrackers(false));
+      .then((data: Tracker[]) => { if (!cancelled) setTrackers(data); })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        if (err instanceof Error && err.name === "AbortError") return;
+        // silent — trackers list is non-critical
+      })
+      .finally(() => { if (!cancelled) setLoadingTrackers(false); });
+
+    return () => { cancelled = true; };
   }, [session, navigate]);
 
   const handleCreateTracker = async () => {
@@ -197,8 +206,8 @@ export default function TrackersPage() {
       setNewName(""); setNewConcept(""); setNewSeverity("warning");
       setShowCreate(false);
       toast({ title: "Tracker created", description: `"${created.name}" added to your library.` });
-    } catch (e: any) {
-      toast({ title: "Failed to create tracker", description: e.message, variant: "destructive" });
+    } catch {
+      toast({ title: "Couldn't create tracker", description: "Please try again.", variant: "destructive" });
     } finally {
       setCreating(false);
     }

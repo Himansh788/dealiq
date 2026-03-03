@@ -87,8 +87,8 @@ export default function AIRepPanel({ dealId, dealName, repName }: Props) {
       const data = await api.generateNBA(dealId, effectiveRepName);
       setNba(data.action_plan);
       setStep("nba_ready");
-    } catch (err: any) {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
+    } catch {
+      toast({ title: "Couldn't generate action plan", description: "Please try again.", variant: "destructive" });
       setStep("idle");
     }
   };
@@ -111,8 +111,8 @@ export default function AIRepPanel({ dealId, dealName, repName }: Props) {
       setEditedBody(data.email.body);
       setEditedSubject(data.email.subject);
       setStep("email_ready");
-    } catch (err: any) {
-      toast({ title: "Error generating email", description: err.message, variant: "destructive" });
+    } catch {
+      toast({ title: "Couldn't generate email draft", description: "Please try again.", variant: "destructive" });
       setStep("nba_approved");
     }
   };
@@ -128,8 +128,8 @@ export default function AIRepPanel({ dealId, dealName, repName }: Props) {
       await api.approveEmail(dealId, editedSubject, editedBody, effectiveRepName, true);
       setStep("email_approved");
       toast({ title: "✓ Email approved", description: "Copy the email below and send from your inbox." });
-    } catch (err: any) {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
+    } catch {
+      toast({ title: "Couldn't save approval", description: "Please try again.", variant: "destructive" });
     }
   };
 
@@ -140,8 +140,8 @@ export default function AIRepPanel({ dealId, dealName, repName }: Props) {
     try {
       const data = await api.handleObjection(dealId, objection, effectiveRepName);
       setObjectionResponse(data.response);
-    } catch (err: any) {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
+    } catch {
+      toast({ title: "Couldn't handle objection", description: "Please try again.", variant: "destructive" });
     } finally {
       setLoadingObjection(false);
     }

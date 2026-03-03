@@ -137,20 +137,31 @@ function RepDealDrawer({ repName, deals, label, onClose, apiUrl }: {
 
   // Lazy-load AI pattern when drawer opens
   useEffect(() => {
+    const controller = new AbortController();
+    let cancelled = false;
     setLoadingPattern(true);
+
     const raw = localStorage.getItem("dealiq_session");
-    const headers: any = { "Content-Type": "application/json" };
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (raw) headers["Authorization"] = `Bearer ${raw}`;
 
     fetch(`${apiUrl}/forecast/rep-pattern`, {
       method: "POST",
       headers,
       body: JSON.stringify({ rep_name: repName, health_label: label, deals }),
+      signal: controller.signal,
     })
       .then(r => r.json())
-      .then(setPattern)
-      .catch(() => setPattern(null))
-      .finally(() => setLoadingPattern(false));
+      .then(d => { if (!cancelled) setPattern(d); })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        if (err instanceof Error && err.name === "AbortError") return;
+        setPattern(null);
+      })
+      .finally(() => { if (!cancelled) setLoadingPattern(false); });
+
+    return () => { cancelled = true; controller.abort(); };
   }, [repName, label]);
 
   return (
@@ -220,19 +231,29 @@ export default function ForecastPage() {
 
   useEffect(() => {
     if (!session) { navigate("/", { replace: true }); return; }
-    loadForecast();
+    let cancelled = false;
+    setLoading(true);
+
+    api.getForecast()
+      .then(result => { if (!cancelled) setData(result); })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        if (err instanceof Error && err.name === "AbortError") return;
+        toast({ title: "Couldn't load forecast", description: "Please refresh to try again.", variant: "destructive" });
+      })
+      .finally(() => { if (!cancelled) setLoading(false); });
+
+    return () => { cancelled = true; };
   }, [session]);
 
-  const loadForecast = async () => {
+  // kept for the manual refresh button
+  const loadForecast = () => {
     setLoading(true);
-    try {
-      const result = await api.getForecast();
-      setData(result);
-    } catch (err: any) {
-      toast({ title: "Error loading forecast", description: err.message, variant: "destructive" });
-    } finally {
-      setLoading(false);
-    }
+    api.getForecast()
+      .then(setData)
+      .catch(() => toast({ title: "Couldn't load forecast", description: "Please refresh to try again.", variant: "destructive" }))
+      .finally(() => setLoading(false));
   };
 
   const toggleDrillDown = (repName: string, label: string) => {

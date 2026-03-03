@@ -364,9 +364,11 @@ export default function AskDealIQPanel({ dealId, dealName }: { dealId: string; d
 
   // Load presets once on mount
   useEffect(() => {
+    let cancelled = false;
     api.getAskPresets()
-      .then(setPresets)
-      .catch(() => {/* non-critical */});
+      .then(d => { if (!cancelled) setPresets(d); })
+      .catch(() => { /* non-critical */ });
+    return () => { cancelled = true; };
   }, []);
 
   // Scroll chat to bottom when a new message arrives
@@ -399,8 +401,8 @@ export default function AskDealIQPanel({ dealId, dealName }: { dealId: string; d
         nextStep: data.suggested_next_step ?? null,
         loadingMs: data.processing_time_ms ?? (Date.now() - start),
       }]);
-    } catch (err: any) {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
+    } catch {
+      toast({ title: "Couldn't get an answer", description: "Please try again.", variant: "destructive" });
     } finally {
       setLoadingQA(false);
     }
@@ -430,8 +432,8 @@ export default function AskDealIQPanel({ dealId, dealName }: { dealId: string; d
         if (el && (el.status === "missing" || el.status === "partial")) missing.add(k);
       });
       setOpenMeddicKeys(missing);
-    } catch (err: any) {
-      toast({ title: "MEDDIC failed", description: err.message, variant: "destructive" });
+    } catch {
+      toast({ title: "MEDDIC analysis failed", description: "Please try again.", variant: "destructive" });
     } finally {
       setLoadingMeddic(false);
     }
@@ -455,8 +457,8 @@ export default function AskDealIQPanel({ dealId, dealName }: { dealId: string; d
       const data = await api.askBrief(dealId);
       if (data.error) throw new Error(data.error);
       setBrief(data);
-    } catch (err: any) {
-      toast({ title: "Brief failed", description: err.message, variant: "destructive" });
+    } catch {
+      toast({ title: "Couldn't generate brief", description: "Please try again.", variant: "destructive" });
     } finally {
       setLoadingBrief(false);
     }
@@ -471,8 +473,8 @@ export default function AskDealIQPanel({ dealId, dealName }: { dealId: string; d
       const data = await api.askFollowUpEmail(dealId);
       if (data.error) throw new Error(data.error);
       setFollowUp(data);
-    } catch (err: any) {
-      toast({ title: "Email generation failed", description: err.message, variant: "destructive" });
+    } catch {
+      toast({ title: "Couldn't generate email", description: "Please try again.", variant: "destructive" });
     } finally {
       setLoadingFollowUp(false);
     }

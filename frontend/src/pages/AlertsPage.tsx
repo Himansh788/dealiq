@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -102,17 +102,31 @@ export default function AlertsPage() {
   const [data,    setData]    = useState<DigestData | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const loadAlerts = useCallback(() => {
+  // kept as named function for the manual refresh button
+  function loadAlerts() {
     setLoading(true);
     api.getAlertsDigest()
       .then(setData)
-      .catch((err: Error) =>
-        toast({ title: "Failed to load alerts", description: err.message, variant: "destructive" })
-      )
+      .catch(() => toast({ title: "Couldn't load alerts", description: "Please refresh to try again.", variant: "destructive" }))
       .finally(() => setLoading(false));
-  }, []);
+  }
 
-  useEffect(() => { loadAlerts(); }, [loadAlerts]);
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+
+    api.getAlertsDigest()
+      .then(d => { if (!cancelled) setData(d); })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        if (err instanceof Error && err.name === "AbortError") return;
+        toast({ title: "Couldn't load alerts", description: "Please refresh to try again.", variant: "destructive" });
+      })
+      .finally(() => { if (!cancelled) setLoading(false); });
+
+    return () => { cancelled = true; };
+  }, []);
 
   const criticalAlerts = data?.critical_alerts ?? [];
   const warningAlerts  = data?.warning_alerts  ?? [];

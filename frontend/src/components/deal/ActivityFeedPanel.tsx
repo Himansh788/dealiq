@@ -173,12 +173,22 @@ export default function ActivityFeedPanel({
 
   useEffect(() => {
     if (!dealId) return;
+    const controller = new AbortController();
+    let cancelled = false;
     setLoading(true);
     setError(null);
-    api.getDealActivities(dealId)
-      .then(setData)
-      .catch((e: Error) => setError(e.message))
-      .finally(() => setLoading(false));
+
+    api.getDealActivities(dealId, controller.signal)
+      .then(d => { if (!cancelled) setData(d); })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        if (err instanceof Error && err.name === "AbortError") return;
+        setError("Couldn't load activity data. Please try again.");
+      })
+      .finally(() => { if (!cancelled) setLoading(false); });
+
+    return () => { cancelled = true; controller.abort(); };
   }, [dealId]);
 
   if (loading) return (
