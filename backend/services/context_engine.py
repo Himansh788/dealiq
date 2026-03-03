@@ -26,7 +26,7 @@ from services.ask_dealiq_prompts import TRANSCRIPT_INTEL_SYSTEM_PROMPT
 
 _log = logging.getLogger(__name__)
 
-MAX_EMAIL_BODY_CHARS = 600
+MAX_EMAIL_BODY_CHARS = 1500
 MAX_TRANSCRIPT_CHARS = 3000
 
 
@@ -158,16 +158,19 @@ class DealContext:
         email_lines = []
         for e in thread:
             direction_val = (e.get("direction") or "").lower()
-            is_buyer = direction_val in ("incoming", "received", "inbound")
+            is_buyer = (
+                direction_val in ("incoming", "received", "inbound")
+                and e.get("sent") is not True
+            )
             tag = "← BUYER" if is_buyer else "→ REP"
             body = (
-                e.get("content") or e.get("body") or e.get("html_body") or e.get("text_body") or ""
+                e.get("body_full") or e.get("content") or e.get("body") or e.get("text_body") or ""
             )[:MAX_EMAIL_BODY_CHARS]
             sent_at = e.get("sent_time") or e.get("date") or "unknown date"
             subj = e.get("subject") or "No subject"
             email_lines.append(f"[{tag}] {sent_at} | {subj}\n{body}")
         if email_lines:
-            parts.append("=== EMAIL THREAD (recent) ===\n\n".join(email_lines))
+            parts.append("=== EMAIL THREAD (recent) ===\n\n" + "\n\n---\n\n".join(email_lines))
         else:
             parts.append("=== EMAIL THREAD ===\nNo email history available.")
 
@@ -196,6 +199,7 @@ class ContextEngine:
         outbound = [
             e for e in emails
             if (e.get("direction") or "").lower() in ("outgoing", "sent", "outbound")
+            or e.get("sent") is True
         ]
         rep_style = ContextEngine._analyse_rep_style(outbound)
         return DealContext(
@@ -220,7 +224,7 @@ class ContextEngine:
 
         bodies = []
         for e in outbound_emails[-5:]:
-            body = e.get("content") or e.get("body") or e.get("text_body") or ""
+            body = e.get("body_full") or e.get("content") or e.get("body") or e.get("text_body") or ""
             if body.strip():
                 bodies.append(body.strip())
 

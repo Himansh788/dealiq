@@ -11,6 +11,7 @@ from typing import Optional, Dict, Any, List
 import base64
 import json
 import logging
+import time
 from datetime import datetime, timezone
 
 from services.ask_dealiq_prompts import PRESET_QUESTIONS
@@ -27,6 +28,10 @@ import services.ai_router_ask as ai_router
 _log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/ask", tags=["Ask DealIQ"])
+
+# ── Simple in-memory email cache (5-min TTL, per deal) ───────────────────────
+_EMAIL_CACHE: dict[str, tuple[float, list]] = {}  # deal_id → (expires_at, emails)
+_EMAIL_CACHE_TTL = 300  # seconds
 
 
 # ── Auth helpers (same pattern as analysis.py) ────────────────────────────────
@@ -87,9 +92,15 @@ async def _fetch_real_deal(access_token: str, deal_id: str) -> dict:
 
 
 async def _fetch_real_emails(access_token: str, deal_id: str) -> list:
+    cached = _EMAIL_CACHE.get(deal_id)
+    if cached and time.monotonic() < cached[0]:
+        _log.debug("Email cache hit for deal=%s", deal_id)
+        return cached[1]
     try:
         from services.zoho_client import fetch_deal_emails
-        return await fetch_deal_emails(access_token, deal_id)
+        emails = await fetch_deal_emails(access_token, deal_id)
+        _EMAIL_CACHE[deal_id] = (time.monotonic() + _EMAIL_CACHE_TTL, emails)
+        return emails
     except Exception as exc:
         _log.warning("Email fetch failed for deal=%s: %s", deal_id, exc)
         return []

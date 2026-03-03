@@ -80,12 +80,12 @@ async def generate_structured_analysis(
 async def generate_email_draft(
     system_prompt: str,
     context: str,
-    max_tokens: int = 1024,
+    max_tokens: int = 2000,
 ) -> Dict[str, Any]:
-    """Route email generation to fast model (cheaper, adequate for structured output).
+    """Route email generation to quality model — richer context requires better reasoning.
     response_format=json_object enforces valid JSON and prevents parse errors."""
     response = await _get_client().chat.completions.create(
-        model=MODEL_FAST,
+        model=MODEL_QUALITY,
         max_tokens=max_tokens,
         temperature=0.2,
         response_format={"type": "json_object"},
