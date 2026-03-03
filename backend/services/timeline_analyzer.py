@@ -177,6 +177,7 @@ def analyze_timeline(timeline_entries: List[Dict[str, Any]]) -> Dict[str, Any]:
     task_count = 0
     human_entries = 0
     automation_entries = 0
+    last_human_activity_dt: Optional[datetime] = None  # most recent rep-driven event
 
     logger.info("analyze_timeline: received %d entries", len(timeline_entries or []))
     if timeline_entries:
@@ -204,6 +205,12 @@ def analyze_timeline(timeline_entries: List[Dict[str, Any]]) -> Dict[str, Any]:
             automation_entries += 1
         else:
             human_entries += 1
+            # Track most recent human-driven event for Activity Momentum scoring
+            _human_actions = {"sent", "added", "updated", "completed"}
+            if action in _human_actions and audited_time:
+                ev_dt = _parse_dt(audited_time)
+                if ev_dt and (last_human_activity_dt is None or ev_dt > last_human_activity_dt):
+                    last_human_activity_dt = ev_dt
 
         # Null-guard field_history — non-update events return null not []
         field_history = entry.get("field_history") or []
@@ -326,6 +333,7 @@ def analyze_timeline(timeline_entries: List[Dict[str, Any]]) -> Dict[str, Any]:
         "last_email_subject": last_email_subject,
         "last_email_sent_by": last_email_sent_by,
         "days_since_last_email": days_since_last_email,
+        "days_since_last_human_activity": _days_ago(last_human_activity_dt),
         "outbound_email_count": outbound_email_count,
         "task_count": task_count,
         "revenue_changes": revenue_changes,

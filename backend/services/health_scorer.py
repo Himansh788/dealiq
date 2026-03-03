@@ -58,7 +58,7 @@ def score_next_step(next_step: Optional[str]) -> HealthSignal:
             score=20,
             max_score=20,
             label="good",
-            detail=f"Next step found: '{next_step[:80]}'"
+            detail=f"Next step found: '{next_step[:80].rsplit(' ', 1)[0]}'"
         )
     elif next_step:
         return HealthSignal(
@@ -385,10 +385,27 @@ def score_from_timeline(timeline_analysis: dict) -> Dict[str, Any]:
             detail="No stage transitions found. Cannot assess deal movement."
         )
     elif signals.get("stage_moving_forward"):
+        latest = stage_progression[-1]
+        days_ago = latest.get("days_ago") or 0
+        # Recency decay: older transitions score less even if still moving forward
+        if days_ago > 60:
+            recency_score = 2
+            recency_note = f"last move {days_ago}d ago — momentum stale"
+        elif days_ago > 30:
+            recency_score = 4
+            recency_note = f"last move {days_ago}d ago — slowing"
+        else:
+            recency_score = 8
+            recency_note = f"last move {days_ago}d ago — recent"
+        # Forward transition count bonus (2 pts each, max 7)
+        forward_count = sum(1 for s in stage_progression if s.get("direction") == "forward")
+        count_score = min(7, forward_count * 2)
+        momentum_score = min(15, recency_score + count_score)
+        momentum_label = "good" if momentum_score >= 8 else "warn"
         stage_momentum = HealthSignal(
             name="Stage Momentum",
-            score=15, max_score=15, label="good",
-            detail=f"Deal moving forward — last change: {stage_progression[-1]['old_stage']} → {stage_progression[-1]['new_stage']}."
+            score=momentum_score, max_score=15, label=momentum_label,
+            detail=f"Moving forward: {latest['old_stage']} → {latest['new_stage']} ({recency_note}, {forward_count} forward move{'s' if forward_count != 1 else ''})."
         )
     else:
         latest = stage_progression[-1]
@@ -584,8 +601,13 @@ def score_deal_with_timeline(
     emails_out = summary.get("emails_outbound", 0)
     emails_in = summary.get("emails_inbound", 0)
     contact_count = summary.get("total_contacts", 0)
+
+    # Activity Momentum: prefer timeline human-activity scan over Zoho summary field
+    # (Last_Activity_Time is often null; timeline events are always present when synced)
+    days_since_any_timeline = timeline_analysis.get("days_since_last_human_activity")
     days_since_any_raw = summary.get("days_since_any_activity")
-    days_since_any = None if (days_since_any_raw is None or (isinstance(days_since_any_raw, int) and days_since_any_raw >= 999)) else days_since_any_raw
+    days_since_any_zoho = None if (days_since_any_raw is None or (isinstance(days_since_any_raw, int) and days_since_any_raw >= 999)) else days_since_any_raw
+    days_since_any = days_since_any_timeline if days_since_any_timeline is not None else days_since_any_zoho
 
     core_signals = [
         _rescale_signal(score_next_step(next_step), 15),
