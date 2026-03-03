@@ -322,6 +322,12 @@ export const api = {
       body: JSON.stringify({ deal_id: dealId, contact_emails: contactEmails }),
     }).then(handleResponse),
 
+  analyseEmailThread: (dealId: string) =>
+    fetchWithTimeout(`${API_URL}/email-intel/analyse/${dealId}`, {
+      method: "POST",
+      headers: authHeaders(),
+    }).then(handleResponse),
+
   // ── Microsoft / Outlook Auth ──────────────────────────────────────────────
   getOutlookStatus: () =>
     fetchWithTimeout(`${API_URL}/ms-auth/status`, { headers: authHeaders() }).then(handleResponse),

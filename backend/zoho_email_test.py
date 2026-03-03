@@ -25,7 +25,7 @@ load_dotenv()
 SESSION = "eyJ1c2VyX2lkIjoidmlqZW5kcmFAdmVydm90ZWNoLmNvbSIsImRpc3BsYXlfbmFtZSI6IlZpamVuZHJhIFNpbmdoIiwiZW1haWwiOiJ2aWplbmRyYUB2ZXJ2b3RlY2guY29tIiwiYWNjZXNzX3Rva2VuIjoiMTAwMC44ZGNhZjZiZTRlZTlkYzUzMDA4ZDEyYzA1M2IzZmJkNy5mNDY1YjdlYzA2ZGM4YTk2YzQzODJhYjlmZGExNDdjNyIsInJlZnJlc2hfdG9rZW4iOiIifQ=="
 
 # Paste any deal ID here (copy from the deal row in the dashboard URL or CRM)
-DEAL_ID = "202252000053985413"
+DEAL_ID = "202252000053181006"
 
 BASE = os.getenv("ZOHO_API_BASE", "https://www.zohoapis.in/crm/v2")
 

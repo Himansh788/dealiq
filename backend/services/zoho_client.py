@@ -14,6 +14,7 @@ ZOHO_CLIENT_SECRET = os.getenv("ZOHO_CLIENT_SECRET")
 ZOHO_REDIRECT_URI = os.getenv("ZOHO_REDIRECT_URI", "http://localhost:8000/auth/callback")
 ZOHO_ACCOUNTS_URL = "https://accounts.zoho.in"   # Change to .com for non-India accounts
 ZOHO_API_BASE = "https://www.zohoapis.in/crm/v2"  # Change to .com for non-India
+ZOHO_API_V8   = "https://www.zohoapis.in/crm/v8"  # v8 required for Emails endpoint with content
 
 
 def get_authorization_url(state: str = "") -> str:
@@ -273,67 +274,130 @@ async def _fetch_email_body(
         return raw
 
 
+async def _fetch_email_body_v8(
+    module: str,
+    record_id: str,
+    message_id: str,
+    access_token: str,
+) -> tuple[str, str]:
+    """
+    Fetch full email body via Zoho CRM v8.
+    GET /crm/v8/{module}/{record_id}/Emails/{message_id}
+    Returns (html_content, plain_text).
+    """
+    encoded_id = quote(str(message_id), safe="")
+    url = f"{ZOHO_API_V8}/{module}/{record_id}/Emails/{encoded_id}"
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.get(url, headers={"Authorization": f"Zoho-oauthtoken {access_token}"})
+
+    if resp.status_code in (204, 404) or not resp.is_success:
+        logger.debug("v8 email body: %s %s → %s", module, message_id[:20], resp.status_code)
+        return "", ""
+
+    data = resp.json()
+    # v8 wraps in {"data": [{...}]} or returns the object directly
+    if isinstance(data.get("data"), list) and data["data"]:
+        obj = data["data"][0]
+    elif isinstance(data.get("data"), dict):
+        obj = data["data"]
+    else:
+        obj = data
+
+    html = (
+        obj.get("content")
+        or obj.get("html_body")
+        or obj.get("body")
+        or obj.get("mail_body")
+        or ""
+    )
+    plain = _strip_html(html) if html else (obj.get("text_body") or obj.get("summary") or "")
+    return html, plain
+
+
 async def _fetch_emails_for_record(module: str, record_id: str, access_token: str) -> list:
     """
-    Fetch the Emails related list for a Zoho CRM record (Deal or Contact).
+    Fetch ALL emails for a Zoho CRM record using v8 API with full pagination and bodies.
 
-    Two-step because Zoho's email_related_list only returns metadata:
-      Step 1 — GET /{module}/{record_id}/Emails          → list: subject, message_id, snippet=None
-      Step 2 — GET /{module}/{record_id}/Emails/{msg_id} → full body per email (parallel, capped at 5)
+    Step 1 — paginate GET /crm/v8/{module}/{record_id}/Emails until no more records
+    Step 2 — fetch full body for every email in parallel via /Emails/{message_id}
     """
-    # Step 1: email list (metadata only)
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            f"{ZOHO_API_BASE}/{module}/{record_id}/Emails",
-            headers={"Authorization": f"Zoho-oauthtoken {access_token}"},
-            params={"sort_by": "sent_time", "sort_order": "desc", "per_page": 200},
-        )
-        if resp.status_code == 204:
-            return []
-        if not resp.is_success:
-            logger.warning(
-                "Zoho email list: %s/%s → status=%s body=%s",
-                module, record_id, resp.status_code, resp.text[:300],
+    all_emails: list[dict] = []
+
+    # Step 1: paginate email list
+    async with httpx.AsyncClient(timeout=15) as client:
+        index: int | None = None
+        while True:
+            params: dict = {}
+            if index is not None:
+                params["index"] = index
+
+            resp = await client.get(
+                f"{ZOHO_API_V8}/{module}/{record_id}/Emails",
+                headers={"Authorization": f"Zoho-oauthtoken {access_token}"},
+                params=params,
             )
-            return []
-        body = resp.json()
 
-    # Zoho v2 uses different response keys depending on the endpoint:
-    # "data" → standard, "Emails" → older endpoints, "email_related_list" → this endpoint
-    emails = body.get("data", body.get("Emails", body.get("email_related_list", [])))
+            if resp.status_code == 204:
+                break  # no emails
+            if not resp.is_success:
+                logger.warning(
+                    "Zoho v8 email list: %s/%s → status=%s body=%s",
+                    module, record_id, resp.status_code, resp.text[:300],
+                )
+                # Fall back to v2 if v8 fails (scope issue etc.)
+                break
 
-    if not emails:
+            body = resp.json()
+            page_emails = body.get("data", body.get("Emails", body.get("email_related_list", [])))
+            if page_emails:
+                all_emails.extend(page_emails)
+                logger.debug("v8 email list: %s/%s page count=%d", module, record_id, len(page_emails))
+
+            info = body.get("info", {})
+            if info.get("more_records"):
+                index = info.get("next_index")
+                if index is None:
+                    break
+            else:
+                break
+
+    if not all_emails:
+        # v2 fallback — older token or scope issue
+        logger.info("v8 email list empty for %s/%s — falling back to v2", module, record_id)
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.get(
+                f"{ZOHO_API_BASE}/{module}/{record_id}/Emails",
+                headers={"Authorization": f"Zoho-oauthtoken {access_token}"},
+                params={"sort_by": "sent_time", "sort_order": "desc", "per_page": 200},
+            )
+            if resp.is_success and resp.status_code != 204:
+                b = resp.json()
+                all_emails = b.get("data", b.get("Emails", b.get("email_related_list", [])))
+
+    if not all_emails:
         return []
 
-    logger.info("Zoho email list: %s/%s count=%d — fetching full bodies", module, record_id, len(emails))
-    if emails:
-        logger.debug(
-            "Zoho email list sample fields: %s/%s → %s",
-            module, record_id, list(emails[0].keys()),
-        )
+    logger.info("Zoho email list: %s/%s total=%d — fetching bodies", module, record_id, len(all_emails))
 
-    # Step 2: fetch full body per email in parallel (cap at 5 to stay within rate limits)
+    # Step 2: fetch full body for every email in parallel
     async def _enrich(email: dict) -> dict:
-        # email_related_list uses "message_id"; standard list uses "id" — try both
         message_id = email.get("message_id") or email.get("id")
         if not message_id:
-            logger.debug(
-                "Zoho email body: %s/%s — no message_id/id field, skipping body fetch. keys=%s",
-                module, record_id, list(email.keys()),
-            )
             return email
-        body_text = await _fetch_email_body(module, record_id, message_id, access_token)
-        if body_text:
-            return {**email, "content": body_text}
+        html, plain = await _fetch_email_body_v8(module, record_id, message_id, access_token)
+        if html or plain:
+            return {**email, "html_content": html, "content": plain or _strip_html(html)}
+        # v2 fallback for body
+        plain_v2 = await _fetch_email_body(module, record_id, message_id, access_token)
+        if plain_v2:
+            return {**email, "content": plain_v2}
         return email
 
-    enriched = await asyncio.gather(*[_enrich(e) for e in emails[:5]])
-    result = list(enriched) + emails[5:]
+    enriched = await asyncio.gather(*[_enrich(e) for e in all_emails])
+    result = list(enriched)
 
-    logger.info(
-        "Zoho email list: %s/%s enriched=%d total=%d",
-        module, record_id, len(enriched), len(result),
-    )
+    bodies_found = sum(1 for e in result if e.get("content"))
+    logger.info("Zoho email list: %s/%s enriched=%d/%d with body", module, record_id, bodies_found, len(result))
     return result
 
 
