@@ -447,3 +447,83 @@ async def sync_emails(
         "emails":        emails,
         "threads":       _group_into_threads(emails),
     }
+
+
+# ── Debug endpoint ────────────────────────────────────────────────────────────
+
+@router.get("/debug/{deal_id}")
+async def debug_email_fetch(
+    deal_id: str,
+    authorization: str = Header(...),
+):
+    """
+    Debug endpoint — dumps the raw Zoho email list response and the first email's
+    raw body response so you can see exactly what the API is returning.
+    GET /email-intel/debug/{deal_id}
+    """
+    import httpx as _httpx
+    session = _decode_session(authorization)
+    if _is_demo(session):
+        return {"error": "not available in demo mode"}
+
+    zoho_token = session.get("access_token", "")
+    if not zoho_token:
+        return {"error": "no zoho token"}
+
+    from services.zoho_client import ZOHO_API_V8, ZOHO_API_BASE
+    headers = {"Authorization": f"Zoho-oauthtoken {zoho_token}"}
+    result: dict = {"deal_id": deal_id}
+
+    # Step 1: raw email list (v8)
+    async with _httpx.AsyncClient(timeout=15) as client:
+        list_resp = await client.get(
+            f"{ZOHO_API_V8}/Deals/{deal_id}/Emails",
+            headers=headers,
+        )
+    result["list_status"] = list_resp.status_code
+    result["list_url"] = f"{ZOHO_API_V8}/Deals/{deal_id}/Emails"
+
+    if list_resp.status_code == 200:
+        list_data = list_resp.json()
+        emails = list_data.get("data", list_data.get("Emails", []))
+        result["email_count"] = len(emails)
+        result["first_email_keys"] = list(emails[0].keys()) if emails else []
+        result["first_email_metadata"] = emails[0] if emails else None
+
+        # Step 2: raw body for first email
+        if emails:
+            first = emails[0]
+            message_id = first.get("message_id") or first.get("id")
+            owner = first.get("owner") or {}
+            user_id = owner.get("id") if isinstance(owner, dict) else None
+            result["message_id_used"] = message_id
+            result["user_id_used"] = user_id
+
+            body_url = f"{ZOHO_API_V8}/Deals/{deal_id}/Emails/{message_id}"
+            async with _httpx.AsyncClient(timeout=10) as client:
+                body_resp = await client.get(
+                    body_url,
+                    headers=headers,
+                    params={"user_id": user_id} if user_id else {},
+                )
+            result["body_status"] = body_resp.status_code
+            result["body_url"] = body_url
+            if body_resp.status_code == 200:
+                body_data = body_resp.json()
+                result["body_response_keys"] = list(body_data.keys())
+                # Check if content exists
+                content = (
+                    body_data.get("content")
+                    or body_data.get("html_body")
+                    or (body_data.get("data") or [{}])[0].get("content") if isinstance(body_data.get("data"), list) else None
+                )
+                result["content_found"] = bool(content)
+                result["content_length"] = len(content) if content else 0
+                result["content_preview"] = content[:500] if content else None
+                result["raw_body_response"] = str(body_data)[:2000]
+            else:
+                result["body_error"] = body_resp.text[:500]
+    else:
+        result["list_error"] = list_resp.text[:500]
+
+    return result

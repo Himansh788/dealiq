@@ -230,59 +230,74 @@ async def _fetch_email_body(
     access_token: str,
 ) -> str:
     """
-    Fetch the full body of a single email.
-
-    The email_related_list endpoint returns metadata only — snippet is often None.
-    The full content requires a second call:
-      GET /crm/v2/{module}/{record_id}/Emails/{message_id}
-
-    message_id may be an RFC 2822 Message-ID like <abc@mail.zoho.in> — must be
-    URL-encoded before using as a path segment.
+    Fetch the full body of a single email via v2 API (fallback path).
+    GET /crm/v2/{module}/{record_id}/Emails/{message_id}
+    Do NOT URL-encode the message_id — Zoho rejects percent-encoded IDs.
     """
-    # RFC Message-IDs contain <, >, @ and other special chars — encode them.
-    encoded_id = quote(str(message_id), safe="")
-    url = f"{ZOHO_API_BASE}/{module}/{record_id}/Emails/{encoded_id}"
+    mid = str(message_id)
+    url = f"{ZOHO_API_BASE}/{module}/{record_id}/Emails/{mid}"
 
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=10) as client:
         resp = await client.get(
             url,
             headers={"Authorization": f"Zoho-oauthtoken {access_token}"},
         )
-        if resp.status_code == 204 or not resp.is_success:
-            logger.warning(
-                "Zoho email body: %s/%s/Emails/%s → status=%s",
-                module, record_id, message_id, resp.status_code,
-            )
-            return ""
-        data = resp.json()
-        # Response may be a single object or wrapped in {"data": [...]}
-        if isinstance(data.get("data"), list) and data["data"]:
-            email_obj = data["data"][0]
-        elif isinstance(data.get("data"), dict):
-            email_obj = data["data"]
-        else:
-            email_obj = data
 
-        logger.debug(
-            "Zoho email body fields: %s/%s/Emails/%s → keys=%s",
-            module, record_id, message_id, list(email_obj.keys()),
-        )
+    logger.info(
+        "v2 email body: %s/%s mid=%s → status=%s",
+        module, record_id, mid[:30], resp.status_code,
+    )
 
-        raw = (
-            email_obj.get("content")
-            or email_obj.get("html_body")
-            or email_obj.get("body")
-            or email_obj.get("text_body")
-            or email_obj.get("mail_body")
-            or email_obj.get("description")
-            or email_obj.get("message")
-            or email_obj.get("summary")
-            or ""
+    if resp.status_code == 204 or not resp.is_success:
+        logger.warning(
+            "v2 email body FAILED: %s/%s mid=%s → status=%s body=%s",
+            module, record_id, mid[:30], resp.status_code, resp.text[:200],
         )
-        # Strip HTML tags so the AI receives readable plain text
-        if raw and "<" in raw:
-            raw = _strip_html(raw)
-        return raw
+        return ""
+
+    data = resp.json()
+    email_obj = _extract_obj_from_response(data)
+    raw = _extract_html_from_obj(email_obj)
+
+    if not raw:
+        logger.warning(
+            "v2 email body: %s/%s mid=%s → 200 OK but no content field. Keys: %s",
+            module, record_id, mid[:30], list(email_obj.keys()),
+        )
+        return ""
+
+    result = _strip_html(raw) if raw else ""
+    logger.info(
+        "v2 email body: %s/%s mid=%s → plain_len=%d",
+        module, record_id, mid[:30], len(result),
+    )
+    return result
+
+
+def _extract_obj_from_response(data: dict) -> dict:
+    """Pull the email object out of however Zoho wrapped the response."""
+    if isinstance(data.get("data"), list) and data["data"]:
+        return data["data"][0]
+    if isinstance(data.get("data"), dict):
+        return data["data"]
+    # Zoho sometimes returns the email directly at the root level
+    # (confirmed for View Email endpoint: {"content":"<html>...","sent_time":"...","linked_deal":{...}})
+    return data
+
+
+def _extract_html_from_obj(obj: dict) -> str:
+    """Pull the HTML/text body from a Zoho email object, trying all known field names."""
+    return (
+        obj.get("content")
+        or obj.get("html_body")
+        or obj.get("body")
+        or obj.get("mail_body")
+        or obj.get("text_body")
+        or obj.get("description")
+        or obj.get("message")
+        or obj.get("summary")
+        or ""
+    )
 
 
 async def _fetch_email_body_v8(
@@ -298,10 +313,14 @@ async def _fetch_email_body_v8(
 
     The user_id parameter (the email owner's Zoho user ID) is required for
     shared/org emails — without it Zoho returns metadata only, not content.
+
+    NOTE: Do NOT URL-encode the message_id — Zoho rejects percent-encoded IDs.
     Returns (html_content, plain_text).
     """
-    encoded_id = quote(str(message_id), safe="")
-    url = f"{ZOHO_API_V8}/{module}/{record_id}/Emails/{encoded_id}"
+    # Do NOT quote/encode the message_id — Zoho's API uses the raw ID in the path.
+    # The debug script confirms: f"{BASE}/Deals/{deal_id}/Emails/{message_id}" works as-is.
+    mid = str(message_id)
+    url = f"{ZOHO_API_V8}/{module}/{record_id}/Emails/{mid}"
     params: dict = {}
     if user_id:
         params["user_id"] = user_id
@@ -313,30 +332,33 @@ async def _fetch_email_body_v8(
             params=params,
         )
 
+    logger.info(
+        "v8 email body: %s/%s mid=%s user_id=%s → status=%s",
+        module, record_id, mid[:30], user_id, resp.status_code,
+    )
+
     if resp.status_code in (204, 404) or not resp.is_success:
-        logger.debug("v8 email body: %s %s → %s", module, str(message_id)[:20], resp.status_code)
+        logger.warning(
+            "v8 email body FAILED: %s/%s mid=%s → status=%s body=%s",
+            module, record_id, mid[:30], resp.status_code, resp.text[:200],
+        )
         return "", ""
 
     data = resp.json()
-    # v8 wraps in {"data": [{...}]} or returns the object directly
-    if isinstance(data.get("data"), list) and data["data"]:
-        obj = data["data"][0]
-    elif isinstance(data.get("data"), dict):
-        obj = data["data"]
-    else:
-        obj = data
+    obj = _extract_obj_from_response(data)
+    html = _extract_html_from_obj(obj)
 
-    html = (
-        obj.get("content")
-        or obj.get("html_body")
-        or obj.get("body")
-        or obj.get("mail_body")
-        or ""
-    )
-    plain = _strip_html(html) if html else (obj.get("text_body") or obj.get("summary") or "")
-    logger.debug(
-        "v8 email body: %s/%s/%s user_id=%s html_len=%d plain_len=%d",
-        module, record_id, str(message_id)[:20], user_id, len(html), len(plain),
+    if not html:
+        logger.warning(
+            "v8 email body: %s/%s mid=%s → 200 OK but no content field. Keys: %s",
+            module, record_id, mid[:30], list(obj.keys()),
+        )
+        return "", ""
+
+    plain = _strip_html(html)
+    logger.info(
+        "v8 email body: %s/%s mid=%s → html_len=%d plain_len=%d",
+        module, record_id, mid[:30], len(html), len(plain),
     )
     return html, plain
 
@@ -419,36 +441,68 @@ async def _fetch_emails_for_record(module: str, record_id: str, access_token: st
     async def _enrich(email: dict) -> dict:
         message_id = email.get("message_id") or email.get("id")
         if not message_id:
+            logger.warning("email_enrich: no message_id on email subject=%s", email.get("subject", "?"))
             return email
 
-        # Extract owner's user_id — required by Zoho to return content field
-        owner = email.get("owner") or email.get("from_address") or {}
+        # Extract owner's Zoho user_id — required by v8 to return content field
+        owner = email.get("owner") or {}
         user_id: str | None = None
         if isinstance(owner, dict):
             user_id = owner.get("id") or owner.get("user_id")
 
+        logger.info(
+            "email_enrich: %s/%s fetching body for mid=%s user_id=%s subject=%s",
+            module, record_id, str(message_id)[:30], user_id, email.get("subject", "?"),
+        )
+
+        # Try v8 first (with user_id), then v8 without user_id, then v2
         html, plain = await _fetch_email_body_v8(module, record_id, message_id, access_token, user_id)
+
+        # If v8 with user_id failed, retry without it (some orgs don't use user_id)
+        if not html and not plain and user_id:
+            logger.info("email_enrich: retrying v8 without user_id for mid=%s", str(message_id)[:30])
+            html, plain = await _fetch_email_body_v8(module, record_id, message_id, access_token, None)
+
         if html or plain:
-            snippet = (plain or _strip_html(html))[:200]
+            # plain is already stripped; don't call _strip_html again
+            body_full = plain if plain else _strip_html(html)
+            snippet = body_full[:200]
+            logger.info(
+                "email_enrich: got body via v8 mid=%s body_full_len=%d",
+                str(message_id)[:30], len(body_full),
+            )
             return {
                 **email,
                 "html_content": html,
-                "content": plain or _strip_html(html),
+                "content": body_full,
                 "body_preview": snippet,
-                "body_full": plain or _strip_html(html),
+                "body_full": body_full,
                 "snippet": snippet,
+                "date": email.get("sent_time") or email.get("date") or "",
+                "sent_at": email.get("sent_time") or email.get("date") or "",
             }
 
-        # v2 fallback (no user_id support, but worth trying)
+        # v2 fallback
         plain_v2 = await _fetch_email_body(module, record_id, message_id, access_token)
         if plain_v2:
+            logger.info(
+                "email_enrich: got body via v2 fallback mid=%s body_full_len=%d",
+                str(message_id)[:30], len(plain_v2),
+            )
             return {
                 **email,
                 "content": plain_v2,
                 "body_preview": plain_v2[:200],
                 "body_full": plain_v2,
                 "snippet": plain_v2[:200],
+                "date": email.get("sent_time") or email.get("date") or "",
+                "sent_at": email.get("sent_time") or email.get("date") or "",
             }
+
+        logger.warning(
+            "email_enrich: NO body found for mid=%s subject=%s — both v8 and v2 returned empty",
+            str(message_id)[:30], email.get("subject", "?"),
+        )
         return email
 
     enriched = await asyncio.gather(*[_enrich(e) for e in all_emails])
