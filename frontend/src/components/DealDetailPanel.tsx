@@ -1,10 +1,12 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { Brain, Clock, Phone, Activity, GitMerge, Layers, ScanSearch, GraduationCap, Zap, Sparkles, Trophy } from "lucide-react";
+import { Brain, Clock, Phone, Activity, GitMerge, Layers, ScanSearch, GraduationCap, Zap, Sparkles, Trophy, Loader2, Check, X } from "lucide-react";
+import BattleCardPanel from "./deal/BattleCardPanel";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
+import { useToast } from "@/hooks/use-toast";
 import HealthBreakdown from "./deal/HealthBreakdown";
 import AckSection from "./deal/AckSection";
 import MismatchChecker from "./deal/MismatchChecker";
@@ -17,17 +19,23 @@ import ActivityFeedPanel from "./deal/ActivityFeedPanel";
 import AskDealIQPanel from "./deal/AskDealIQPanel";
 import MarkOutcomeSection from "./deal/MarkOutcomeSection";
 
+type PanelTab = "Overview" | "Battle Card";
+
 interface Props {
   dealId: string | null;
   dealName: string;
   repName?: string;
   stage?: string;
   amount?: number;
+  closingDate?: string;
   healthScore?: number;
   healthLabel?: string;
   onClose: () => void;
   /** Accordion section to auto-expand on open (e.g. "mismatch") */
   initialSection?: string;
+  /** Tab to activate on open */
+  initialTab?: PanelTab;
+  onDealUpdated?: (field: string, value: string | number) => void;
 }
 
 function formatCurrency(val: number): string {
@@ -106,10 +114,73 @@ function SectionTrigger({ sectionKey, healthScore }: { sectionKey: SectionKey; h
 }
 
 export default function DealDetailPanel({
-  dealId, dealName, repName, stage, amount, healthScore, healthLabel, onClose, initialSection
+  dealId, dealName, repName, stage, amount, closingDate, healthScore, healthLabel,
+  onClose, initialSection, initialTab, onDealUpdated,
 }: Props) {
+  const { toast } = useToast();
+  const [activeTab, setActiveTab] = useState<PanelTab>(initialTab ?? "Overview");
   const [liveScore, setLiveScore] = useState<number | undefined>(undefined);
   const [liveLabel, setLiveLabel] = useState<string | undefined>(undefined);
+
+  // Inline edit state
+  const [localStage, setLocalStage]   = useState<string | undefined>(stage);
+  const [localAmount, setLocalAmount] = useState<number | undefined>(amount);
+  const [editingAmount, setEditingAmount] = useState(false);
+  const [amountInput, setAmountInput] = useState("");
+  const [savingField, setSavingField] = useState<string | null>(null);
+  const [savedField, setSavedField]   = useState<string | null>(null); // shows ✓ briefly
+
+  // Notes section
+  const [noteOpen, setNoteOpen]   = useState(false);
+  const [noteText, setNoteText]   = useState("");
+  const [savingNote, setSavingNote] = useState(false);
+
+  const amountInputRef = useRef<HTMLInputElement>(null);
+
+  // Sync props → local state when deal changes
+  useEffect(() => {
+    setLocalStage(stage);
+    setLocalAmount(amount);
+    setEditingAmount(false);
+    setNoteText("");
+    setNoteOpen(false);
+    setActiveTab(initialTab ?? "Overview");
+  }, [dealId, stage, amount, initialTab]);
+
+  async function handleFieldSave(field: string, value: string | number) {
+    if (!dealId) return;
+    setSavingField(field);
+    try {
+      const res = await api.updateDealField(dealId, field, value);
+      if (!res.success) throw new Error(res.error ?? "Save failed");
+      setSavedField(field);
+      setTimeout(() => setSavedField(null), 1500);
+      onDealUpdated?.(field, value);
+    } catch {
+      toast({ title: `Failed to update ${field} in Zoho`, variant: "destructive" });
+      // Revert
+      if (field === "Stage") setLocalStage(stage);
+      if (field === "Amount") setLocalAmount(amount);
+    } finally {
+      setSavingField(null);
+    }
+  }
+
+  async function handleSaveNote() {
+    if (!dealId || !noteText.trim()) return;
+    setSavingNote(true);
+    try {
+      const res = await api.updateDealField(dealId, "Description", noteText.trim());
+      if (!res.success) throw new Error(res.error ?? "Save failed");
+      toast({ title: "Note saved to Zoho CRM" });
+      setNoteText("");
+      setNoteOpen(false);
+    } catch {
+      toast({ title: "Failed to save note to Zoho", variant: "destructive" });
+    } finally {
+      setSavingNote(false);
+    }
+  }
 
   useEffect(() => {
     if (!dealId) return;
@@ -136,7 +207,7 @@ export default function DealDetailPanel({
 
   const displayScore = liveScore ?? healthScore;
   const displayLabel = liveLabel ?? healthLabel;
-  const showMeta = stage || (amount != null && amount > 0) || displayScore != null;
+  const showMeta = localStage || (localAmount != null && localAmount > 0) || displayScore != null;
 
   // Build default open sections, adding initialSection if supplied
   const defaultOpen: string[] = initialSection && !DEFAULT_OPEN.includes(initialSection as SectionKey)
@@ -165,22 +236,92 @@ export default function DealDetailPanel({
             </SheetDescription>
           </SheetHeader>
 
-          {/* Deal meta strip */}
+          {/* Deal meta strip — inline editable fields */}
           {showMeta && (
             <div className="mt-3 flex flex-wrap items-center gap-2">
-              {stage && (
-                <span className={cn(
-                  "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium",
-                  stagePillClass(stage)
-                )}>
-                  {stage}
-                </span>
+
+              {/* Stage — click to edit */}
+              {localStage && (
+                <div className="relative flex items-center gap-1">
+                  <select
+                    value={localStage}
+                    disabled={savingField === "Stage"}
+                    onChange={(e) => {
+                      const newStage = e.target.value;
+                      setLocalStage(newStage);
+                      handleFieldSave("Stage", newStage);
+                    }}
+                    className={cn(
+                      "rounded-full border px-2.5 py-0.5 text-xs font-medium bg-transparent appearance-none cursor-pointer pr-5",
+                      "focus:outline-none focus:ring-1 focus:ring-primary/50",
+                      stagePillClass(localStage)
+                    )}
+                    title="Click to change stage"
+                  >
+                    {["Qualification","Needs Analysis","Value Proposition","Proposal","Negotiation","Contract Sent","Closed Won","Closed Lost"].map((s) => (
+                      <option key={s} value={s} className="bg-background text-foreground">{s}</option>
+                    ))}
+                    {/* Keep current stage in list even if not in default options */}
+                    {!["Qualification","Needs Analysis","Value Proposition","Proposal","Negotiation","Contract Sent","Closed Won","Closed Lost"].includes(localStage) && (
+                      <option value={localStage} className="bg-background text-foreground">{localStage}</option>
+                    )}
+                  </select>
+                  {savingField === "Stage" && <Loader2 size={11} className="animate-spin text-muted-foreground absolute right-1.5 top-1/2 -translate-y-1/2" />}
+                  {savedField === "Stage"  && <Check   size={11} className="text-emerald-400 absolute right-1.5 top-1/2 -translate-y-1/2" />}
+                </div>
               )}
-              {amount != null && amount > 0 && (
-                <span className="rounded-md border border-border/40 bg-secondary/40 px-2.5 py-0.5 text-xs font-semibold tabular-nums text-foreground/80">
-                  {formatCurrency(amount)}
-                </span>
+
+              {/* Amount — click to edit */}
+              {localAmount != null && localAmount > 0 && (
+                <div className="relative flex items-center">
+                  {editingAmount ? (
+                    <div className="flex items-center gap-1">
+                      <input
+                        ref={amountInputRef}
+                        type="number"
+                        value={amountInput}
+                        autoFocus
+                        onChange={(e) => setAmountInput(e.target.value)}
+                        onBlur={() => {
+                          const n = parseFloat(amountInput);
+                          if (!isNaN(n) && n > 0 && n !== localAmount) {
+                            setLocalAmount(n);
+                            handleFieldSave("Amount", n);
+                          }
+                          setEditingAmount(false);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            const n = parseFloat(amountInput);
+                            if (!isNaN(n) && n > 0 && n !== localAmount) {
+                              setLocalAmount(n);
+                              handleFieldSave("Amount", n);
+                            }
+                            setEditingAmount(false);
+                          }
+                          if (e.key === "Escape") setEditingAmount(false);
+                        }}
+                        className="w-28 rounded-md border border-border/60 bg-secondary/60 px-2 py-0.5 text-xs font-semibold tabular-nums text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
+                        placeholder={String(localAmount)}
+                      />
+                      <button onClick={() => setEditingAmount(false)} className="text-muted-foreground/60 hover:text-foreground">
+                        <X size={11} />
+                      </button>
+                    </div>
+                  ) : (
+                    <span
+                      className="rounded-md border border-border/40 bg-secondary/40 px-2.5 py-0.5 text-xs font-semibold tabular-nums text-foreground/80 cursor-pointer hover:bg-secondary/70 transition-colors"
+                      title="Click to edit amount"
+                      onClick={() => { setAmountInput(String(localAmount)); setEditingAmount(true); }}
+                    >
+                      {savingField === "Amount" ? <Loader2 size={11} className="inline animate-spin mr-1" /> : null}
+                      {savedField  === "Amount" ? <Check   size={11} className="inline text-emerald-400 mr-1" /> : null}
+                      {formatCurrency(localAmount)}
+                    </span>
+                  )}
+                </div>
               )}
+
               {displayScore != null && (
                 <span className={cn(
                   "rounded-md border border-border/40 bg-secondary/40 px-2.5 py-0.5 text-xs font-bold tabular-nums",
@@ -193,8 +334,38 @@ export default function DealDetailPanel({
           )}
         </div>
 
-        {/* Accordion sections */}
+        {/* Tab bar */}
         {dealId && (
+          <div className="flex border-b border-border/40 px-4">
+            {(["Overview", "Battle Card"] as PanelTab[]).map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className={cn(
+                  "px-4 py-2.5 text-sm font-medium border-b-2 transition-colors",
+                  activeTab === tab
+                    ? "border-sky-500 text-sky-400"
+                    : "border-transparent text-slate-500 hover:text-slate-300"
+                )}
+              >
+                {tab === "Battle Card" && (
+                  <Zap size={12} className="inline mr-1.5 mb-0.5" strokeWidth={2.5} />
+                )}
+                {tab}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Battle Card tab */}
+        {dealId && activeTab === "Battle Card" && (
+          <div className="px-4 py-4">
+            <BattleCardPanel dealId={dealId} />
+          </div>
+        )}
+
+        {/* Accordion sections */}
+        {dealId && activeTab === "Overview" && (
           <div className="px-4 py-4">
             <Accordion
               type="multiple"
@@ -226,6 +397,50 @@ export default function DealDetailPanel({
                 </AccordionItem>
               ))}
             </Accordion>
+
+            {/* ── Add CRM Note ───────────────────────────────── */}
+            {dealId && (
+              <div className="mt-4 rounded-lg border border-border/40 bg-card/40 px-4 py-3">
+                {noteOpen ? (
+                  <div className="space-y-2">
+                    <label className="text-xs text-muted-foreground/60 uppercase tracking-wider">Add note to Zoho CRM</label>
+                    <textarea
+                      value={noteText}
+                      onChange={(e) => setNoteText(e.target.value.slice(0, 500))}
+                      rows={3}
+                      placeholder="Type your note here…"
+                      className="w-full bg-secondary/40 border border-border/40 rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/50 resize-none"
+                    />
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-muted-foreground/40">{noteText.length}/500</span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => { setNoteOpen(false); setNoteText(""); }}
+                          className="text-xs text-muted-foreground/60 hover:text-foreground"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={handleSaveNote}
+                          disabled={savingNote || !noteText.trim()}
+                          className="flex items-center gap-1.5 rounded-lg bg-primary/80 hover:bg-primary disabled:opacity-50 px-3 py-1.5 text-xs font-semibold text-primary-foreground transition-colors"
+                        >
+                          {savingNote ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />}
+                          Save to Zoho
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setNoteOpen(true)}
+                    className="text-xs text-muted-foreground/60 hover:text-foreground transition-colors"
+                  >
+                    + Add CRM note
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         )}
       </SheetContent>

@@ -9,6 +9,7 @@ import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import NotFound from "./pages/NotFound";
 import ForecastPage from "./pages/ForecastPage";
+import ForecastBoard from "./pages/ForecastBoard";
 import TrackersPage from "./pages/TrackersPage";
 import Home from "./pages/Home";
 import AskDealIQPage from "./pages/AskDealIQPage";
@@ -34,7 +35,8 @@ const App = () => (
             {/* Authenticated pages — all wrapped with AppLayout (60px sidebar) */}
             <Route path="/home"      element={<AppLayout><Home /></AppLayout>} />
             <Route path="/dashboard" element={<AppLayout><Dashboard /></AppLayout>} />
-            <Route path="/forecast"  element={<AppLayout><ForecastPage /></AppLayout>} />
+            <Route path="/forecast"     element={<AppLayout><ForecastBoard /></AppLayout>} />
+            <Route path="/forecast/ai" element={<AppLayout><ForecastPage /></AppLayout>} />
             <Route path="/trackers"  element={<AppLayout><TrackersPage /></AppLayout>} />
             <Route path="/ask"       element={<AppLayout><AskDealIQPage /></AppLayout>} />
             <Route path="/alerts"    element={<AppLayout><AlertsPage /></AppLayout>} />

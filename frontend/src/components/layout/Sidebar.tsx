@@ -6,6 +6,7 @@ import {
   Mail,
   Sparkles,
   Trophy,
+  Target,
   Settings,
   LogOut,
 } from "lucide-react";
@@ -20,11 +21,12 @@ import { useSession } from "@/contexts/SessionContext";
 // ── Nav config ────────────────────────────────────────────────────────────────
 
 const TOP_NAV = [
-  { icon: Home,            label: "My Day",  path: "/home",      dot: false },
-  { icon: LayoutDashboard, label: "Deals",   path: "/dashboard", dot: false },
-  { icon: Mail,            label: "Email",   path: "/emails",    dot: true  },
-  { icon: Sparkles,        label: "Ask AI",  path: "/ask",       dot: false },
-  { icon: Trophy,          label: "Win/Loss", path: "/winloss",  dot: false },
+  { icon: Home,            label: "My Day",   path: "/home",      dot: false },
+  { icon: LayoutDashboard, label: "Deals",    path: "/dashboard", dot: false },
+  { icon: Target,          label: "Forecast", path: "/forecast",  dot: false },
+  { icon: Mail,            label: "Email",    path: "/emails",    dot: true  },
+  { icon: Sparkles,        label: "Ask AI",   path: "/ask",       dot: false },
+  { icon: Trophy,          label: "Win/Loss", path: "/winloss",   dot: false },
 ] as const;
 
 // ── Nav Item ─────────────────────────────────────────────────────────────────

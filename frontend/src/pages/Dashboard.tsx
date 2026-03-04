@@ -1,9 +1,9 @@
 import { useEffect, useState, useMemo, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
-  AlertTriangle, Activity, DollarSign, Users, Search, X, Filter,
+  AlertTriangle, AlertCircle, CheckCircle2, Activity, DollarSign, Users, Search, X, Filter,
   ChevronRight, Users2, TrendingUp, TrendingDown, Minus, RefreshCw,
-  ArrowUpDown, BarChart2, Inbox, ClipboardCheck, Map,
+  ArrowUpDown, BarChart2, Inbox, ClipboardCheck, Map, Loader2, Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -55,6 +55,11 @@ interface Deal {
   last_activity_time?: string;
   next_step?: string;
   discount_mention_count?: number;
+}
+
+interface DealWarningInfo {
+  warning_count: number;
+  has_critical: boolean;
 }
 
 interface RepActivity {
@@ -311,12 +316,19 @@ export default function Dashboard() {
   const [loadingDeals, setLoadingDeals]     = useState(true);
   const [selectedDealId, setSelectedDealId] = useState<string | null>(null);
   const [panelInitialSection, setPanelInitialSection] = useState<string | undefined>(undefined);
+  const [panelInitialTab, setPanelInitialTab] = useState<"Overview" | "Battle Card">("Overview");
   const [digestOpen, setDigestOpen]         = useState(false);
   const [digestCriticalCount, setDigestCriticalCount] = useState<number | undefined>(undefined);
   const [signalPanelOpen, setSignalPanelOpen] = useState(false);
   const [teamSummary, setTeamSummary]         = useState<TeamActivitySummary | null>(null);
   const [loadingTeam, setLoadingTeam]         = useState(false);
   const [tourActive, setTourActive]           = useState(false);
+  const [dealWarnings, setDealWarnings]       = useState<Record<string, DealWarningInfo>>({});
+  const [pipelineIntel, setPipelineIntel]     = useState<{ coverage_ratio: number; commit_total: number; commit_count: number; ai_risk_count: number; critical_count: number; at_risk_count: number } | null>(null);
+
+  // Inline stage edit
+  const [editingStage, setEditingStage] = useState<{ dealId: string; value: string } | null>(null);
+  const [savingStage, setSavingStage] = useState<string | null>(null); // dealId being saved
 
   // Sort
   const [sortAsc, setSortAsc] = useState(false); // false = worst health first (default)
@@ -432,6 +444,24 @@ export default function Dashboard() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session, currentPage, debouncedSearch]);
 
+  // Batch-fetch warnings for the current page of deals
+  useEffect(() => {
+    if (!session || allDeals.length === 0) return;
+    const controller = new AbortController();
+    const ids = allDeals.slice(0, 20).map(d => d.id);
+    api.batchDealWarnings(ids, controller.signal)
+      .then((data: Record<string, DealWarningInfo>) => {
+        setDealWarnings(prev => ({ ...prev, ...data }));
+      })
+      .catch((err: unknown) => {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        if (err instanceof Error && err.name === "AbortError") return;
+        // silent — warnings are non-critical
+      });
+    return () => controller.abort();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allDeals]);
+
   // Load team activity summary (lazy, low priority)
   // Also exposed as fetchTeamSummary for the manual refresh button.
   function fetchTeamSummary() {
@@ -453,6 +483,45 @@ export default function Dashboard() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session]);
 
+  // Load pipeline intelligence from forecast board (lazy, non-critical)
+  useEffect(() => {
+    if (!session) return;
+    const controller = new AbortController();
+    api.getForecastBoard(controller.signal)
+      .then((data: any) => {
+        const commit = data.categories?.commit;
+        setPipelineIntel({
+          coverage_ratio: data.coverage_ratio ?? 0,
+          commit_total:   commit?.total ?? 0,
+          commit_count:   commit?.deals?.length ?? 0,
+          ai_risk_count:  data.ai_risk_count ?? 0,
+          critical_count: data.critical_count ?? 0,
+          at_risk_count:  data.at_risk_count ?? 0,
+        });
+      })
+      .catch(() => {/* non-critical — silent */});
+    return () => controller.abort();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session]);
+
+  async function saveStageEdit(dealId: string, newStage: string, oldStage: string) {
+    setSavingStage(dealId);
+    setEditingStage(null);
+    // Optimistic update
+    setAllDeals((prev) => prev.map((d) => d.id === dealId ? { ...d, stage: newStage } : d));
+    try {
+      const res = await api.updateDealField(dealId, "Stage", newStage);
+      if (!res.success) throw new Error(res.error ?? "Save failed");
+      toast({ title: "Stage updated in Zoho" });
+    } catch {
+      // Revert
+      setAllDeals((prev) => prev.map((d) => d.id === dealId ? { ...d, stage: oldStage } : d));
+      toast({ title: "Failed to update Zoho", variant: "destructive" });
+    } finally {
+      setSavingStage(null);
+    }
+  }
+
   // Derived filter options
   const ownerOptions = useMemo(() => {
     const names = [...new Set(allDeals.map(d => d.owner).filter(Boolean))] as string[];
@@ -473,11 +542,25 @@ export default function Dashboard() {
       if (filterHealth !== "all" && deal.health_label !== filterHealth) return false;
       return true;
     });
-    // sortAsc=false means worst (lowest score) first
-    return [...filtered].sort((a, b) =>
-      sortAsc ? b.health_score - a.health_score : a.health_score - b.health_score
-    );
-  }, [allDeals, filterOwner, filterStage, filterHealth, sortAsc]);
+    if (sortAsc) {
+      // Best first: sort by health score descending
+      return [...filtered].sort((a, b) => b.health_score - a.health_score);
+    }
+    // Default: warnings-first sort
+    // critical → high warnings → no warnings, then health score ascending within each tier
+    const warnTier = (id: string): number => {
+      const w = dealWarnings[id];
+      if (!w) return 1; // treat unknown as "high" until loaded
+      if (w.has_critical) return 0;
+      if (w.warning_count > 0) return 1;
+      return 2;
+    };
+    return [...filtered].sort((a, b) => {
+      const tierDiff = warnTier(a.id) - warnTier(b.id);
+      if (tierDiff !== 0) return tierDiff;
+      return a.health_score - b.health_score;
+    });
+  }, [allDeals, filterOwner, filterStage, filterHealth, sortAsc, dealWarnings]);
 
   // hasActiveFilters excludes searchName — search is server-side so pagination still shows
   const hasActiveFilters = filterOwner !== "all" || filterStage !== "all" || filterHealth !== "all";
@@ -520,12 +603,15 @@ export default function Dashboard() {
 
   const selectedDeal = allDeals.find(d => d.id === selectedDealId);
 
-  // Open deal from ?deal=ID query param (set by command palette on other pages)
+  // Open deal from ?deal=ID query param (set by command palette / forecast board)
+  // Supports optional ?tab=battlecard to open directly on the Battle Card tab
   useEffect(() => {
     const dealParam = searchParams.get("deal");
+    const tabParam  = searchParams.get("tab");
     if (dealParam && allDeals.length > 0) {
       const found = allDeals.find(d => d.id === dealParam);
       if (found) {
+        setPanelInitialTab(tabParam === "battlecard" ? "Battle Card" : "Overview");
         setSelectedDealId(dealParam);
         setSearchParams({}, { replace: true });
       }
@@ -689,6 +775,66 @@ export default function Dashboard() {
           ))}
         </div>
 
+        {/* ── Pipeline Intelligence ── */}
+        {pipelineIntel && (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 animate-slide-up" style={{ animationDelay: "230ms" }}>
+            {/* Coverage */}
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl px-5 py-4">
+              <div className="text-[11px] text-slate-500 uppercase tracking-wider mb-1">Pipeline Coverage</div>
+              <div className={cn("text-3xl font-bold", pipelineIntel.coverage_ratio >= 3 ? "text-emerald-400" : pipelineIntel.coverage_ratio >= 2 ? "text-amber-400" : "text-rose-400")}>
+                {pipelineIntel.coverage_ratio > 0 ? `${pipelineIntel.coverage_ratio.toFixed(1)}x` : "—"}
+              </div>
+              <div className="text-xs text-slate-600 mt-1">
+                target: 3x · {pipelineIntel.coverage_ratio >= 3 ? "healthy" : pipelineIntel.coverage_ratio >= 2 ? "below target" : pipelineIntel.coverage_ratio > 0 ? "critical" : "set quota to track"}
+              </div>
+              <div className="mt-3 h-1.5 bg-slate-700 rounded-full overflow-hidden">
+                <div
+                  className={cn("h-full rounded-full transition-all", pipelineIntel.coverage_ratio >= 3 ? "bg-emerald-500" : pipelineIntel.coverage_ratio >= 2 ? "bg-amber-500" : "bg-rose-500")}
+                  style={{ width: `${Math.min((pipelineIntel.coverage_ratio / 3) * 100, 100)}%` }}
+                />
+              </div>
+            </div>
+
+            {/* Committed */}
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl px-5 py-4">
+              <div className="text-[11px] text-slate-500 uppercase tracking-wider mb-1">Committed</div>
+              <div className="text-3xl font-bold text-emerald-400">
+                {pipelineIntel.commit_total >= 1000 ? `$${Math.round(pipelineIntel.commit_total / 1000)}K` : pipelineIntel.commit_total > 0 ? `$${pipelineIntel.commit_total}` : "—"}
+              </div>
+              <div className="text-xs text-slate-600 mt-1">{pipelineIntel.commit_count} deal{pipelineIntel.commit_count !== 1 ? "s" : ""} in Commit</div>
+              {pipelineIntel.ai_risk_count > 0 && (
+                <div className="mt-2 text-xs text-rose-400 flex items-center gap-1.5">
+                  <AlertTriangle size={11} strokeWidth={2.5} />
+                  {pipelineIntel.ai_risk_count} commit deal{pipelineIntel.ai_risk_count > 1 ? "s" : ""} at risk
+                </div>
+              )}
+            </div>
+
+            {/* Risk count */}
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl px-5 py-4">
+              <div className="text-[11px] text-slate-500 uppercase tracking-wider mb-1">Deals Needing Action</div>
+              <div className={cn("text-3xl font-bold",
+                pipelineIntel.critical_count > 0 ? "text-rose-400"
+                : pipelineIntel.at_risk_count > 0 ? "text-amber-400"
+                : "text-emerald-400"
+              )}>
+                {pipelineIntel.critical_count + pipelineIntel.at_risk_count}
+              </div>
+              <div className="text-xs text-slate-600 mt-1">
+                {pipelineIntel.critical_count > 0
+                  ? `${pipelineIntel.critical_count} critical · ${pipelineIntel.at_risk_count} at risk`
+                  : pipelineIntel.at_risk_count > 0
+                    ? `${pipelineIntel.at_risk_count} deals need attention`
+                    : "pipeline looks healthy"
+                }
+              </div>
+              <a href="/forecast" className="mt-2 text-xs text-sky-400 hover:text-sky-300 flex items-center gap-1 transition-colors">
+                View Forecast Board →
+              </a>
+            </div>
+          </div>
+        )}
+
         {/* ── Health breakdown pills ── */}
         {metrics && !loadingMetrics && (
           <div className="flex flex-wrap gap-2 animate-fade-in" style={{ animationDelay: "220ms" }}>
@@ -831,6 +977,7 @@ export default function Dashboard() {
                     <Skeleton className="h-5 w-20 rounded-full" />
                     <Skeleton className="h-5 w-24" />
                     <Skeleton className="h-5 w-16" />
+                    <Skeleton className="h-5 w-10 rounded-full" />
                     <Skeleton className="h-5 w-12 rounded-full" />
                   </div>
                 ))}
@@ -887,6 +1034,7 @@ export default function Dashboard() {
                       <TableHead className="py-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/50">Owner</TableHead>
                       <TableHead className="py-3 text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/50">Amount</TableHead>
                       <TableHead className="py-3 text-center text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/50">Score</TableHead>
+                      <TableHead className="py-3 text-center text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/50">Warnings</TableHead>
                       <TableHead className="py-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/50">Status</TableHead>
                       <TableHead className="w-8" />
                     </TableRow>
@@ -935,9 +1083,23 @@ export default function Dashboard() {
                                 {deal.deal_name.charAt(0).toUpperCase()}
                               </div>
                               <div className="min-w-0">
-                                <p className="truncate text-sm font-semibold leading-tight text-foreground">
-                                  {deal.deal_name}
-                                </p>
+                                <div className="flex items-center gap-2">
+                                  <p className="truncate text-sm font-semibold leading-tight text-foreground">
+                                    {deal.deal_name}
+                                  </p>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setPanelInitialSection(undefined);
+                                      setPanelInitialTab("Battle Card");
+                                      setSelectedDealId(deal.id);
+                                    }}
+                                    className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 text-xs text-sky-400 hover:text-sky-300 bg-sky-500/10 hover:bg-sky-500/15 border border-sky-500/20 rounded-lg px-2 py-0.5 flex-shrink-0"
+                                  >
+                                    <Zap size={10} strokeWidth={2.5} />
+                                    Brief
+                                  </button>
+                                </div>
                                 <p className="mt-0.5 truncate text-xs text-muted-foreground/60">
                                   {deal.company}
                                 </p>
@@ -950,14 +1112,53 @@ export default function Dashboard() {
                             </div>
                           </TableCell>
 
-                          {/* Stage */}
-                          <TableCell className="py-3.5">
-                            <span className={cn(
-                              "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium whitespace-nowrap",
-                              stagePillClass(deal.stage)
-                            )}>
-                              {deal.stage}
-                            </span>
+                          {/* Stage — click to edit inline */}
+                          <TableCell className="py-3.5" onClick={(e) => e.stopPropagation()}>
+                            {savingStage === deal.id ? (
+                              <div className="inline-flex items-center gap-1.5 text-xs text-muted-foreground/60">
+                                <Loader2 size={12} className="animate-spin" />
+                                Saving…
+                              </div>
+                            ) : editingStage?.dealId === deal.id ? (
+                              <select
+                                autoFocus
+                                value={editingStage.value}
+                                onChange={(e) => setEditingStage({ dealId: deal.id, value: e.target.value })}
+                                onBlur={() => {
+                                  if (editingStage.value !== deal.stage) {
+                                    saveStageEdit(deal.id, editingStage.value, deal.stage);
+                                  } else {
+                                    setEditingStage(null);
+                                  }
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") {
+                                    if (editingStage.value !== deal.stage) {
+                                      saveStageEdit(deal.id, editingStage.value, deal.stage);
+                                    } else {
+                                      setEditingStage(null);
+                                    }
+                                  }
+                                  if (e.key === "Escape") setEditingStage(null);
+                                }}
+                                className="text-xs bg-secondary border border-border/60 rounded-lg px-2 py-1 text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
+                              >
+                                {["Qualification","Needs Analysis","Value Proposition","Proposal","Negotiation","Contract Sent","Closed Won","Closed Lost"].map((s) => (
+                                  <option key={s} value={s}>{s}</option>
+                                ))}
+                              </select>
+                            ) : (
+                              <span
+                                className={cn(
+                                  "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium whitespace-nowrap cursor-pointer hover:opacity-80 transition-opacity",
+                                  stagePillClass(deal.stage)
+                                )}
+                                title="Click to edit stage"
+                                onClick={() => setEditingStage({ dealId: deal.id, value: deal.stage })}
+                              >
+                                {deal.stage}
+                              </span>
+                            )}
                           </TableCell>
 
                           {/* Owner */}
@@ -997,6 +1198,33 @@ export default function Dashboard() {
                                 />
                               </div>
                             </div>
+                          </TableCell>
+
+                          {/* Warnings */}
+                          <TableCell className="py-3.5 text-center">
+                            {(() => {
+                              const w = dealWarnings[deal.id];
+                              if (!w) {
+                                return <span className="text-muted-foreground/20 text-xs">—</span>;
+                              }
+                              if (w.has_critical) {
+                                return (
+                                  <div className="inline-flex items-center gap-1 rounded-lg border border-rose-500/25 bg-rose-500/15 px-2 py-0.5 text-rose-400">
+                                    <AlertTriangle size={11} strokeWidth={2.5} />
+                                    <span className="text-xs font-semibold">{w.warning_count}</span>
+                                  </div>
+                                );
+                              }
+                              if (w.warning_count > 0) {
+                                return (
+                                  <div className="inline-flex items-center gap-1 rounded-lg border border-amber-500/25 bg-amber-500/15 px-2 py-0.5 text-amber-400">
+                                    <AlertCircle size={11} strokeWidth={2.5} />
+                                    <span className="text-xs font-semibold">{w.warning_count}</span>
+                                  </div>
+                                );
+                              }
+                              return <CheckCircle2 size={14} className="text-emerald-500" strokeWidth={2} />;
+                            })()}
                           </TableCell>
 
                           {/* Status Badge */}
@@ -1222,8 +1450,18 @@ export default function Dashboard() {
         amount={selectedDeal?.amount}
         healthScore={selectedDeal?.health_score}
         healthLabel={selectedDeal?.health_label}
-        onClose={() => { setSelectedDealId(null); setPanelInitialSection(undefined); }}
+        onClose={() => { setSelectedDealId(null); setPanelInitialSection(undefined); setPanelInitialTab("Overview"); }}
         initialSection={panelInitialSection}
+        initialTab={panelInitialTab}
+        onDealUpdated={(field, value) => {
+          if (!selectedDealId) return;
+          setAllDeals((prev) => prev.map((d) => {
+            if (d.id !== selectedDealId) return d;
+            if (field === "Stage")  return { ...d, stage: String(value) };
+            if (field === "Amount") return { ...d, amount: Number(value) };
+            return d;
+          }));
+        }}
       />
       <AlertsDigestPanel open={digestOpen} onClose={() => setDigestOpen(false)} />
       <BuyingSignalPanel open={signalPanelOpen} onClose={() => setSignalPanelOpen(false)} />

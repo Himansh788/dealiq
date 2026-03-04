@@ -11,6 +11,8 @@ from routers.actions import router as actions_router
 from routers.meeting import router as meeting_router
 from routers.email_intel import router as email_intel_router
 from routers.winloss import router as winloss_router
+from routers.warnings import router as warnings_router
+from routers.battlecard import router as battlecard_router
 import uvicorn
 
 app = FastAPI(
@@ -45,6 +47,8 @@ app.include_router(actions_router, prefix="/actions", tags=["actions"])
 app.include_router(meeting_router, prefix="/meeting", tags=["meeting"])
 app.include_router(email_intel_router, prefix="/email-intel", tags=["email-intel"])
 app.include_router(winloss_router, prefix="/winloss", tags=["Win/Loss Intelligence"])
+app.include_router(warnings_router, prefix="/warnings", tags=["Warnings"])
+app.include_router(battlecard_router, tags=["Battle Card"])
 
 
 @app.on_event("startup")

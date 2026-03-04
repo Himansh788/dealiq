@@ -1227,3 +1227,17 @@ DEMO_TIMELINE = {
 def get_demo_timeline(deal_id: str) -> dict:
     """Return demo timeline data for any simulated deal."""
     return DEMO_TIMELINE
+
+
+# ── Forecast Board demo data ───────────────────────────────────────────────────
+
+DEMO_FORECAST_QUOTA = {"quarterly_quota": 150000.0, "period_label": "Q1 2025"}
+
+DEMO_FORECAST_SUBMISSIONS = [
+    {"week_of": "2025-01-06", "commit_amount": 45000, "best_case_amount": 78000, "pipeline_amount": 130000, "notes": "", "submitted_at": "2025-01-06T09:00:00"},
+    {"week_of": "2025-01-13", "commit_amount": 52000, "best_case_amount": 81000, "pipeline_amount": 128000, "notes": "", "submitted_at": "2025-01-13T09:00:00"},
+    {"week_of": "2025-01-20", "commit_amount": 58000, "best_case_amount": 85000, "pipeline_amount": 125000, "notes": "Lost GlobalRetail - moved to pipeline", "submitted_at": "2025-01-20T09:00:00"},
+    {"week_of": "2025-01-27", "commit_amount": 62000, "best_case_amount": 89000, "pipeline_amount": 118000, "notes": "", "submitted_at": "2025-01-27T09:00:00"},
+    {"week_of": "2025-02-03", "commit_amount": 71000, "best_case_amount": 94000, "pipeline_amount": 115000, "notes": "Acme Corp moved to commit", "submitted_at": "2025-02-03T09:00:00"},
+    {"week_of": "2025-02-10", "commit_amount": 68000, "best_case_amount": 91000, "pipeline_amount": 112000, "notes": "FinanceFlow stalled - moved back to best case", "submitted_at": "2025-02-10T09:00:00"},
+]

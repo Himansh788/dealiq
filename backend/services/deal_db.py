@@ -154,9 +154,6 @@ async def upsert_deals(
             internal_id = deal_internal_id(zoho_id)
 
             hr = health_results.get(zoho_id)
-            owner = deal.get("owner")
-            if isinstance(owner, dict):
-                owner = owner.get("name") or owner.get("email") or ""
 
             await db.execute(text("""
                 INSERT INTO deals
@@ -190,7 +187,7 @@ async def upsert_deals(
                 "company":      (deal.get("account_name") or deal.get("company") or "")[:255],
                 "stage":        (deal.get("stage") or "")[:100],
                 "amount":       float(deal.get("amount") or 0),
-                "owner_email":  str(owner or user_id or "")[:255],
+                "owner_email":  str(user_id or "")[:255],
                 "closing_date": (str(deal.get("closing_date") or "")[:20]) or None,
                 "lat":          (str(deal.get("last_activity_time") or "")[:50]) or None,
                 "next_step":    deal.get("next_step") or None,

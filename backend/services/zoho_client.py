@@ -90,8 +90,9 @@ async def get_current_user(access_token: str) -> Dict[str, Any]:
 async def fetch_deals(access_token: str, page: int = 1, per_page: int = 50) -> List[Dict[str, Any]]:
     """Fetch deals from Zoho CRM."""
     fields = (
-        "Deal_Name,Stage,Amount,Closing_Date,Account_Name,"
-        "Owner,Last_Activity_Time,Created_Time,Modified_Time,Probability,Description,Next_Step"
+        "Deal_Name,Stage,Amount,Closing_Date,Account_Name,Contact_Name,"
+        "Owner,Last_Activity_Time,Created_Time,Modified_Time,Probability,Description,Next_Step,"
+        "Lead_Source,No_of_Employees"
     )
     async with httpx.AsyncClient() as client:
         resp = await client.get(
@@ -964,3 +965,32 @@ async def fetch_deal_timeline(access_token: str, deal_id: str) -> dict:
     except Exception as e:
         logger.warning("fetch_deal_timeline: deal=%s error=%s", deal_id, e)
         return {"timeline": []}
+
+async def get_deal_contacts(deal_id: str, access_token: str) -> List[Dict[str, Any]]:
+    """Fetch contacts associated with a deal via Contact_Roles sub-module."""
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                f"{ZOHO_API_BASE}/Deals/{deal_id}/Contact_Roles",
+                headers={"Authorization": f"Zoho-oauthtoken {access_token}"},
+            )
+            if resp.status_code == 204:
+                return []
+            resp.raise_for_status()
+            return resp.json().get("data", [])
+    except Exception:
+        return []
+
+
+async def update_deal_field(deal_id: str, field: str, value: Any, access_token: str) -> bool:
+    """Update a single field on a Zoho Deal. Returns True on SUCCESS."""
+    async with httpx.AsyncClient() as client:
+        resp = await client.put(
+            f"{ZOHO_API_BASE}/Deals/{deal_id}",
+            headers={"Authorization": f"Zoho-oauthtoken {access_token}"},
+            json={"data": [{field: value}]},
+        )
+        resp.raise_for_status()
+        result = resp.json()
+        code = (result.get("data") or [{}])[0].get("code", "")
+        return code == "SUCCESS"

@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
-from typing import Optional, List
+from typing import Any, Optional, List, Union
+from pydantic import BaseModel
 import asyncio
 import base64
 import json
@@ -856,3 +857,43 @@ async def get_deal_decisions(
     _decode_session(authorization)
     from services.decision_db import get_deal_decisions
     return {"deal_id": deal_id, "decisions": await get_deal_decisions(db, deal_id)}
+
+# ── Inline CRM field editing ───────────────────────────────────────────────────
+
+ALLOWED_DEAL_FIELDS = {"Stage", "Amount", "Closing_Date", "Description"}
+
+
+class UpdateDealFieldBody(BaseModel):
+    field: str
+    value: Union[str, float, int, None]
+
+
+@router.put("/{deal_id}/update")
+async def update_deal_field(
+    deal_id: str,
+    body: UpdateDealFieldBody,
+    authorization: str = Header(...),
+):
+    """Update a single CRM field on a Zoho deal. Allowed: Stage, Amount, Closing_Date, Description."""
+    session = _decode_session(authorization)
+
+    if body.field not in ALLOWED_DEAL_FIELDS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"field must be one of: {', '.join(sorted(ALLOWED_DEAL_FIELDS))}",
+        )
+
+    # Demo mode — mock success without calling Zoho
+    if _is_demo(session):
+        return {"success": True, "updated_field": body.field, "new_value": body.value}
+
+    try:
+        from services.zoho_client import update_deal_field as zoho_update_field
+        success = await zoho_update_field(
+            deal_id, body.field, body.value, session.get("access_token", "")
+        )
+        if success:
+            return {"success": True, "updated_field": body.field, "new_value": body.value}
+        return {"success": False, "error": "Zoho returned a non-SUCCESS code"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}

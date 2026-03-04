@@ -145,6 +145,27 @@ export const api = {
   getDealHealth: (id: string, signal?: AbortSignal) =>
     fetchWithTimeout(`${API_URL}/deals/${id}/health`, { headers: authHeaders(), signal }).then(handleResponse),
 
+  updateDealField: (dealId: string, field: string, value: string | number | null) =>
+    fetchWithTimeout(`${API_URL}/deals/${dealId}/update`, {
+      method: "PUT",
+      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ field, value }),
+    }).then(handleResponse),
+
+  // ── Battle Card ───────────────────────────────────────────────────────────
+  generateBattleCard: (dealId: string, meetingContext?: string) =>
+    fetchWithTimeout(`${API_URL}/battlecard/generate`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ deal_id: dealId, meeting_context: meetingContext ?? "" }),
+    }).then(handleResponse),
+
+  clearBattleCardCache: (dealId: string) =>
+    fetchWithTimeout(`${API_URL}/battlecard/cache/${dealId}`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    }).then(handleResponse),
+
   // ── Analysis ──────────────────────────────────────────────────────────────
   getAck: (dealId: string) =>
     fetchWithTimeout(`${API_URL}/analysis/ack/${dealId}`, { headers: authHeaders() }).then(handleResponse),
@@ -432,6 +453,46 @@ export const api = {
 
   getWinLossBoard: (signal?: AbortSignal) =>
     fetchWithTimeout(`${API_URL}/winloss/board`, { headers: authHeaders(), signal }).then(handleResponse),
+
+  // ── Forecast Board ────────────────────────────────────────────────────────
+  getForecastBoard: (signal?: AbortSignal) =>
+    fetchWithTimeout(`${API_URL}/forecast/board`, { headers: authHeaders(), signal }).then(handleResponse),
+
+  categorizeDeal: (dealId: string, category: string) =>
+    fetchWithTimeout(`${API_URL}/forecast/categorize`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ deal_id: dealId, category }),
+    }).then(handleResponse),
+
+  submitForecast: (data: { commit_amount: number; best_case_amount: number; pipeline_amount: number; notes: string }) =>
+    fetchWithTimeout(`${API_URL}/forecast/submit`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify(data),
+    }).then(handleResponse),
+
+  getForecastSubmissions: (signal?: AbortSignal) =>
+    fetchWithTimeout(`${API_URL}/forecast/submissions`, { headers: authHeaders(), signal }).then(handleResponse),
+
+  setForecastQuota: (quarterly_quota: number, period_label: string) =>
+    fetchWithTimeout(`${API_URL}/forecast/quota`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ quarterly_quota, period_label }),
+    }).then(handleResponse),
+
+  // ── Warnings ───────────────────────────────────────────────────────────────
+  getDealWarnings: (dealId: string, signal?: AbortSignal) =>
+    fetchWithTimeout(`${API_URL}/warnings/${dealId}`, { headers: authHeaders(), signal }).then(handleResponse),
+
+  batchDealWarnings: (dealIds: string[], signal?: AbortSignal) =>
+    fetchWithTimeout(`${API_URL}/warnings/batch`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ deal_ids: dealIds }),
+      signal,
+    }).then(handleResponse),
 
   // ── Microsoft / Outlook Auth ───────────────────────────────────────────────
   getOutlookStatus: () =>
