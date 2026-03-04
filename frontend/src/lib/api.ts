@@ -418,6 +418,21 @@ export const api = {
       headers: authHeaders(),
     }).then(handleResponse),
 
+  // ── Debug / Diagnostics ───────────────────────────────────────────────────
+  debugZohoTest: () =>
+    fetchWithTimeout(`${API_URL}/deals/debug/zoho-test`, { headers: authHeaders() }).then(handleResponse),
+
+  // ── Win/Loss Intelligence ──────────────────────────────────────────────────
+  analyzeWinLoss: (dealId: string, outcome: "won" | "lost", notes?: string) =>
+    fetchWithTimeout(`${API_URL}/winloss/analyze`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ deal_id: dealId, outcome, notes: notes ?? null }),
+    }).then(handleResponse),
+
+  getWinLossBoard: (signal?: AbortSignal) =>
+    fetchWithTimeout(`${API_URL}/winloss/board`, { headers: authHeaders(), signal }).then(handleResponse),
+
   // ── Microsoft / Outlook Auth ───────────────────────────────────────────────
   getOutlookStatus: () =>
     fetchWithTimeout(`${API_URL}/ms-auth/status`, { headers: authHeaders() }).then(handleResponse),

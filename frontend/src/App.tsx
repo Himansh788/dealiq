@@ -16,6 +16,7 @@ import AlertsPage from "./pages/AlertsPage";
 import TrendsPage from "./pages/TrendsPage";
 import EmailTimelinePage from "./pages/EmailTimelinePage";
 import SettingsPage from "./pages/SettingsPage";
+import WinLossPage from "./pages/WinLossPage";
 
 const queryClient = new QueryClient();
 
@@ -40,6 +41,7 @@ const App = () => (
             <Route path="/trends"    element={<AppLayout><TrendsPage /></AppLayout>} />
             <Route path="/emails"    element={<AppLayout><EmailTimelinePage /></AppLayout>} />
             <Route path="/settings"  element={<AppLayout><SettingsPage /></AppLayout>} />
+            <Route path="/winloss"   element={<AppLayout><WinLossPage /></AppLayout>} />
 
             <Route path="*" element={<NotFound />} />
           </Routes>

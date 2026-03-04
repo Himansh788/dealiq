@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { Brain, Clock, Phone, Activity, GitMerge, Layers, ScanSearch, GraduationCap, Zap, Sparkles } from "lucide-react";
+import { Brain, Clock, Phone, Activity, GitMerge, Layers, ScanSearch, GraduationCap, Zap, Sparkles, Trophy } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
@@ -15,6 +15,7 @@ import TrackerPanel from "./deal/TrackerPanel";
 import CoachingPanel from "./deal/CoachingPanel";
 import ActivityFeedPanel from "./deal/ActivityFeedPanel";
 import AskDealIQPanel from "./deal/AskDealIQPanel";
+import MarkOutcomeSection from "./deal/MarkOutcomeSection";
 
 interface Props {
   dealId: string | null;
@@ -63,6 +64,7 @@ const SECTION_STYLES = {
   ack:        { icon: Layers,       label: "Advance / Close / Kill",             iconColor: "text-health-red", activeBorder: "border-l-health-red/50" },
   coaching:   { icon: GraduationCap,label: "Call Coaching",                      iconColor: "text-cyan-400",   activeBorder: "border-l-cyan-400/50" },
   ask:        { icon: Sparkles,     label: "Ask DealIQ",                         iconColor: "text-violet-400", activeBorder: "border-l-violet-400/50" },
+  outcome:    { icon: Trophy,       label: "Mark Outcome",                       iconColor: "text-amber-400",  activeBorder: "border-l-amber-400/50" },
 } as const;
 
 type SectionKey = keyof typeof SECTION_STYLES;
@@ -219,6 +221,7 @@ export default function DealDetailPanel({
                     {key === "ack"         && <AckSection dealId={dealId} dealName={dealName} />}
                     {key === "coaching"    && <CoachingPanel dealId={dealId} repName={repName} />}
                     {key === "ask"         && <AskDealIQPanel dealId={dealId} dealName={dealName} />}
+                    {key === "outcome"     && <MarkOutcomeSection dealId={dealId} dealName={dealName} />}
                   </AccordionContent>
                 </AccordionItem>
               ))}

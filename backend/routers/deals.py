@@ -255,6 +255,46 @@ async def _fetch_all_zoho_deals(access_token: str) -> list:
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 
+@router.get("/debug/zoho-test")
+async def debug_zoho_test(
+    authorization: str = Header(default=""),
+):
+    """
+    Diagnostic endpoint — checks whether the current session can reach Zoho
+    and returns a sample of what deal data looks like.
+    Safe to call at any time; never modifies data.
+    """
+    session = _decode_session(authorization)
+
+    if _is_demo(session):
+        return {
+            "mode": "demo",
+            "message": "You're in demo mode. Connect Zoho CRM to see real data.",
+            "demo_deals_available": True,
+        }
+
+    access_token = session.get("access_token", "")
+    try:
+        raw_deals = await fetch_deals(access_token, page=1, per_page=5)
+        deals = [map_zoho_deal(r) for r in raw_deals] if raw_deals else []
+        first = deals[0] if deals else None
+        return {
+            "mode": "zoho_live",
+            "deals_fetched": len(deals),
+            "sample_deal": first,
+            "zoho_fields_available": list(first.keys()) if first else [],
+            "error": None,
+        }
+    except Exception as e:
+        return {
+            "mode": "zoho_live",
+            "deals_fetched": 0,
+            "sample_deal": None,
+            "zoho_fields_available": [],
+            "error": str(e),
+        }
+
+
 @router.get("/", response_model=DealList)
 async def list_deals(
     authorization: str = Header(...),

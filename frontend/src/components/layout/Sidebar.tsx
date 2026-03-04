@@ -5,6 +5,7 @@ import {
   LayoutDashboard,
   Mail,
   Sparkles,
+  Trophy,
   Settings,
   LogOut,
 } from "lucide-react";
@@ -23,6 +24,7 @@ const TOP_NAV = [
   { icon: LayoutDashboard, label: "Deals",   path: "/dashboard", dot: false },
   { icon: Mail,            label: "Email",   path: "/emails",    dot: true  },
   { icon: Sparkles,        label: "Ask AI",  path: "/ask",       dot: false },
+  { icon: Trophy,          label: "Win/Loss", path: "/winloss",  dot: false },
 ] as const;
 
 // ── Nav Item ─────────────────────────────────────────────────────────────────
