@@ -201,17 +201,27 @@ export default function AIRepPanel({ dealId, dealName, repName }: Props) {
           <Card className="border-primary/20 bg-primary/5">
             <CardContent className="p-4 space-y-2">
               <p className="text-xs text-muted-foreground leading-relaxed">
-                The AI will analyse <span className="font-medium text-foreground">{dealName}</span>, 
-                think like {effectiveRepName}, and generate a specific action plan. 
+                The AI will analyse <span className="font-medium text-foreground">{dealName}</span>,
+                think like {effectiveRepName}, and generate a specific action plan.
                 Nothing happens until you approve.
               </p>
-              <Button
-                className="w-full bg-primary hover:bg-primary/90 font-semibold"
-                onClick={handleGenerateNBA}
-              >
-                <Zap className="mr-2 h-4 w-4" />
-                Generate Next Best Action
-              </Button>
+              <div className="relative group">
+                {/* Animated glowing border background */}
+                <div
+                  className="absolute -inset-[2px] rounded-lg opacity-70 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"
+                  style={{
+                    background: 'conic-gradient(from var(--angle), transparent 20%, hsl(217 91% 62%), transparent 80%)',
+                    animation: 'spin-border 4s linear infinite',
+                  }}
+                />
+                <Button
+                  className="relative w-full bg-primary hover:bg-primary/90 font-semibold border-0 text-white z-10"
+                  onClick={handleGenerateNBA}
+                >
+                  <Zap className="mr-2 h-4 w-4" />
+                  Generate Next Best Action
+                </Button>
+              </div>
             </CardContent>
           </Card>
 
@@ -456,9 +466,8 @@ export default function AIRepPanel({ dealId, dealName, repName }: Props) {
               value={editedBody}
               onChange={(e) => setEditedBody(e.target.value)}
               readOnly={!isEditing}
-              className={`min-h-[200px] resize-none border-border/50 text-sm leading-relaxed ${
-                isEditing ? "bg-background border-primary/50" : "bg-secondary/50"
-              }`}
+              className={`min-h-[200px] resize-none border-border/50 text-sm leading-relaxed ${isEditing ? "bg-background border-primary/50" : "bg-secondary/50"
+                }`}
             />
           </div>
 

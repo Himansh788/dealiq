@@ -9,9 +9,9 @@ import { api } from "@/lib/api";
 
 const FEATURES = [
   { icon: Activity, label: "Live Deal Health" },
-  { icon: Brain,    label: "AI Sales Coach" },
-  { icon: Zap,      label: "Pipeline Intelligence" },
-  { icon: Shield,   label: "Deal Autopsy" },
+  { icon: Brain, label: "AI Sales Coach" },
+  { icon: Zap, label: "Pipeline Intelligence" },
+  { icon: Shield, label: "Deal Autopsy" },
 ];
 
 export default function Login() {
@@ -68,19 +68,12 @@ export default function Login() {
   return (
     <div className="relative flex min-h-screen items-center justify-center bg-background p-4 overflow-hidden">
 
-      {/* Dot grid background */}
-      <div
-        className="absolute inset-0 opacity-[0.18]"
-        style={{
-          backgroundImage: "radial-gradient(circle, hsl(218 30% 35%) 1px, transparent 1px)",
-          backgroundSize: "28px 28px",
-        }}
-      />
-
-      {/* Gradient blobs */}
-      <div className="absolute -top-56 -right-56 h-[500px] w-[500px] rounded-full bg-primary/10 blur-3xl" />
-      <div className="absolute -bottom-56 -left-56 h-[500px] w-[500px] rounded-full bg-accent/8 blur-3xl" />
-      <div className="absolute top-1/2 left-1/2 h-64 w-64 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary/5 blur-3xl" />
+      {/* Animated Mesh Gradient Background */}
+      <div className="absolute inset-0 overflow-hidden bg-[#060a13] -z-10">
+        <div className="absolute w-[80vw] h-[80vh] rounded-full bg-blue-600/20 blur-[100px] animate-mesh-1" />
+        <div className="absolute w-[60vw] h-[60vh] rounded-full bg-teal-500/15 blur-[100px] animate-mesh-2" />
+        <div className="absolute w-[70vw] h-[70vh] rounded-full bg-purple-600/20 blur-[100px] animate-mesh-3" />
+      </div>
 
       {/* Card */}
       <Card className="relative w-full max-w-md border-border/50 bg-card/70 shadow-2xl shadow-black/40 backdrop-blur-md animate-slide-up">
@@ -91,7 +84,7 @@ export default function Login() {
         <CardContent className="flex flex-col items-center gap-7 px-8 py-10">
 
           {/* Logo */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 fade-slide-in" style={{ animationDelay: '100ms' }}>
             <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-primary via-primary/80 to-accent shadow-lg shadow-primary/25">
               <BarChart3 className="h-7 w-7 text-white" />
             </div>
@@ -100,38 +93,52 @@ export default function Login() {
 
           {/* Tagline */}
           <div className="text-center">
-            <p className="text-lg font-semibold text-foreground">Revenue without guesswork.</p>
-            <p className="mt-1.5 text-sm text-muted-foreground/70 max-w-xs leading-relaxed">
+            <p className="text-lg font-semibold text-foreground fade-slide-in" style={{ animationDelay: '250ms' }}>Revenue without guesswork.</p>
+            <p className="mt-1.5 text-sm text-muted-foreground/70 max-w-xs leading-relaxed fade-slide-in" style={{ animationDelay: '400ms' }}>
               AI-powered deal clarity for B2B SaaS revenue teams
             </p>
           </div>
 
           {/* CTA */}
-          <div className="w-full space-y-3">
-            <Button
-              className="h-12 w-full text-base font-semibold bg-primary hover:bg-primary/90 shadow-lg shadow-primary/20 transition-all hover:shadow-primary/30"
-              onClick={handleZohoLogin}
-              disabled={loading}
-            >
-              {loading ? (
-                <span className="flex items-center gap-2">
-                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-                  Connecting…
-                </span>
-              ) : "Login with Zoho CRM"}
-            </Button>
+          <div className="w-full space-y-3 relative z-10">
+            <div className="fade-slide-in" style={{ animationDelay: '550ms' }}>
+              <Button
+                className="h-12 w-full text-base font-semibold border-0 text-white transition-all duration-300 transform hover:-translate-y-[2px] active:translate-y-0"
+                style={{
+                  background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
+                  boxShadow: '0 4px 20px rgba(59,130,246,0.3)',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.boxShadow = '0 6px 24px rgba(59,130,246,0.5)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.boxShadow = '0 4px 20px rgba(59,130,246,0.3)';
+                }}
+                onClick={handleZohoLogin}
+                disabled={loading}
+              >
+                {loading ? (
+                  <span className="flex items-center gap-2">
+                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                    Connecting…
+                  </span>
+                ) : "Login with Zoho CRM"}
+              </Button>
+            </div>
 
-            <button
-              onClick={handleDemoLogin}
-              disabled={loading}
-              className="w-full text-center text-sm text-muted-foreground/60 transition-colors hover:text-muted-foreground"
-            >
-              Try demo without login →
-            </button>
+            <div className="fade-slide-in" style={{ animationDelay: '700ms' }}>
+              <button
+                onClick={handleDemoLogin}
+                disabled={loading}
+                className="w-full text-center text-sm text-muted-foreground/60 transition-colors hover:text-muted-foreground"
+              >
+                Try demo without login →
+              </button>
+            </div>
           </div>
 
           {/* Feature chips */}
-          <div className="flex flex-wrap justify-center gap-2">
+          <div className="flex flex-wrap justify-center gap-2 fade-slide-in" style={{ animationDelay: '850ms' }}>
             {FEATURES.map(({ icon: Icon, label }) => (
               <span
                 key={label}

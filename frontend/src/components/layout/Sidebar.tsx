@@ -21,12 +21,12 @@ import { useSession } from "@/contexts/SessionContext";
 // ── Nav config ────────────────────────────────────────────────────────────────
 
 const TOP_NAV = [
-  { icon: Home,            label: "My Day",   path: "/home",      dot: false },
-  { icon: LayoutDashboard, label: "Deals",    path: "/dashboard", dot: false },
-  { icon: Target,          label: "Forecast", path: "/forecast",  dot: false },
-  { icon: Mail,            label: "Email",    path: "/emails",    dot: true  },
-  { icon: Sparkles,        label: "Ask AI",   path: "/ask",       dot: false },
-  { icon: Trophy,          label: "Win/Loss", path: "/winloss",   dot: false },
+  { icon: Home, label: "My Day", path: "/home", dot: false },
+  { icon: LayoutDashboard, label: "Deals", path: "/dashboard", dot: false },
+  { icon: Target, label: "Forecast", path: "/forecast", dot: false },
+  { icon: Mail, label: "Email", path: "/emails", dot: true },
+  { icon: Sparkles, label: "Ask AI", path: "/ask", dot: false },
+  { icon: Trophy, label: "Win/Loss", path: "/winloss", dot: false },
 ] as const;
 
 // ── Nav Item ─────────────────────────────────────────────────────────────────
@@ -51,17 +51,17 @@ function NavItem({
           onClick={onClick}
           aria-label={label}
           className={cn(
-            "relative flex h-10 w-10 items-center justify-center rounded-lg transition-colors duration-150",
+            "relative flex h-10 w-10 items-center justify-center rounded-lg transition-all duration-150 focus-visible:outline-none",
             active
-              ? "bg-primary/15 text-primary"
+              ? "text-primary"
               : "text-muted-foreground hover:bg-secondary/70 hover:text-foreground"
           )}
         >
-          {/* Active left-edge indicator */}
+          {/* Active left-edge indicator — 4px blue bar with glow (glow-dot pattern) */}
           {active && (
-            <span className="absolute -left-2 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-primary" />
+            <span className="sidebar-active-bar" />
           )}
-          <Icon className="h-5 w-5" />
+          <Icon className="h-5 w-5" style={active ? { filter: "drop-shadow(0 0 6px rgba(59,130,246,0.5))" } : undefined} />
           {/* Notification dot */}
           {dot && !active && (
             <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-health-red ring-2 ring-background" />

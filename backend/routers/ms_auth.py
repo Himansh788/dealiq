@@ -105,11 +105,10 @@ async def connect_outlook(authorization: str = Header(...)):
 
 @router.get("/callback")
 async def ms_callback(code: str, state: str):
-    """Handle Microsoft OAuth2 callback — exchanges code for tokens."""
     if not _client_id():
         raise HTTPException(status_code=501, detail="Microsoft OAuth not configured.")
 
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient() as client: 
         resp = await client.post(
             f"{_auth_base()}/token",
             data={
@@ -124,24 +123,23 @@ async def ms_callback(code: str, state: str):
         resp.raise_for_status()
         tokens = resp.json()
 
+        # ✅ client still open here
+        try:
+            me_resp = await client.get(
+                "https://graph.microsoft.com/v1.0/me",
+                headers={"Authorization": f"Bearer {tokens['access_token']}"},
+            )
+            if me_resp.status_code == 200:
+                data = me_resp.json()
+                tokens["ms_email"] = data.get("mail") or data.get("userPrincipalName")
+        except Exception:
+            pass
+
     user_key = _pending_states.pop(state, "default")
-
-    # Fetch the user's email from Graph to store alongside tokens
-    try:
-        me_resp = await client.get(
-            "https://graph.microsoft.com/v1.0/me",
-            headers={"Authorization": f"Bearer {tokens['access_token']}"},
-        )
-        if me_resp.status_code == 200:
-            tokens["ms_email"] = me_resp.json().get("mail") or me_resp.json().get("userPrincipalName")
-    except Exception:
-        pass
-
     _user_tokens[user_key] = tokens
 
     frontend_url = os.getenv("FRONTEND_URL", "http://localhost:8080")
     return RedirectResponse(url=f"{frontend_url}/settings?outlook=connected")
-
 
 @router.get("/status")
 async def outlook_status(authorization: str = Header(...)):

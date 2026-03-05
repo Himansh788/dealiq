@@ -63,6 +63,15 @@
     -moz-osx-font-smoothing: grayscale;
   }
 
+  h1, h2, h3, .heading-sora {
+    font-family: 'Sora', sans-serif;
+  }
+
+  .font-numeric {
+    font-family: 'JetBrains Mono', monospace;
+    font-variant-numeric: tabular-nums;
+  }
+
   /* Refined scrollbar */
   ::-webkit-scrollbar {
     width: 5px;
@@ -72,16 +81,215 @@
     background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    background: hsl(218 30% 24%);
+    background: rgba(255, 255, 255, 0.07);
     border-radius: 100px;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: hsl(218 20% 36%);
+    background: rgba(255, 255, 255, 0.1);
   }
 
   /* Selection highlight */
   ::selection {
-    background: hsl(217 91% 62% / 0.22);
-    color: hsl(210 40% 96%);
+    background: rgba(59, 130, 246, 0.3);
+    color: inherit;
+  }
+}
+
+@layer components {
+  /* Glass Surfaces for Cards */
+  .card, .glass-surface {
+    background: rgba(255, 255, 255, 0.02) !important;
+    border: 1px solid rgba(255, 255, 255, 0.04) !important;
+    border-radius: 16px !important;
+    position: relative;
+    overflow: hidden;
+  }
+  
+  .card::before, .glass-surface::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      rgba(255, 255, 255, 0.06),
+      transparent
+    );
+    z-index: 10;
+    pointer-events: none;
+  }
+}
+
+@layer utilities {
+  /* Shimmer skeleton */
+  .skeleton {
+    position: relative;
+    overflow: hidden;
+    background-color: rgba(255, 255, 255, 0.02);
+  }
+  
+  .skeleton::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(
+      90deg,
+      transparent,
+      rgba(255, 255, 255, 0.04),
+      transparent
+    );
+    animation: shimmer 1.5s infinite;
+  }
+
+  @keyframes shimmer {
+    100% {
+      transform: translateX(100%);
+    }
+  }
+
+  /* Staggered fade slide in */
+  .fade-slide-in {
+    opacity: 0;
+    animation: fadeSlideIn 0.4s ease-out forwards;
+  }
+  
+  @keyframes fadeSlideIn {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  /* Rotating Border Setup for NBA Button */
+  @property --angle {
+    syntax: '<angle>';
+    initial-value: 0deg;
+    inherits: false;
+  }
+  @keyframes spin-border {
+    to {
+      --angle: 360deg;
+    }
+  }
+
+  /* Animated Mesh Gradients */
+  @keyframes mesh1 {
+    0% { transform: translate(-20%, -20%) scale(1); }
+    50% { transform: translate(30%, 30%) scale(1.1); }
+    100% { transform: translate(-20%, -20%) scale(1); }
+  }
+  @keyframes mesh2 {
+    0% { transform: translate(40%, 40%) scale(1.2); }
+    50% { transform: translate(-10%, -10%) scale(0.9); }
+    100% { transform: translate(40%, 40%) scale(1.2); }
+  }
+  @keyframes mesh3 {
+    0% { transform: translate(0, 50%) scale(0.9); }
+    50% { transform: translate(20%, -20%) scale(1.1); }
+    100% { transform: translate(0, 50%) scale(0.9); }
+  }
+
+  .animate-mesh-1 { animation: mesh1 25s ease-in-out infinite; left: 25%; top: 30%; }
+  .animate-mesh-2 { animation: mesh2 30s ease-in-out infinite reverse; left: 75%; top: 70%; }
+  .animate-mesh-3 { animation: mesh3 28s ease-in-out infinite; left: 50%; top: 90%; }
+}
+
+@layer components {
+  /* Global Primary Button Styles Override */
+  button.bg-primary {
+    transition: all 0.2s ease-out;
+    box-shadow: 0 2px 8px rgba(59,130,246,0.2) !important;
+  }
+  button.bg-primary:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 24px rgba(59,130,246,0.3) !important;
+  }
+  button.bg-primary:active:not(:disabled) {
+    transform: translateY(0);
+  }
+
+  /* Page Transition */
+  .page-transition {
+    animation: fadeInPage 250ms ease-out forwards;
+  }
+  
+  @keyframes fadeInPage {
+    from { opacity: 0; transform: translateY(5px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+}
+
+@layer components {
+  /* ── Toast: dark bg + colored left border by type ── */
+  [data-radix-toast-viewport] [data-state] {
+    --toast-border-color: rgba(59,130,246,0.5);
+    background: #131c2e !important;
+    border-color: rgba(255,255,255,0.07) !important;
+    border-left: 3px solid var(--toast-border-color) !important;
+    border-radius: 12px !important;
+    box-shadow: 0 8px 40px rgba(0,0,0,0.5) !important;
+    will-change: transform, opacity;
+  }
+  /* destructive variant */
+  [data-radix-toast-viewport] [data-state][class*="destructive"] {
+    --toast-border-color: #ef4444;
+    background: #1a0e0e !important;
+  }
+  /* success-like (non-destructive default) */
+  [data-radix-toast-viewport] [data-state]:not([class*="destructive"]) {
+    --toast-border-color: #3b82f6;
+  }
+
+  /* ── Focus visible ring — blue outline ── */
+  *:focus-visible {
+    outline: 2px solid rgba(59, 130, 246, 0.5);
+    outline-offset: 2px;
+  }
+
+  /* ── GPU compositing hints — only on custom animated elements ── */
+  .fade-slide-in {
+    will-change: transform, opacity;
+  }
+
+  /* ── Periodic pulse animation for the Check Email FAB ── */
+  @keyframes pulse-periodic {
+    0%, 80%, 100%  { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.0); }
+    85%            { box-shadow: 0 0 0 8px rgba(245, 158, 11, 0.25); }
+    92%            { box-shadow: 0 0 0 14px rgba(245, 158, 11, 0.08); }
+  }
+  .animate-pulse-periodic {
+    animation: pulse-periodic 10s ease-in-out infinite;
+    will-change: box-shadow;
+  }
+
+  /* ── Tooltip fast fade+scale ── */
+  [data-radix-tooltip-content] {
+    animation-duration: 150ms !important;
+    animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1) !important;
+    will-change: transform, opacity;
+  }
+
+  /* ── Sidebar active state: 4px blue bar (glow-dot pattern) ── */
+  .sidebar-active-bar {
+    position: absolute;
+    left: -10px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 4px;
+    height: 20px;
+    border-radius: 2px;
+    background: #3b82f6;
+    box-shadow: 0 0 8px rgba(59,130,246,0.6);
   }
 }

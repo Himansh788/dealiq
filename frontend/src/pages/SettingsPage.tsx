@@ -162,6 +162,52 @@ export default function SettingsPage() {
           </div>
         </div>
 
+        {/* ── Coming Soon Placeholders ── */}
+        <div className="pt-4 space-y-4">
+          <p className="text-xs font-semibold text-foreground px-1">Coming Soon</p>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {/* Salesforce */}
+            <div className="rounded-xl border border-border/20 bg-card/20 p-5 opacity-60 grayscale transition-all hover:grayscale-0 hover:opacity-100">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500/10 mb-3">
+                <svg className="h-5 w-5 text-blue-400" viewBox="0 0 24 24" fill="currentColor">
+                  {/* Simple cloud shape for demo */}
+                  <path d="M17.5 19c2.48 0 4.5-2.02 4.5-4.5S19.98 10 17.5 10c-.3 0-.58.05-.85.11C15.65 7.14 13.06 5 10 5 6.13 5 3 8.13 3 12c0 3.87 3.13 7 7 7h7.5z" />
+                </svg>
+              </div>
+              <p className="text-sm font-semibold text-foreground mb-1">Salesforce</p>
+              <p className="text-[11px] text-muted-foreground mb-3">Two-way sync with Salesforce CRM</p>
+              <Badge variant="outline" className="text-[9px] border-border/30">Q3 2026</Badge>
+            </div>
+
+            {/* Slack */}
+            <div className="rounded-xl border border-border/20 bg-card/20 p-5 opacity-60 grayscale transition-all hover:grayscale-0 hover:opacity-100">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-purple-500/10 mb-3">
+                <svg className="h-5 w-5 text-purple-400" viewBox="0 0 24 24" fill="currentColor">
+                  {/* Simple hash for demo */}
+                  <path d="M19.1 8.9H15V4.7h-2.1v4.2H8.7V4.7H6.6v4.2H2.5v2.1h4.1v4H2.5v2.1h4.1v4.2h2.1v-4.2h4.2v4.2h2.1v-4.2h4.1v-2.1h-4.1v-4h4.1V8.9zm-6.2 6.1H8.7v-4h4.2v4z" />
+                </svg>
+              </div>
+              <p className="text-sm font-semibold text-foreground mb-1">Slack</p>
+              <p className="text-[11px] text-muted-foreground mb-3">Deal alerts and deal rooms in Slack</p>
+              <Badge variant="outline" className="text-[9px] border-border/30">Q3 2026</Badge>
+            </div>
+
+            {/* Gong */}
+            <div className="rounded-xl border border-border/20 bg-card/20 p-5 opacity-60 grayscale transition-all hover:grayscale-0 hover:opacity-100">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-pink-500/10 mb-3">
+                <svg className="h-5 w-5 text-pink-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                  <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                  <line x1="12" x2="12" y1="19" y2="22" />
+                </svg>
+              </div>
+              <p className="text-sm font-semibold text-foreground mb-1">Gong</p>
+              <p className="text-[11px] text-muted-foreground mb-3">Ingest call transcripts for analysis</p>
+              <Badge variant="outline" className="text-[9px] border-border/30">Future</Badge>
+            </div>
+          </div>
+        </div>
+
         <p className="text-[11px] text-muted-foreground/40 text-center pt-4">
           More settings — notification preferences, API keys, team management — coming soon.
         </p>

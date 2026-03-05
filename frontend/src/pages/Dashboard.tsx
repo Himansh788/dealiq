@@ -28,6 +28,9 @@ import BuyingSignalPanel from "@/components/BuyingSignalPanel";
 import NavBar from "@/components/NavBar";
 import PipelineQABar from "@/components/PipelineQABar";
 import DemoTour from "@/components/DemoTour";
+import { useCountUp } from "@/hooks/useCountUp";
+import { MetricCardSkeleton, TableRowSkeleton } from "@/components/ui/Skeletons";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -60,6 +63,7 @@ interface Deal {
 interface DealWarningInfo {
   warning_count: number;
   has_critical: boolean;
+  top_warning?: string;
 }
 
 interface RepActivity {
@@ -108,21 +112,21 @@ function healthStatusLabel(score: number) {
 
 function healthColor(label: string) {
   switch (label) {
-    case "healthy":  return "bg-health-green/15 text-health-green border-health-green/25";
-    case "at_risk":  return "bg-health-yellow/15 text-health-yellow border-health-yellow/25";
+    case "healthy": return "bg-health-green/15 text-health-green border-health-green/25";
+    case "at_risk": return "bg-health-yellow/15 text-health-yellow border-health-yellow/25";
     case "critical": return "bg-health-orange/15 text-health-orange border-health-orange/25";
-    case "zombie":   return "bg-health-red/15 text-health-red border-health-red/25";
-    default:         return "bg-muted text-muted-foreground border-border/40";
+    case "zombie": return "bg-health-red/15 text-health-red border-health-red/25";
+    default: return "bg-muted text-muted-foreground border-border/40";
   }
 }
 
 function dealInitialClass(label: string): string {
   switch (label) {
-    case "healthy":  return "bg-health-green/15 text-health-green";
-    case "at_risk":  return "bg-health-yellow/15 text-health-yellow";
+    case "healthy": return "bg-health-green/15 text-health-green";
+    case "at_risk": return "bg-health-yellow/15 text-health-yellow";
     case "critical": return "bg-health-orange/15 text-health-orange";
-    case "zombie":   return "bg-health-red/15 text-health-red";
-    default:         return "bg-secondary text-muted-foreground";
+    case "zombie": return "bg-health-red/15 text-health-red";
+    default: return "bg-secondary text-muted-foreground";
   }
 }
 
@@ -145,12 +149,12 @@ function getDealWhyLine(deal: Deal): { text: string; colorClass: string } | null
 
 function stagePillClass(stage: string): string {
   const s = stage.toLowerCase();
-  if (s.includes("discovery"))  return "bg-sky-500/10 text-sky-400 border-sky-500/20";
-  if (s.includes("qualif"))     return "bg-violet-500/10 text-violet-400 border-violet-500/20";
-  if (s.includes("proposal"))   return "bg-amber-500/10 text-amber-400 border-amber-500/20";
-  if (s.includes("negotiat"))   return "bg-orange-500/10 text-orange-400 border-orange-500/20";
-  if (s.includes("won"))        return "bg-health-green/10 text-health-green border-health-green/20";
-  if (s.includes("lost"))       return "bg-health-red/10 text-health-red border-health-red/20";
+  if (s.includes("discovery")) return "bg-sky-500/10 text-sky-400 border-sky-500/20";
+  if (s.includes("qualif")) return "bg-violet-500/10 text-violet-400 border-violet-500/20";
+  if (s.includes("proposal")) return "bg-amber-500/10 text-amber-400 border-amber-500/20";
+  if (s.includes("negotiat")) return "bg-orange-500/10 text-orange-400 border-orange-500/20";
+  if (s.includes("won")) return "bg-health-green/10 text-health-green border-health-green/20";
+  if (s.includes("lost")) return "bg-health-red/10 text-health-red border-health-red/20";
   return "bg-secondary/60 text-muted-foreground border-border/30";
 }
 
@@ -162,8 +166,8 @@ function HealthRing({ score }: { score: number }) {
   const filled = (score / 100) * circ;
   const ringColor =
     score >= 75 ? "stroke-health-green" :
-    score >= 50 ? "stroke-health-yellow" :
-    "stroke-health-red";
+      score >= 50 ? "stroke-health-yellow" :
+        "stroke-health-red";
   return (
     <div className="flex items-center gap-1.5">
       <svg width="22" height="22" viewBox="0 0 20 20" className="-rotate-90" aria-hidden>
@@ -175,6 +179,37 @@ function HealthRing({ score }: { score: number }) {
         />
       </svg>
       <span className={cn("text-sm font-bold tabular-nums", scoreColor(score))}>{score}</span>
+    </div>
+  );
+}
+
+function MetricValue({ value, format, className }: { value: number; format: (v: number) => string; className?: string }) {
+  const animatedValue = useCountUp(value, 800);
+  return <span className={className}>{format(animatedValue)}</span>;
+}
+
+function HealthGauge({ value }: { value: number }) {
+  const animatedValue = useCountUp(value, 800);
+  const r = 20;
+  const circ = 2 * Math.PI * r;
+  const filled = (animatedValue / 100) * circ;
+  const color = animatedValue >= 75 ? "stroke-health-green" : animatedValue >= 50 ? "stroke-health-yellow" : "stroke-health-red";
+
+  return (
+    <div className="relative flex items-center justify-center w-12 h-12">
+      <svg width="48" height="48" viewBox="0 0 48 48" className="-rotate-90">
+        <circle cx="24" cy="24" r={r} fill="none" strokeWidth="4" className="stroke-border/40" />
+        <circle
+          cx="24" cy="24" r={r} fill="none" strokeWidth="4"
+          strokeDasharray={`${filled} ${circ}`} strokeLinecap="round"
+          className={cn("transition-all duration-100", color)}
+        />
+      </svg>
+      <span className={cn("absolute inset-0 flex items-center justify-center text-xs font-bold font-numeric tabular-nums",
+        animatedValue >= 75 ? "text-health-green" : animatedValue >= 50 ? "text-health-yellow" : "text-health-red"
+      )}>
+        {animatedValue}
+      </span>
     </div>
   );
 }
@@ -194,22 +229,6 @@ function OwnerAvatar({ name }: { name: string }) {
       </div>
       <span className="text-sm text-muted-foreground truncate">{name}</span>
     </div>
-  );
-}
-
-// Metric card skeleton
-function MetricCardSkeleton() {
-  return (
-    <Card className="border-border/40 bg-card/60">
-      <CardContent className="flex items-center gap-4 p-5">
-        <Skeleton className="h-11 w-11 shrink-0 rounded-xl" />
-        <div className="space-y-2">
-          <Skeleton className="h-3 w-20" />
-          <Skeleton className="h-8 w-16" />
-          <Skeleton className="h-3 w-24" />
-        </div>
-      </CardContent>
-    </Card>
   );
 }
 
@@ -254,7 +273,7 @@ const HEALTH_PILLS = [
     key: "healthy",
     label: "Healthy",
     metricKey: "healthy_count" as keyof Metrics,
-    active:   "border-health-green/60 bg-health-green/20 text-health-green",
+    active: "border-health-green/60 bg-health-green/20 text-health-green",
     inactive: "border-health-green/20 bg-health-green/5 text-health-green/80 hover:bg-health-green/15 hover:border-health-green/40",
     dot: "bg-health-green",
   },
@@ -262,7 +281,7 @@ const HEALTH_PILLS = [
     key: "at_risk",
     label: "At Risk",
     metricKey: "at_risk_count" as keyof Metrics,
-    active:   "border-health-yellow/60 bg-health-yellow/20 text-health-yellow",
+    active: "border-health-yellow/60 bg-health-yellow/20 text-health-yellow",
     inactive: "border-health-yellow/20 bg-health-yellow/5 text-health-yellow/80 hover:bg-health-yellow/15 hover:border-health-yellow/40",
     dot: "bg-health-yellow",
   },
@@ -270,7 +289,7 @@ const HEALTH_PILLS = [
     key: "critical",
     label: "Critical",
     metricKey: "critical_count" as keyof Metrics,
-    active:   "border-health-orange/60 bg-health-orange/20 text-health-orange",
+    active: "border-health-orange/60 bg-health-orange/20 text-health-orange",
     inactive: "border-health-orange/20 bg-health-orange/5 text-health-orange/80 hover:bg-health-orange/15 hover:border-health-orange/40",
     dot: "bg-health-orange",
   },
@@ -278,7 +297,7 @@ const HEALTH_PILLS = [
     key: "zombie",
     label: "Zombie",
     metricKey: "zombie_count" as keyof Metrics,
-    active:   "border-health-red/60 bg-health-red/20 text-health-red",
+    active: "border-health-red/60 bg-health-red/20 text-health-red",
     inactive: "border-health-red/20 bg-health-red/5 text-health-red/80 hover:bg-health-red/15 hover:border-health-red/40",
     dot: "bg-health-red",
   },
@@ -293,12 +312,12 @@ const DEMO_METRICS: Metrics = {
 };
 
 const DEMO_DEALS: Deal[] = [
-  { id: "1", deal_name: "Acme Corp Enterprise",  company: "Acme Corp",    stage: "Negotiation",   amount: 450000, health_score: 28, health_label: "zombie",   owner: "Sarah Chen" },
-  { id: "2", deal_name: "TechFlow Platform",      company: "TechFlow Inc", stage: "Proposal",      amount: 320000, health_score: 42, health_label: "critical", owner: "James Okafor" },
-  { id: "3", deal_name: "DataVault Migration",    company: "DataVault",    stage: "Discovery",     amount: 180000, health_score: 55, health_label: "at_risk",  owner: "Maya Patel" },
-  { id: "4", deal_name: "CloudSync Annual",       company: "CloudSync",    stage: "Negotiation",   amount: 275000, health_score: 88, health_label: "healthy",  owner: "Sarah Chen" },
-  { id: "5", deal_name: "Nexus Analytics Suite",  company: "Nexus Labs",   stage: "Qualification", amount: 195000, health_score: 35, health_label: "critical", owner: "James Okafor" },
-  { id: "6", deal_name: "Orbital SaaS Rollout",   company: "Orbital Inc",  stage: "Negotiation",   amount: 420000, health_score: 71, health_label: "at_risk",  owner: "Maya Patel" },
+  { id: "1", deal_name: "Acme Corp Enterprise", company: "Acme Corp", stage: "Negotiation", amount: 450000, health_score: 28, health_label: "zombie", owner: "Sarah Chen" },
+  { id: "2", deal_name: "TechFlow Platform", company: "TechFlow Inc", stage: "Proposal", amount: 320000, health_score: 42, health_label: "critical", owner: "James Okafor" },
+  { id: "3", deal_name: "DataVault Migration", company: "DataVault", stage: "Discovery", amount: 180000, health_score: 55, health_label: "at_risk", owner: "Maya Patel" },
+  { id: "4", deal_name: "CloudSync Annual", company: "CloudSync", stage: "Negotiation", amount: 275000, health_score: 88, health_label: "healthy", owner: "Sarah Chen" },
+  { id: "5", deal_name: "Nexus Analytics Suite", company: "Nexus Labs", stage: "Qualification", amount: 195000, health_score: 35, health_label: "critical", owner: "James Okafor" },
+  { id: "6", deal_name: "Orbital SaaS Rollout", company: "Orbital Inc", stage: "Negotiation", amount: 420000, health_score: 71, health_label: "at_risk", owner: "Maya Patel" },
 ];
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -310,21 +329,21 @@ export default function Dashboard() {
   const { toast } = useToast();
 
   // Data state
-  const [metrics, setMetrics]               = useState<Metrics | null>(null);
-  const [allDeals, setAllDeals]             = useState<Deal[]>([]);
+  const [metrics, setMetrics] = useState<Metrics | null>(null);
+  const [allDeals, setAllDeals] = useState<Deal[]>([]);
   const [loadingMetrics, setLoadingMetrics] = useState(true);
-  const [loadingDeals, setLoadingDeals]     = useState(true);
+  const [loadingDeals, setLoadingDeals] = useState(true);
   const [selectedDealId, setSelectedDealId] = useState<string | null>(null);
   const [panelInitialSection, setPanelInitialSection] = useState<string | undefined>(undefined);
   const [panelInitialTab, setPanelInitialTab] = useState<"Overview" | "Battle Card">("Overview");
-  const [digestOpen, setDigestOpen]         = useState(false);
+  const [digestOpen, setDigestOpen] = useState(false);
   const [digestCriticalCount, setDigestCriticalCount] = useState<number | undefined>(undefined);
   const [signalPanelOpen, setSignalPanelOpen] = useState(false);
-  const [teamSummary, setTeamSummary]         = useState<TeamActivitySummary | null>(null);
-  const [loadingTeam, setLoadingTeam]         = useState(false);
-  const [tourActive, setTourActive]           = useState(false);
-  const [dealWarnings, setDealWarnings]       = useState<Record<string, DealWarningInfo>>({});
-  const [pipelineIntel, setPipelineIntel]     = useState<{ coverage_ratio: number; commit_total: number; commit_count: number; ai_risk_count: number; critical_count: number; at_risk_count: number } | null>(null);
+  const [teamSummary, setTeamSummary] = useState<TeamActivitySummary | null>(null);
+  const [loadingTeam, setLoadingTeam] = useState(false);
+  const [tourActive, setTourActive] = useState(false);
+  const [dealWarnings, setDealWarnings] = useState<Record<string, DealWarningInfo>>({});
+  const [pipelineIntel, setPipelineIntel] = useState<{ coverage_ratio: number; commit_total: number; commit_count: number; ai_risk_count: number; critical_count: number; at_risk_count: number } | null>(null);
 
   // Inline stage edit
   const [editingStage, setEditingStage] = useState<{ dealId: string; value: string } | null>(null);
@@ -335,9 +354,9 @@ export default function Dashboard() {
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
-  const [totalDeals, setTotalDeals]   = useState(0);
-  const [totalPages, setTotalPages]   = useState(1);
-  const [cacheMeta, setCacheMeta]     = useState<{fresh?: boolean; source?: string; age_seconds?: number; needs_background_sync?: boolean} | null>(null);
+  const [totalDeals, setTotalDeals] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  const [cacheMeta, setCacheMeta] = useState<{ fresh?: boolean; source?: string; age_seconds?: number; needs_background_sync?: boolean } | null>(null);
   const PER_PAGE = 15;
 
   // Derived — don't rely solely on API flags; compute locally as reliable fallback
@@ -348,10 +367,10 @@ export default function Dashboard() {
   const dealTableRef = useRef<HTMLDivElement>(null);
 
   // Filter state
-  const [searchName, setSearchName]         = useState("");
+  const [searchName, setSearchName] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [filterOwner, setFilterOwner]   = useState("all");
-  const [filterStage, setFilterStage]   = useState("all");
+  const [filterOwner, setFilterOwner] = useState("all");
+  const [filterStage, setFilterStage] = useState("all");
   const [filterHealth, setFilterHealth] = useState("all");
 
   // Load metrics
@@ -364,14 +383,14 @@ export default function Dashboard() {
       .then((data: any) => {
         if (cancelled) return;
         setMetrics({
-          total_deals:          data.total_deals          ?? 0,
-          total_value:          data.total_value          ?? data.pipeline_value  ?? 0,
+          total_deals: data.total_deals ?? 0,
+          total_value: data.total_value ?? data.pipeline_value ?? 0,
           average_health_score: data.average_health_score ?? data.avg_health_score ?? 0,
-          healthy_count:        data.healthy_count        ?? 0,
-          at_risk_count:        data.at_risk_count        ?? 0,
-          critical_count:       data.critical_count       ?? 0,
-          zombie_count:         data.zombie_count         ?? 0,
-          deals_needing_action: data.deals_needing_action ?? data.needs_action    ?? 0,
+          healthy_count: data.healthy_count ?? 0,
+          at_risk_count: data.at_risk_count ?? 0,
+          critical_count: data.critical_count ?? 0,
+          zombie_count: data.zombie_count ?? 0,
+          deals_needing_action: data.deals_needing_action ?? data.needs_action ?? 0,
         });
       })
       .catch((err: unknown) => {
@@ -410,17 +429,17 @@ export default function Dashboard() {
         if (cancelled) return;
         const list: any[] = data.deals ?? data ?? [];
         const mapped: Deal[] = list.map((d: any) => ({
-          id:                   d.id,
-          deal_name:            d.name ?? d.deal_name ?? "Unnamed Deal",
-          company:              d.account_name || d.company || "—",
-          stage:                d.stage ?? "Unknown",
-          amount:               d.amount ?? 0,
-          health_score:         d.health_score ?? 0,
-          health_label:         d.health_label ?? "critical",
-          owner:                typeof d.owner === "object" ? d.owner?.name : d.owner || "—",
-          last_activity_time:   d.last_activity_time,
-          next_step:            d.next_step ?? undefined,
-          score_trend:          d.score_trend ?? null,
+          id: d.id,
+          deal_name: d.name ?? d.deal_name ?? "Unnamed Deal",
+          company: d.account_name || d.company || "—",
+          stage: d.stage ?? "Unknown",
+          amount: d.amount ?? 0,
+          health_score: d.health_score ?? 0,
+          health_label: d.health_label ?? "critical",
+          owner: typeof d.owner === "object" ? d.owner?.name : d.owner || "—",
+          last_activity_time: d.last_activity_time,
+          next_step: d.next_step ?? undefined,
+          score_trend: d.score_trend ?? null,
           discount_mention_count: d.discount_mention_count ?? 0,
         }));
         setAllDeals(mapped);
@@ -441,7 +460,7 @@ export default function Dashboard() {
       .finally(() => { if (!cancelled) setLoadingDeals(false); });
 
     return () => { cancelled = true; controller.abort(); };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session, currentPage, debouncedSearch]);
 
   // Batch-fetch warnings for the current page of deals
@@ -459,7 +478,7 @@ export default function Dashboard() {
         // silent — warnings are non-critical
       });
     return () => controller.abort();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [allDeals]);
 
   // Load team activity summary (lazy, low priority)
@@ -480,7 +499,7 @@ export default function Dashboard() {
   useEffect(() => {
     if (!session) return;
     fetchTeamSummary();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session]);
 
   // Load pipeline intelligence from forecast board (lazy, non-critical)
@@ -492,16 +511,16 @@ export default function Dashboard() {
         const commit = data.categories?.commit;
         setPipelineIntel({
           coverage_ratio: data.coverage_ratio ?? 0,
-          commit_total:   commit?.total ?? 0,
-          commit_count:   commit?.deals?.length ?? 0,
-          ai_risk_count:  data.ai_risk_count ?? 0,
+          commit_total: commit?.total ?? 0,
+          commit_count: commit?.deals?.length ?? 0,
+          ai_risk_count: data.ai_risk_count ?? 0,
           critical_count: data.critical_count ?? 0,
-          at_risk_count:  data.at_risk_count ?? 0,
+          at_risk_count: data.at_risk_count ?? 0,
         });
       })
-      .catch(() => {/* non-critical — silent */});
+      .catch(() => {/* non-critical — silent */ });
     return () => controller.abort();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session]);
 
   async function saveStageEdit(dealId: string, newStage: string, oldStage: string) {
@@ -576,7 +595,7 @@ export default function Dashboard() {
 
   // Pagination helpers
   const startItem = (currentPage - 1) * PER_PAGE + 1;
-  const endItem   = Math.min(currentPage * PER_PAGE, totalDeals);
+  const endItem = Math.min(currentPage * PER_PAGE, totalDeals);
 
   function goToPage(pg: number) {
     const clamped = Math.max(1, Math.min(pg, totalPages));
@@ -607,7 +626,7 @@ export default function Dashboard() {
   // Supports optional ?tab=battlecard to open directly on the Battle Card tab
   useEffect(() => {
     const dealParam = searchParams.get("deal");
-    const tabParam  = searchParams.get("tab");
+    const tabParam = searchParams.get("tab");
     if (dealParam && allDeals.length > 0) {
       const found = allDeals.find(d => d.id === dealParam);
       if (found) {
@@ -700,16 +719,49 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-background">
+      <style>{`
+        @keyframes pulseBorderRed {
+          0%, 100% { border-color: rgba(239,68,68,0.15); box-shadow: 0 0 15px rgba(239, 68, 68, 0.1); }
+          50% { border-color: rgba(239,68,68,0.3); box-shadow: 0 0 25px rgba(239, 68, 68, 0.25); }
+        }
+        .pulse-border-red {
+          animation: pulseBorderRed 3s infinite;
+        }
+        @keyframes scaleXIn {
+          from { transform: scaleX(0); }
+          to { transform: scaleX(1); }
+        }
+        .deal-row { position: relative; }
+        .deal-row::before {
+          content: '';
+          position: absolute;
+          left: 0;
+          top: 0;
+          bottom: 0;
+          width: 3px;
+          transform: scaleY(0);
+          transition: transform 150ms ease-out;
+          background-color: var(--row-health-color);
+        }
+        .deal-row:hover::before {
+          transform: scaleY(1);
+        }
+        .deal-row:hover {
+          background-color: rgba(255, 255, 255, 0.03) !important;
+        }
+      `}</style>
 
       {/* ── Header ── */}
-      <NavBar
-        onOpenDigest={() => setDigestOpen(true)}
-        onOpenSignal={() => setSignalPanelOpen(true)}
-        digestCriticalCount={digestCriticalCount}
-        deals={allDeals}
-        onSelectDeal={(id) => { setPanelInitialSection(undefined); setSelectedDealId(id); }}
-        onOpenMismatch={openMismatchForMostAtRisk}
-      />
+      <div className="sticky top-0 z-40 bg-[rgba(6,10,19,0.75)] backdrop-blur-[16px]">
+        <NavBar
+          onOpenDigest={() => setDigestOpen(true)}
+          onOpenSignal={() => setSignalPanelOpen(true)}
+          digestCriticalCount={digestCriticalCount}
+          deals={allDeals}
+          onSelectDeal={(id) => { setPanelInitialSection(undefined); setSelectedDealId(id); }}
+          onOpenMismatch={openMismatchForMostAtRisk}
+        />
+      </div>
 
       <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 space-y-5">
 
@@ -733,46 +785,55 @@ export default function Dashboard() {
           {loadingMetrics
             ? [...Array(4)].map((_, i) => <MetricCardSkeleton key={i} />)
             : summaryCards.map((card, idx) => (
-            <Card
-              key={card.label}
-              className="group relative overflow-hidden border-border/40 bg-card/60 transition-all duration-200 hover:border-border/70 hover:shadow-xl hover:shadow-black/25 animate-slide-up"
-              style={{ animationDelay: `${idx * 55}ms` }}
-            >
-              {/* Top accent line */}
-              <div className={cn(
-                "absolute inset-x-0 top-0 h-px",
-                card.isAlert
-                  ? "bg-gradient-to-r from-transparent via-health-red/70 to-transparent"
-                  : "bg-gradient-to-r from-transparent via-primary/50 to-transparent"
-              )} />
-              <CardContent className="flex items-center gap-4 p-5">
+              <Card
+                key={card.label}
+                className={cn(
+                  "group relative overflow-hidden bg-card/60 transition-all duration-200 hover:shadow-xl hover:shadow-black/25 animate-slide-up",
+                  card.isAlert ? "pulse-border-red border-health-red/30 shadow-[0_0_15px_rgba(239,68,68,0.15)]" : "border-border/40 hover:border-border/70"
+                )}
+                style={{ animationDelay: `${idx * 55}ms` }}
+              >
+                {/* Top accent line */}
                 <div className={cn(
-                  "flex h-11 w-11 shrink-0 items-center justify-center rounded-xl",
-                  card.isAlert ? "bg-health-red/10" : "bg-primary/10"
-                )}>
-                  <card.icon className={cn("h-5 w-5", card.isAlert ? "text-health-red" : "text-primary")} />
-                </div>
-                <div className="min-w-0">
-                  <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/60 mb-0.5">
-                    {card.label}
-                  </p>
-                  <p className={cn(
-                    "text-2xl font-black tracking-tight tabular-nums leading-tight",
-                    card.colorFn ? card.colorFn(card.value ?? 0) : card.isAlert ? "text-health-red" : "text-foreground"
+                  "absolute inset-x-0 top-0 h-px",
+                  card.isAlert
+                    ? "bg-gradient-to-r from-transparent via-health-red/70 to-transparent"
+                    : "bg-gradient-to-r from-transparent via-primary/50 to-transparent"
+                )} />
+                <CardContent className="flex items-center gap-4 p-5">
+                  <div className={cn(
+                    "flex h-11 w-11 shrink-0 items-center justify-center rounded-xl",
+                    card.isAlert ? "bg-health-red/10" : "bg-primary/10"
                   )}>
-                    {card.value != null ? card.format(card.value) : "—"}
-                  </p>
-                  {/* Subtext with colored dot for Avg Health */}
-                  {card.subtext && (
-                    <p className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground/60 leading-tight">
-                      {card.dot && <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", card.dot)} />}
-                      {card.subtext}
+                    <card.icon className={cn("h-5 w-5", card.isAlert ? "text-health-red" : "text-primary")} />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/60 mb-0.5">
+                      {card.label}
                     </p>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+                    {card.label === "Avg Health" ? (
+                      <div className="mt-1">
+                        <HealthGauge value={card.value ?? 0} />
+                      </div>
+                    ) : (
+                      <p className={cn(
+                        "font-black tracking-tight tabular-nums leading-tight font-numeric",
+                        card.colorFn ? card.colorFn(card.value ?? 0) : card.isAlert ? "text-health-red text-4xl" : "text-foreground text-2xl"
+                      )}>
+                        {card.value != null ? <MetricValue value={card.value} format={card.format} /> : "—"}
+                      </p>
+                    )}
+                    {/* Subtext with colored dot for Avg Health */}
+                    {card.subtext && (
+                      <p className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground/60 leading-tight">
+                        {card.dot && <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", card.dot)} />}
+                        {card.subtext}
+                      </p>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
         </div>
 
         {/* ── Pipeline Intelligence ── */}
@@ -790,7 +851,7 @@ export default function Dashboard() {
               <div className="mt-3 h-1.5 bg-slate-700 rounded-full overflow-hidden">
                 <div
                   className={cn("h-full rounded-full transition-all", pipelineIntel.coverage_ratio >= 3 ? "bg-emerald-500" : pipelineIntel.coverage_ratio >= 2 ? "bg-amber-500" : "bg-rose-500")}
-                  style={{ width: `${Math.min((pipelineIntel.coverage_ratio / 3) * 100, 100)}%` }}
+                  style={{ width: `${Math.min((pipelineIntel.coverage_ratio / 3) * 100, 100)}%`, transformOrigin: 'left', animation: 'scaleXIn 800ms ease-out forwards' }}
                 />
               </div>
             </div>
@@ -815,8 +876,8 @@ export default function Dashboard() {
               <div className="text-[11px] text-slate-500 uppercase tracking-wider mb-1">Deals Needing Action</div>
               <div className={cn("text-3xl font-bold",
                 pipelineIntel.critical_count > 0 ? "text-rose-400"
-                : pipelineIntel.at_risk_count > 0 ? "text-amber-400"
-                : "text-emerald-400"
+                  : pipelineIntel.at_risk_count > 0 ? "text-amber-400"
+                    : "text-emerald-400"
               )}>
                 {pipelineIntel.critical_count + pipelineIntel.at_risk_count}
               </div>
@@ -966,21 +1027,8 @@ export default function Dashboard() {
           <CardContent className="p-0">
             {/* Skeleton loaders */}
             {loadingDeals ? (
-              <div className="divide-y divide-border/20 px-6 py-2">
-                {[...Array(6)].map((_, i) => (
-                  <div key={i} className="flex items-center gap-4 py-4 animate-pulse">
-                    <Skeleton className="h-8 w-8 shrink-0 rounded-lg" />
-                    <div className="flex-1 space-y-2">
-                      <Skeleton className="h-3.5 w-44" />
-                      <Skeleton className="h-3 w-28" />
-                    </div>
-                    <Skeleton className="h-5 w-20 rounded-full" />
-                    <Skeleton className="h-5 w-24" />
-                    <Skeleton className="h-5 w-16" />
-                    <Skeleton className="h-5 w-10 rounded-full" />
-                    <Skeleton className="h-5 w-12 rounded-full" />
-                  </div>
-                ))}
+              <div className="divide-y divide-border/20">
+                {[...Array(6)].map((_, i) => <TableRowSkeleton key={i} />)}
               </div>
             ) : noDealsLoaded ? (
               /* Empty state — no deals in CRM */
@@ -1053,23 +1101,25 @@ export default function Dashboard() {
                       const whyLine = getDealWhyLine(deal);
                       const scoreBarColor =
                         deal.health_score >= 75 ? "bg-health-green" :
-                        deal.health_score >= 50 ? "bg-health-yellow" :
-                        deal.health_score >= 25 ? "bg-health-orange" :
-                        "bg-health-red";
+                          deal.health_score >= 50 ? "bg-health-yellow" :
+                            deal.health_score >= 25 ? "bg-health-orange" :
+                              "bg-health-red";
+                      const healthHex = deal.health_score >= 75 ? "#10b981" : deal.health_score >= 50 ? "#f59e0b" : deal.health_score >= 25 ? "#f97316" : "#ef4444";
                       const scoreLabel =
                         deal.health_score >= 75 ? "Healthy" :
-                        deal.health_score >= 50 ? "At Risk" :
-                        deal.health_score >= 25 ? "Critical" : "Zombie";
+                          deal.health_score >= 50 ? "At Risk" :
+                            deal.health_score >= 25 ? "Critical" : "Zombie";
                       return (
                         <TableRow
                           key={deal.id}
                           onClick={() => { setPanelInitialSection(undefined); setSelectedDealId(deal.id); }}
                           className={cn(
-                            "group cursor-pointer border-border/20 transition-colors duration-100",
+                            "deal-row group cursor-pointer border-border/20 transition-all duration-100 fade-slide-in relative",
                             selectedDealId === deal.id
                               ? "bg-primary/10 hover:bg-primary/[0.13]"
-                              : "hover:bg-secondary/40"
+                              : ""
                           )}
+                          style={{ animationDelay: `${idx * 30}ms`, '--row-health-color': healthHex } as React.CSSProperties}
                           // Mark first row for tour
                           {...(idx === 0 ? { "data-tour": "analyse-btn" } : {})}
                         >
@@ -1143,7 +1193,7 @@ export default function Dashboard() {
                                 }}
                                 className="text-xs bg-secondary border border-border/60 rounded-lg px-2 py-1 text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
                               >
-                                {["Qualification","Needs Analysis","Value Proposition","Proposal","Negotiation","Contract Sent","Closed Won","Closed Lost"].map((s) => (
+                                {["Qualification", "Needs Analysis", "Value Proposition", "Proposal", "Negotiation", "Contract Sent", "Closed Won", "Closed Lost"].map((s) => (
                                   <option key={s} value={s}>{s}</option>
                                 ))}
                               </select>
@@ -1207,20 +1257,41 @@ export default function Dashboard() {
                               if (!w) {
                                 return <span className="text-muted-foreground/20 text-xs">—</span>;
                               }
+                              const tooltipText = w.top_warning
+                                ? w.top_warning
+                                : w.has_critical
+                                  ? `${w.warning_count} critical warning${w.warning_count !== 1 ? "s" : ""} — click to view`
+                                  : w.warning_count > 0
+                                    ? `${w.warning_count} warning${w.warning_count !== 1 ? "s" : ""} — click to view`
+                                    : "All signals healthy";
                               if (w.has_critical) {
                                 return (
-                                  <div className="inline-flex items-center gap-1 rounded-lg border border-rose-500/25 bg-rose-500/15 px-2 py-0.5 text-rose-400">
-                                    <AlertTriangle size={11} strokeWidth={2.5} />
-                                    <span className="text-xs font-semibold">{w.warning_count}</span>
-                                  </div>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <div className="inline-flex items-center gap-1 rounded-lg border border-rose-500/25 bg-rose-500/15 px-2 py-0.5 text-rose-400 cursor-help">
+                                        <AlertTriangle size={11} strokeWidth={2.5} />
+                                        <span className="text-xs font-semibold">{w.warning_count}</span>
+                                      </div>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="top" className="max-w-[220px] text-xs text-center">
+                                      {tooltipText}
+                                    </TooltipContent>
+                                  </Tooltip>
                                 );
                               }
                               if (w.warning_count > 0) {
                                 return (
-                                  <div className="inline-flex items-center gap-1 rounded-lg border border-amber-500/25 bg-amber-500/15 px-2 py-0.5 text-amber-400">
-                                    <AlertCircle size={11} strokeWidth={2.5} />
-                                    <span className="text-xs font-semibold">{w.warning_count}</span>
-                                  </div>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <div className="inline-flex items-center gap-1 rounded-lg border border-amber-500/25 bg-amber-500/15 px-2 py-0.5 text-amber-400 cursor-help">
+                                        <AlertCircle size={11} strokeWidth={2.5} />
+                                        <span className="text-xs font-semibold">{w.warning_count}</span>
+                                      </div>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="top" className="max-w-[220px] text-xs text-center">
+                                      {tooltipText}
+                                    </TooltipContent>
+                                  </Tooltip>
                                 );
                               }
                               return <CheckCircle2 size={14} className="text-emerald-500" strokeWidth={2} />;
@@ -1376,8 +1447,8 @@ export default function Dashboard() {
                           <span className={cn(
                             "text-sm font-bold tabular-nums",
                             rep.deals_touched_7d / Math.max(rep.deals_active, 1) >= 0.6 ? "text-health-green" :
-                            rep.deals_touched_7d / Math.max(rep.deals_active, 1) >= 0.3 ? "text-health-yellow" :
-                            "text-health-red"
+                              rep.deals_touched_7d / Math.max(rep.deals_active, 1) >= 0.3 ? "text-health-yellow" :
+                                "text-health-red"
                           )}>
                             {rep.deals_touched_7d}
                           </span>
@@ -1427,16 +1498,17 @@ export default function Dashboard() {
       {/* ── Floating Action Button — Check Email Before Sending ── */}
       {allDeals.length > 0 && (
         <div
-          className="fixed bottom-6 right-6 z-30 mb-0 sm:mb-0"
+          className="fixed bottom-6 right-6 z-30"
           data-tour="mismatch-fab"
         >
           <button
             onClick={openMismatchForMostAtRisk}
-            className="group flex items-center gap-2.5 rounded-full border border-amber-500/40 bg-card px-4 py-3 text-sm font-semibold text-amber-400 shadow-xl shadow-black/30 transition-all duration-200 hover:border-amber-500/70 hover:bg-amber-500/10 hover:shadow-amber-900/20"
+            className="group flex items-center gap-0 overflow-hidden rounded-full border border-border/40 bg-card/80 backdrop-blur-sm px-3 py-2.5 text-xs font-medium text-muted-foreground shadow-lg shadow-black/30 transition-all duration-300 hover:border-amber-500/40 hover:text-amber-400 hover:bg-card hover:gap-2 hover:px-4"
           >
             <ClipboardCheck className="h-4 w-4 shrink-0 transition-transform group-hover:scale-110" />
-            <span className="hidden sm:inline">📋 Check Email Before Sending</span>
-            <span className="sm:hidden">📋</span>
+            <span className="max-w-0 overflow-hidden whitespace-nowrap transition-all duration-300 group-hover:max-w-xs">
+              Check Email Before Sending
+            </span>
           </button>
         </div>
       )}
@@ -1457,7 +1529,7 @@ export default function Dashboard() {
           if (!selectedDealId) return;
           setAllDeals((prev) => prev.map((d) => {
             if (d.id !== selectedDealId) return d;
-            if (field === "Stage")  return { ...d, stage: String(value) };
+            if (field === "Stage") return { ...d, stage: String(value) };
             if (field === "Amount") return { ...d, amount: Number(value) };
             return d;
           }));

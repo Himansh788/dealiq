@@ -86,9 +86,9 @@ function formatCurrency(val: number): string {
 /** Time-ago with color tier based on days */
 function timeAgoLabel(days?: number): { text: string; className: string } | null {
   if (days == null) return null;
-  if (days > 60)  return { text: `${days}d ago`, className: "text-health-red" };
-  if (days > 14)  return { text: `${days}d ago`, className: "text-health-yellow" };
-  return { text: `${days}d ago`, className: "text-muted-foreground/50" };
+  if (days > 30) return { text: `${days}d overdue`, className: "text-health-red font-bold" };
+  if (days > 14) return { text: `${days}d ago`, className: "text-health-yellow" };
+  return { text: `${days}d ago`, className: "text-blue-400" };
 }
 
 /** Card border + bg based on health_label (real deal health, not just urgency score) */
@@ -105,8 +105,8 @@ function cardStyle(action: Action): string {
 
 /** Dot color for section headers */
 function sectionDot(group: "critical" | "at_risk" | "opportunity"): string {
-  if (group === "critical")   return "bg-health-red";
-  if (group === "at_risk")    return "bg-health-orange";
+  if (group === "critical") return "bg-health-red";
+  if (group === "at_risk") return "bg-health-orange";
   return "bg-health-green";
 }
 
@@ -129,14 +129,14 @@ function ctaConfig(action: Action): { label: string; icon: React.ElementType } {
 }
 
 const SNOOZE_OPTIONS = [
-  { label: "Tomorrow",  hours: 24 },
-  { label: "3 Days",    hours: 72 },
-  { label: "1 Week",    hours: 168 },
+  { label: "Tomorrow", hours: 24 },
+  { label: "3 Days", hours: 72 },
+  { label: "1 Week", hours: 168 },
 ];
 
 const SECTION_LABELS: Record<string, string> = {
-  critical:    "Critical — Needs Immediate Attention",
-  at_risk:     "At Risk — Follow Up Soon",
+  critical: "Critical — Needs Immediate Attention",
+  at_risk: "At Risk — Follow Up Soon",
   opportunity: "On Track — Proactive Actions",
 };
 
@@ -149,15 +149,15 @@ export default function Home() {
   const { session } = useSession();
   const { toast } = useToast();
 
-  const [actions, setActions]               = useState<Action[]>([]);
+  const [actions, setActions] = useState<Action[]>([]);
   const [pendingUpdates, setPendingUpdates] = useState<PendingUpdate[]>([]);
-  const [loading, setLoading]               = useState(true);
-  const [dismissed, setDismissed]           = useState<Set<string>>(new Set());
-  const [snoozed, setSnoozed]               = useState<Set<string>>(new Set());
-  const [composer, setComposer]             = useState<{ dealId: string; dealName: string; draft?: string } | null>(null);
-  const [search, setSearch]                 = useState("");
-  const [filterType, setFilterType]         = useState<FilterType>("all");
-  const [collapsed, setCollapsed]           = useState<Set<string>>(() => {
+  const [loading, setLoading] = useState(true);
+  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+  const [snoozed, setSnoozed] = useState<Set<string>>(new Set());
+  const [composer, setComposer] = useState<{ dealId: string; dealName: string; draft?: string } | null>(null);
+  const [search, setSearch] = useState("");
+  const [filterType, setFilterType] = useState<FilterType>("all");
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => {
     try {
       const stored = localStorage.getItem(LS_COLLAPSED);
       return stored ? new Set(JSON.parse(stored)) : new Set();
@@ -193,7 +193,7 @@ export default function Home() {
     setCollapsed((prev) => {
       const next = new Set(prev);
       next.has(group) ? next.delete(group) : next.add(group);
-      try { localStorage.setItem(LS_COLLAPSED, JSON.stringify([...next])); } catch {}
+      try { localStorage.setItem(LS_COLLAPSED, JSON.stringify([...next])); } catch { }
       return next;
     });
   }
@@ -214,10 +214,10 @@ export default function Home() {
     if (filterType !== "all") {
       list = list.filter((a) => {
         const t = a.type?.toLowerCase() ?? "";
-        if (filterType === "email")      return t.includes("email") || t.includes("draft");
-        if (filterType === "call")       return t.includes("call");
-        if (filterType === "zombie")     return t.includes("zombie") || (a.days_since_contact ?? 0) > 90;
-        if (filterType === "follow_up")  return t.includes("follow") || t.includes("no_response");
+        if (filterType === "email") return t.includes("email") || t.includes("draft");
+        if (filterType === "call") return t.includes("call");
+        if (filterType === "zombie") return t.includes("zombie") || (a.days_since_contact ?? 0) > 90;
+        if (filterType === "follow_up") return t.includes("follow") || t.includes("no_response");
         return true;
       });
     }
@@ -232,8 +232,8 @@ export default function Home() {
 
   // Grouping: critical (score≥80 or health_label=critical), at_risk, opportunity
   const groups = useMemo(() => {
-    const critical    = visibleActions.filter((a) => a.health_label === "critical" || a.urgency_score >= 80);
-    const at_risk     = visibleActions.filter((a) => !critical.includes(a) && (a.health_label === "at_risk" || a.urgency_score >= 50));
+    const critical = visibleActions.filter((a) => a.health_label === "critical" || a.urgency_score >= 80);
+    const at_risk = visibleActions.filter((a) => !critical.includes(a) && (a.health_label === "at_risk" || a.urgency_score >= 50));
     const opportunity = visibleActions.filter((a) => !critical.includes(a) && !at_risk.includes(a));
     return { critical, at_risk, opportunity };
   }, [visibleActions]);

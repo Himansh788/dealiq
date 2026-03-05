@@ -5,6 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
+import { useCountUp } from "@/hooks/useCountUp";
 import { Mail, TrendingUp, TrendingDown, AlertTriangle, Sparkles, ArrowRight, Users, XCircle } from "lucide-react";
 
 interface Signal {
@@ -50,11 +51,11 @@ function sortedSignals(signals: Signal[]): Signal[] {
 
 function labelColor(label: string) {
   switch (label) {
-    case "good":             return "bg-health-green/20 text-health-green border-health-green/30";
-    case "warn":             return "bg-health-yellow/20 text-health-yellow border-health-yellow/30";
-    case "critical":         return "bg-health-red/20 text-health-red border-health-red/30";
+    case "good": return "bg-health-green/20 text-health-green border-health-green/30";
+    case "warn": return "bg-health-yellow/20 text-health-yellow border-health-yellow/30";
+    case "critical": return "bg-health-red/20 text-health-red border-health-red/30";
     case "insufficient_data": return "bg-muted/60 text-muted-foreground border-border/40";
-    default:                 return "bg-muted text-muted-foreground";
+    default: return "bg-muted text-muted-foreground";
   }
 }
 
@@ -64,31 +65,31 @@ function labelDisplay(label: string) {
 
 function scoreRingColor(label: string) {
   switch (label) {
-    case "healthy":  return "text-health-green";
-    case "at_risk":  return "text-health-yellow";
+    case "healthy": return "text-health-green";
+    case "at_risk": return "text-health-yellow";
     case "critical": return "text-health-orange";
-    case "zombie":   return "text-health-red";
-    default:         return "text-muted-foreground";
+    case "zombie": return "text-health-red";
+    default: return "text-muted-foreground";
   }
 }
 
 function progressColor(label: string) {
   switch (label) {
-    case "good":             return "[&>div]:bg-health-green";
-    case "warn":             return "[&>div]:bg-health-yellow";
-    case "critical":         return "[&>div]:bg-health-red";
+    case "good": return "[&>div]:bg-health-green";
+    case "warn": return "[&>div]:bg-health-yellow";
+    case "critical": return "[&>div]:bg-health-red";
     case "insufficient_data": return "[&>div]:bg-muted-foreground/30";
-    default:                 return "";
+    default: return "";
   }
 }
 
 function sentimentConfig(sentiment: string) {
   switch (sentiment) {
-    case "positive":    return { cls: "text-health-green border-health-green/30 bg-health-green/10", label: "Positive" };
-    case "neutral":     return { cls: "text-health-yellow border-health-yellow/30 bg-health-yellow/10", label: "Neutral" };
-    case "negative":    return { cls: "text-health-red border-health-red/30 bg-health-red/10", label: "Negative" };
+    case "positive": return { cls: "text-health-green border-health-green/30 bg-health-green/10", label: "Positive" };
+    case "neutral": return { cls: "text-health-yellow border-health-yellow/30 bg-health-yellow/10", label: "Neutral" };
+    case "negative": return { cls: "text-health-red border-health-red/30 bg-health-red/10", label: "Negative" };
     case "no_response": return { cls: "text-health-red border-health-red/30 bg-health-red/10", label: "No Response" };
-    default:            return { cls: "text-muted-foreground border-border/40", label: "Unknown" };
+    default: return { cls: "text-muted-foreground border-border/40", label: "Unknown" };
   }
 }
 
@@ -104,6 +105,14 @@ export default function HealthBreakdown({ dealId }: { dealId: string }) {
       .finally(() => setLoading(false));
   }, [dealId]);
 
+  // Compute display score early so useCountUp is ALWAYS called unconditionally
+  // (React Rules of Hooks: hooks must not be called after conditional returns)
+  const displayScore = data
+    ? (typeof data.total_score === "number" ? data.total_score
+      : typeof data.overall_score === "number" ? data.overall_score : 0)
+    : 0;
+  const animatedScore = useCountUp(displayScore, 1200);
+
   if (loading) return (
     <div className="space-y-3 py-4">
       {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}
@@ -112,26 +121,33 @@ export default function HealthBreakdown({ dealId }: { dealId: string }) {
   if (!data) return <p className="text-xs text-muted-foreground py-4">Could not load health data.</p>;
 
   const circumference = 2 * Math.PI * 45;
-  const displayScore = typeof data.total_score === "number" ? data.total_score
-    : typeof data.overall_score === "number" ? data.overall_score : 0;
-  const offset = circumference - (displayScore / 100) * circumference;
+  const offset = circumference - (animatedScore / 100) * circumference;
   const ea = data.email_analysis;
   const sentiment = ea ? sentimentConfig(ea.buyer_sentiment) : null;
 
   return (
     <div className="space-y-6 pb-4">
       {/* Score Ring */}
-      <div className="flex justify-center">
-        <div className="relative h-32 w-32">
+      <div className="flex justify-center relative">
+        {/* Ambient glow */}
+        <div
+          className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-24 w-24 rounded-full"
+          style={{
+            background: `radial-gradient(circle, var(--health-${data.health_label.replace("healthy", "green").replace("at_risk", "yellow").replace("zombie", "red")}, currentColor) 0%, transparent 70%)`,
+            opacity: 0.15,
+            filter: 'blur(20px)',
+          }}
+        />
+        <div className="relative h-32 w-32 z-10">
           <svg className="h-32 w-32 -rotate-90" viewBox="0 0 100 100">
             <circle cx="50" cy="50" r="45" fill="none" strokeWidth="6" className="stroke-secondary" />
             <circle cx="50" cy="50" r="45" fill="none" strokeWidth="6" strokeLinecap="round"
-              className={`${scoreRingColor(data.health_label)} stroke-current`}
+              className={`${scoreRingColor(data.health_label)} stroke-current transition-all`}
               strokeDasharray={circumference} strokeDashoffset={offset}
-              style={{ transition: "stroke-dashoffset 0.6s ease" }} />
+              style={{ transition: "stroke-dashoffset 1.2s ease-out 300ms" }} />
           </svg>
           <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <span className={`text-3xl font-bold ${scoreRingColor(data.health_label)}`}>{displayScore}</span>
+            <span className={`text-3xl font-bold font-numeric tabular-nums ${scoreRingColor(data.health_label)}`}>{animatedScore}</span>
             <span className="text-xs uppercase text-muted-foreground">{data.health_label.replace("_", " ")}</span>
           </div>
         </div>
@@ -139,7 +155,7 @@ export default function HealthBreakdown({ dealId }: { dealId: string }) {
 
       {/* Signals */}
       <div className="space-y-3">
-        {sortedSignals(data.signals).map((signal) => (
+        {sortedSignals(data.signals).map((signal, idx) => (
           <div key={signal.name} className="space-y-1">
             <div className="flex items-center justify-between">
               <span className="text-sm font-medium text-foreground">{signal.name}</span>
@@ -147,10 +163,15 @@ export default function HealthBreakdown({ dealId }: { dealId: string }) {
                 {labelDisplay(signal.label)}
               </Badge>
             </div>
-            <Progress
-              value={(signal.score / (signal.max_score || 20)) * 100}
-              className={`h-2 bg-secondary ${progressColor(signal.label)}`}
-            />
+            <div className="relative h-2 w-full overflow-hidden rounded-full bg-secondary">
+              <div
+                className={`h-full w-full flex-1 transition-transform duration-[600ms] ease-out origin-left animate-in fade-in fill-mode-both ${progressColor(signal.label).replace('[&>div]:', '')}`}
+                style={{
+                  transform: `scaleX(${signal.score / (signal.max_score || 20)})`,
+                  animationDelay: `${500 + idx * 80}ms`
+                }}
+              />
+            </div>
             <p className={`text-xs ${signal.label === "insufficient_data" ? "text-muted-foreground/50 italic" : "text-muted-foreground"}`}>
               {signal.detail}
             </p>

@@ -116,12 +116,13 @@ function DealCard({
   deal: ForecastDeal;
   onCategorize: (id: string, category: string) => void;
 }) {
+  const navigate = useNavigate();
   return (
-    <div className="bg-slate-800 hover:bg-slate-700 transition-colors rounded-xl p-3 cursor-default group">
+    <div className="bg-slate-800 hover:bg-slate-700 transition-all duration-300 hover:-translate-y-[2px] hover:shadow-lg hover:shadow-black/50 rounded-xl p-3 cursor-default group border border-slate-700/50 relative overflow-hidden">
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
           {deal.has_critical_warning && (
-            <AlertTriangle size={13} className="text-rose-400 flex-shrink-0" strokeWidth={2.5} title="Critical warning" />
+            <AlertTriangle size={13} className="text-rose-400 flex-shrink-0" strokeWidth={2.5} />
           )}
           <span className="text-slate-200 font-medium text-sm truncate">{deal.name}</span>
         </div>
@@ -189,53 +190,64 @@ function DealColumn({
   promoteCandidates?: ForecastDeal[];
 }) {
   const candidates = promoteCandidates?.filter(d => d.health_score >= 65).slice(0, 3) ?? [];
+  const isEmptyCommit = title === "Commit" && deals.length === 0;
 
   return (
     <div className="flex flex-col min-w-0">
-      <div className={cn("border-t-2 rounded-t-xl bg-slate-900 px-4 py-3 flex justify-between items-center", colorClass)}>
+      <div className={cn("border-t-[3px] rounded-t-xl bg-slate-900 px-4 py-3 flex justify-between items-center", colorClass)}>
         <div className="flex items-center gap-2">
-          {title === "Commit"    && <Zap     size={14} className={textClass} strokeWidth={2.5} />}
-          {title === "Best Case" && <Shield  size={14} className={textClass} strokeWidth={2.5} />}
-          {title === "Pipeline"  && <BarChart3 size={14} className={textClass} strokeWidth={2.5} />}
+          {title === "Commit" && <Zap size={14} className={textClass} strokeWidth={2.5} />}
+          {title === "Best Case" && <Shield size={14} className={textClass} strokeWidth={2.5} />}
+          {title === "Pipeline" && <BarChart3 size={14} className={textClass} strokeWidth={2.5} />}
           <span className={cn("font-semibold text-sm uppercase tracking-wider", textClass)}>{title}</span>
         </div>
-        <span className="text-slate-300 font-bold text-sm">
-          {formatK(total)} · {deals.length} deal{deals.length !== 1 ? "s" : ""}
+        <span className={cn("font-bold text-sm", isEmptyCommit ? "text-rose-500" : "text-slate-300")}>
+          {isEmptyCommit ? "$0" : formatK(total)} · {deals.length} deal{deals.length !== 1 ? "s" : ""}
         </span>
       </div>
-      <div className="bg-slate-900/50 border border-t-0 border-slate-800 rounded-b-xl p-3 min-h-[320px] space-y-2 flex-1">
+      <div className={cn(
+        "bg-slate-900/50 border border-t-0 border-slate-800 rounded-b-xl p-3 min-h-[320px] space-y-2 flex-1",
+        isEmptyCommit && "bg-rose-500/10 border-rose-500/20"
+      )}>
         {deals.length === 0 ? (
-          <>
+          isEmptyCommit ? (
             <div className="flex flex-col items-center justify-center h-32 gap-2">
-              <div className="w-8 h-8 rounded-full border-2 border-dashed border-slate-700 flex items-center justify-center">
-                <Plus size={14} className="text-slate-600" />
-              </div>
-              <span className="text-slate-600 text-xs">Move deals here</span>
+              <AlertTriangle className="h-6 w-6 text-rose-500/70" />
+              <span className="text-rose-500/80 text-xs font-semibold">No committed deals</span>
             </div>
-            {promoteCandidates !== undefined && (
-              <div className="mt-3 px-1">
-                <p className="text-xs text-slate-600 mb-2 uppercase tracking-wider">Promote to Commit?</p>
-                {candidates.length > 0 ? candidates.map(deal => (
-                  <button
-                    key={deal.id}
-                    onClick={() => onCategorize(deal.id, "commit")}
-                    className="w-full text-left mb-1.5 px-3 py-2 rounded-lg bg-slate-800/50 hover:bg-emerald-500/10 hover:border-emerald-500/30 border border-slate-700/50 transition-all group/suggest"
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-slate-400 group-hover/suggest:text-slate-200 text-xs truncate transition-colors">
-                        {deal.name}
-                      </span>
-                      <span className="text-emerald-500/60 group-hover/suggest:text-emerald-400 text-xs ml-2 flex-shrink-0 transition-colors">
-                        {deal.health_score} ↑
-                      </span>
-                    </div>
-                  </button>
-                )) : (
-                  <p className="text-xs text-slate-700 italic">No high-health deals in Best Case yet</p>
-                )}
+          ) : (
+            <>
+              <div className="flex flex-col items-center justify-center h-32 gap-2">
+                <div className="w-8 h-8 rounded-full border-2 border-dashed border-slate-700 flex items-center justify-center">
+                  <Plus size={14} className="text-slate-600" />
+                </div>
+                <span className="text-slate-600 text-xs">Move deals here</span>
               </div>
-            )}
-          </>
+              {promoteCandidates !== undefined && (
+                <div className="mt-3 px-1">
+                  <p className="text-xs text-slate-600 mb-2 uppercase tracking-wider">Promote to Commit?</p>
+                  {candidates.length > 0 ? candidates.map(deal => (
+                    <button
+                      key={deal.id}
+                      onClick={() => onCategorize(deal.id, "commit")}
+                      className="w-full text-left mb-1.5 px-3 py-2 rounded-lg bg-slate-800/50 hover:bg-emerald-500/10 hover:border-emerald-500/30 border border-slate-700/50 transition-all group/suggest"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-400 group-hover/suggest:text-slate-200 text-xs truncate transition-colors">
+                          {deal.name}
+                        </span>
+                        <span className="text-emerald-500/60 group-hover/suggest:text-emerald-400 text-xs ml-2 flex-shrink-0 transition-colors">
+                          {deal.health_score} ↑
+                        </span>
+                      </div>
+                    </button>
+                  )) : (
+                    <p className="text-xs text-slate-700 italic">No high-health deals in Best Case yet</p>
+                  )}
+                </div>
+              )}
+            </>
+          )
         ) : (
           deals.map((deal) => (
             <DealCard key={deal.id} deal={deal} onCategorize={onCategorize} />
@@ -350,9 +362,9 @@ export default function ForecastBoard() {
       return {
         ...b,
         categories: {
-          commit:    { deals: categories.commit,    total: categories.commit.reduce((s, d) => s + d.amount, 0) },
+          commit: { deals: categories.commit, total: categories.commit.reduce((s, d) => s + d.amount, 0) },
           best_case: { deals: categories.best_case, total: categories.best_case.reduce((s, d) => s + d.amount, 0) },
-          pipeline:  { deals: categories.pipeline,  total: categories.pipeline.reduce((s, d) => s + d.amount, 0) },
+          pipeline: { deals: categories.pipeline, total: categories.pipeline.reduce((s, d) => s + d.amount, 0) },
         },
       };
     });
@@ -410,7 +422,7 @@ export default function ForecastBoard() {
       // Reload submissions for history
       api.getForecastSubmissions().then((d: { submissions: ForecastSubmissionRecord[] }) => {
         setSubmissions(d.submissions ?? []);
-      }).catch(() => {});
+      }).catch(() => { });
     } catch {
       toast({ title: "Failed to submit forecast", variant: "destructive" });
     } finally {
@@ -424,7 +436,7 @@ export default function ForecastBoard() {
     if (!historyOpen && submissions.length === 0) {
       api.getForecastSubmissions()
         .then((d: { submissions: ForecastSubmissionRecord[] }) => setSubmissions(d.submissions ?? []))
-        .catch(() => {});
+        .catch(() => { });
     }
     setHistoryOpen((v) => !v);
   }
@@ -450,12 +462,12 @@ export default function ForecastBoard() {
   if (!board) return null;
 
   const { quota, period_label, categories, last_submission, ai_risk_count, coverage_ratio } = board;
-  const commitTotal    = categories.commit.total;
-  const bestCaseTotal  = categories.best_case.total;
-  const pipelineTotal  = categories.pipeline.total;
-  const totalPipeline  = commitTotal + bestCaseTotal + pipelineTotal;
+  const commitTotal = categories.commit.total;
+  const bestCaseTotal = categories.best_case.total;
+  const pipelineTotal = categories.pipeline.total;
+  const totalPipeline = commitTotal + bestCaseTotal + pipelineTotal;
 
-  const commitPct   = quota > 0 ? Math.min((commitTotal / quota) * 100, 100) : 0;
+  const commitPct = quota > 0 ? Math.min((commitTotal / quota) * 100, 100) : 0;
   const bestCasePct = quota > 0 ? Math.min(((bestCaseTotal) / quota) * 100, 100 - commitPct) : 0;
   const quotaReachedPct = quota > 0 ? Math.min((totalPipeline / quota) * 100, 100) : 0;
 
@@ -491,8 +503,8 @@ export default function ForecastBoard() {
                   coverage_ratio >= 3
                     ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
                     : coverage_ratio >= 2
-                    ? "bg-amber-500/10 text-amber-400 border-amber-500/30"
-                    : "bg-rose-500/10 text-rose-400 border-rose-500/30"
+                      ? "bg-amber-500/10 text-amber-400 border-amber-500/30"
+                      : "bg-rose-500/10 text-rose-400 border-rose-500/30"
                 )}>
                   {coverage_ratio.toFixed(1)}x pipeline coverage
                 </span>
@@ -547,10 +559,10 @@ export default function ForecastBoard() {
           {/* Stat chips */}
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             {[
-              { label: "Commit",    value: formatK(commitTotal),   color: "text-emerald-400" },
+              { label: "Commit", value: formatK(commitTotal), color: "text-emerald-400" },
               { label: "Best Case", value: formatK(bestCaseTotal), color: "text-amber-400" },
-              { label: "Pipeline",  value: formatK(pipelineTotal), color: "text-sky-400" },
-              { label: "Quota",     value: quota > 0 ? formatK(quota) : "Not set", color: "text-slate-300" },
+              { label: "Pipeline", value: formatK(pipelineTotal), color: "text-sky-400" },
+              { label: "Quota", value: quota > 0 ? formatK(quota) : "Not set", color: "text-slate-300" },
             ].map(({ label, value, color }) => (
               <div key={label} className="bg-slate-800 rounded-xl px-5 py-3 text-center">
                 <div className={cn("text-2xl font-bold", color)}>{value}</div>
@@ -633,9 +645,9 @@ export default function ForecastBoard() {
           {/* Auto-calculated amounts */}
           <div className="flex flex-wrap gap-4 text-sm">
             {[
-              { label: "Commit",    value: formatK(commitTotal),   color: "text-emerald-400" },
+              { label: "Commit", value: formatK(commitTotal), color: "text-emerald-400" },
               { label: "Best Case", value: formatK(bestCaseTotal), color: "text-amber-400" },
-              { label: "Pipeline",  value: formatK(pipelineTotal), color: "text-sky-400" },
+              { label: "Pipeline", value: formatK(pipelineTotal), color: "text-sky-400" },
             ].map(({ label, value, color }) => (
               <div key={label} className="flex items-center gap-1.5">
                 <span className="text-slate-500">{label}:</span>
@@ -736,9 +748,9 @@ export default function ForecastBoard() {
                         <td className="px-4 py-2.5 text-emerald-400 font-semibold">
                           <span className="flex items-center gap-1">
                             {formatK(s.commit_amount)}
-                            {trendDir === "up"   && <TrendingUp   size={13} className="text-emerald-400" />}
-                            {trendDir === "down" && <TrendingDown  size={13} className="text-rose-400" />}
-                            {trendDir === "flat" && <ArrowRight    size={13} className="text-slate-500" />}
+                            {trendDir === "up" && <TrendingUp size={13} className="text-emerald-400" />}
+                            {trendDir === "down" && <TrendingDown size={13} className="text-rose-400" />}
+                            {trendDir === "flat" && <ArrowRight size={13} className="text-slate-500" />}
                           </span>
                         </td>
                         <td className="px-4 py-2.5 text-amber-400">{formatK(s.best_case_amount)}</td>

@@ -43,24 +43,24 @@ const PRESET_QUESTIONS = [
 ];
 
 const CONFIDENCE_DOT: Record<string, string> = {
-  high:   "bg-health-green",
+  high: "bg-health-green",
   medium: "bg-health-yellow",
-  low:    "bg-muted-foreground",
+  low: "bg-muted-foreground",
 };
 
 const CONFIDENCE_LABEL: Record<string, string> = {
-  high:   "text-health-green",
+  high: "text-health-green",
   medium: "text-health-yellow",
-  low:    "text-muted-foreground",
+  low: "text-muted-foreground",
 };
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function PipelineQABar({ onSelectDeal }: Props) {
-  const [question, setQuestion]   = useState("");
-  const [loading,  setLoading]    = useState(false);
-  const [answer,   setAnswer]     = useState<PipelineAnswer | null>(null);
-  const [askedQ,   setAskedQ]     = useState("");
+  const [question, setQuestion] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [answer, setAnswer] = useState<PipelineAnswer | null>(null);
+  const [askedQ, setAskedQ] = useState("");
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const { toast } = useToast();
 
@@ -74,9 +74,9 @@ export default function PipelineQABar({ onSelectDeal }: Props) {
     try {
       const data = await api.askPipeline(trimmed);
       setAnswer({
-        answer:            data.answer        ?? "No answer returned.",
-        deals_referenced:  data.deals_referenced ?? [],
-        confidence:        data.confidence    ?? "medium",
+        answer: data.answer ?? "No answer returned.",
+        deals_referenced: data.deals_referenced ?? [],
+        confidence: data.confidence ?? "medium",
         processing_time_ms: data.processing_time_ms,
       });
     } catch (err: any) {
@@ -156,18 +156,19 @@ export default function PipelineQABar({ onSelectDeal }: Props) {
           </div>
 
           {/* Preset pills */}
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex flex-wrap gap-1.5 pt-1">
             {PRESET_QUESTIONS.map((q, i) => (
               <button
                 key={i}
                 onClick={() => ask(q)}
                 disabled={loading}
                 className={cn(
-                  "rounded-full border px-2.5 py-0.5 text-[11px] font-medium transition-colors whitespace-nowrap",
+                  "rounded-full border px-2.5 py-0.5 text-[11px] font-medium transition-all duration-300 whitespace-nowrap fade-slide-in",
                   "border-border/40 bg-secondary/40 text-muted-foreground",
                   "hover:border-violet-500/40 hover:bg-violet-500/10 hover:text-violet-400",
                   "disabled:pointer-events-none disabled:opacity-40"
                 )}
+                style={{ animationDelay: `${i * 60 + 100}ms` }}
               >
                 {q}
               </button>
@@ -190,7 +191,7 @@ export default function PipelineQABar({ onSelectDeal }: Props) {
 
       {/* ── Answer ── */}
       {!loading && answer && (
-        <div className="border-t border-violet-500/15 px-4 pb-4 pt-3 space-y-3">
+        <div className="border-t border-violet-500/15 px-4 pb-4 pt-3 space-y-3 bg-gradient-to-r from-violet-500/10 to-transparent border-l-[3px] border-l-violet-500 fade-slide-in">
 
           {/* Question echo + clear */}
           <div className="flex items-start justify-between gap-3">

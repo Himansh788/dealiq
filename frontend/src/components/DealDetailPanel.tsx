@@ -52,27 +52,27 @@ function scoreColor(score: number) {
 
 function stagePillClass(stage: string): string {
   const s = stage.toLowerCase();
-  if (s.includes("discovery"))  return "bg-sky-500/10 text-sky-400 border-sky-500/20";
-  if (s.includes("qualif"))     return "bg-violet-500/10 text-violet-400 border-violet-500/20";
-  if (s.includes("proposal"))   return "bg-amber-500/10 text-amber-400 border-amber-500/20";
-  if (s.includes("negotiat"))   return "bg-orange-500/10 text-orange-400 border-orange-500/20";
-  if (s.includes("won"))        return "bg-health-green/10 text-health-green border-health-green/20";
-  if (s.includes("lost"))       return "bg-health-red/10 text-health-red border-health-red/20";
+  if (s.includes("discovery")) return "bg-sky-500/10 text-sky-400 border-sky-500/20";
+  if (s.includes("qualif")) return "bg-violet-500/10 text-violet-400 border-violet-500/20";
+  if (s.includes("proposal")) return "bg-amber-500/10 text-amber-400 border-amber-500/20";
+  if (s.includes("negotiat")) return "bg-orange-500/10 text-orange-400 border-orange-500/20";
+  if (s.includes("won")) return "bg-health-green/10 text-health-green border-health-green/20";
+  if (s.includes("lost")) return "bg-health-red/10 text-health-red border-health-red/20";
   return "bg-secondary/60 text-muted-foreground border-border/30";
 }
 
 const SECTION_STYLES = {
-  timeline:   { icon: Clock,        label: "Deal Timeline",                      iconColor: "text-sky-400",    activeBorder: "border-l-sky-400/50" },
-  health:     { icon: Activity,     label: "Health Score Breakdown",             iconColor: "text-primary",    activeBorder: "border-l-primary/50" },
-  activity:   { icon: Zap,          label: "Activity Feed",                      iconColor: "text-blue-400",   activeBorder: "border-l-blue-400/50" },
-  "ai-rep":   { icon: Brain,        label: "AI Sales Rep",                       iconColor: "text-accent",     activeBorder: "border-l-accent/50" },
-  "call-brief": { icon: Phone,      label: "Pre-Call Intelligence Brief",        iconColor: "text-green-400",  activeBorder: "border-l-green-400/50" },
-  mismatch:   { icon: GitMerge,     label: "Narrative Check + Live Email Coach", iconColor: "text-amber-400",  activeBorder: "border-l-amber-400/50" },
-  trackers:   { icon: ScanSearch,   label: "Smart Trackers",                     iconColor: "text-primary",    activeBorder: "border-l-primary/50" },
-  ack:        { icon: Layers,       label: "Advance / Close / Kill",             iconColor: "text-health-red", activeBorder: "border-l-health-red/50" },
-  coaching:   { icon: GraduationCap,label: "Call Coaching",                      iconColor: "text-cyan-400",   activeBorder: "border-l-cyan-400/50" },
-  ask:        { icon: Sparkles,     label: "Ask DealIQ",                         iconColor: "text-violet-400", activeBorder: "border-l-violet-400/50" },
-  outcome:    { icon: Trophy,       label: "Mark Outcome",                       iconColor: "text-amber-400",  activeBorder: "border-l-amber-400/50" },
+  timeline: { icon: Clock, label: "Deal Timeline", iconColor: "text-sky-400", activeBorder: "border-l-sky-400/50" },
+  health: { icon: Activity, label: "Health Score Breakdown", iconColor: "text-primary", activeBorder: "border-l-primary/50" },
+  activity: { icon: Zap, label: "Activity Feed", iconColor: "text-blue-400", activeBorder: "border-l-blue-400/50" },
+  "ai-rep": { icon: Brain, label: "AI Sales Rep", iconColor: "text-accent", activeBorder: "border-l-accent/50" },
+  "call-brief": { icon: Phone, label: "Pre-Call Intelligence Brief", iconColor: "text-green-400", activeBorder: "border-l-green-400/50" },
+  mismatch: { icon: GitMerge, label: "Narrative Check + Live Email Coach", iconColor: "text-amber-400", activeBorder: "border-l-amber-400/50" },
+  trackers: { icon: ScanSearch, label: "Smart Trackers", iconColor: "text-primary", activeBorder: "border-l-primary/50" },
+  ack: { icon: Layers, label: "Advance / Close / Kill", iconColor: "text-health-red", activeBorder: "border-l-health-red/50" },
+  coaching: { icon: GraduationCap, label: "Call Coaching", iconColor: "text-cyan-400", activeBorder: "border-l-cyan-400/50" },
+  ask: { icon: Sparkles, label: "Ask DealIQ", iconColor: "text-violet-400", activeBorder: "border-l-violet-400/50" },
+  outcome: { icon: Trophy, label: "Mark Outcome", iconColor: "text-amber-400", activeBorder: "border-l-amber-400/50" },
 } as const;
 
 type SectionKey = keyof typeof SECTION_STYLES;
@@ -84,7 +84,7 @@ function SectionBadge({ sectionKey, healthScore }: { sectionKey: SectionKey; hea
   if (sectionKey === "health" && healthScore != null) {
     const color = healthScore >= 65 ? "border-health-green/40 text-health-green bg-health-green/10"
       : healthScore >= 45 ? "border-health-yellow/40 text-health-yellow bg-health-yellow/10"
-      : "border-health-red/40 text-health-red bg-health-red/10";
+        : "border-health-red/40 text-health-red bg-health-red/10";
     return (
       <span className={cn("ml-2 rounded-full border px-2 py-0.5 text-[10px] font-bold tabular-nums", color)}>
         {healthScore}/100
@@ -123,16 +123,16 @@ export default function DealDetailPanel({
   const [liveLabel, setLiveLabel] = useState<string | undefined>(undefined);
 
   // Inline edit state
-  const [localStage, setLocalStage]   = useState<string | undefined>(stage);
+  const [localStage, setLocalStage] = useState<string | undefined>(stage);
   const [localAmount, setLocalAmount] = useState<number | undefined>(amount);
   const [editingAmount, setEditingAmount] = useState(false);
   const [amountInput, setAmountInput] = useState("");
   const [savingField, setSavingField] = useState<string | null>(null);
-  const [savedField, setSavedField]   = useState<string | null>(null); // shows ✓ briefly
+  const [savedField, setSavedField] = useState<string | null>(null); // shows ✓ briefly
 
   // Notes section
-  const [noteOpen, setNoteOpen]   = useState(false);
-  const [noteText, setNoteText]   = useState("");
+  const [noteOpen, setNoteOpen] = useState(false);
+  const [noteText, setNoteText] = useState("");
   const [savingNote, setSavingNote] = useState(false);
 
   const amountInputRef = useRef<HTMLInputElement>(null);
@@ -218,7 +218,10 @@ export default function DealDetailPanel({
     <Sheet open={!!dealId} onOpenChange={(open) => !open && onClose()}>
       <SheetContent
         side="right"
-        className="w-full overflow-y-auto border-l border-border/40 bg-background p-0 sm:max-w-2xl transition-transform duration-300"
+        className="w-full overflow-y-auto border-l border-border/40 bg-background p-0 sm:max-w-2xl transition-transform duration-400 ease-[cubic-bezier(0.32,0.72,0,1)] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right"
+        style={{
+          boxShadow: '-20px 0 60px rgba(0,0,0,0.4)',
+        }}
       >
         {/* Drag handle indicator */}
         <div className="absolute left-0 top-1/2 -translate-y-1/2 flex flex-col items-center gap-1 py-4 px-1.5 opacity-30 hover:opacity-60 transition-opacity cursor-grab">
@@ -258,16 +261,16 @@ export default function DealDetailPanel({
                     )}
                     title="Click to change stage"
                   >
-                    {["Qualification","Needs Analysis","Value Proposition","Proposal","Negotiation","Contract Sent","Closed Won","Closed Lost"].map((s) => (
+                    {["Qualification", "Needs Analysis", "Value Proposition", "Proposal", "Negotiation", "Contract Sent", "Closed Won", "Closed Lost"].map((s) => (
                       <option key={s} value={s} className="bg-background text-foreground">{s}</option>
                     ))}
                     {/* Keep current stage in list even if not in default options */}
-                    {!["Qualification","Needs Analysis","Value Proposition","Proposal","Negotiation","Contract Sent","Closed Won","Closed Lost"].includes(localStage) && (
+                    {!["Qualification", "Needs Analysis", "Value Proposition", "Proposal", "Negotiation", "Contract Sent", "Closed Won", "Closed Lost"].includes(localStage) && (
                       <option value={localStage} className="bg-background text-foreground">{localStage}</option>
                     )}
                   </select>
                   {savingField === "Stage" && <Loader2 size={11} className="animate-spin text-muted-foreground absolute right-1.5 top-1/2 -translate-y-1/2" />}
-                  {savedField === "Stage"  && <Check   size={11} className="text-emerald-400 absolute right-1.5 top-1/2 -translate-y-1/2" />}
+                  {savedField === "Stage" && <Check size={11} className="text-emerald-400 absolute right-1.5 top-1/2 -translate-y-1/2" />}
                 </div>
               )}
 
@@ -315,7 +318,7 @@ export default function DealDetailPanel({
                       onClick={() => { setAmountInput(String(localAmount)); setEditingAmount(true); }}
                     >
                       {savingField === "Amount" ? <Loader2 size={11} className="inline animate-spin mr-1" /> : null}
-                      {savedField  === "Amount" ? <Check   size={11} className="inline text-emerald-400 mr-1" /> : null}
+                      {savedField === "Amount" ? <Check size={11} className="inline text-emerald-400 mr-1" /> : null}
                       {formatCurrency(localAmount)}
                     </span>
                   )}
@@ -378,21 +381,21 @@ export default function DealDetailPanel({
                   value={key}
                   className="overflow-hidden rounded-lg border border-border/40 bg-card/40 px-0 transition-all duration-200 hover:border-border/60 data-[state=open]:border-border/60 data-[state=open]:bg-card/60"
                 >
-                  <AccordionTrigger className="border-b-0 px-4 py-3 hover:no-underline hover:bg-transparent [&>svg]:text-muted-foreground/50">
+                  <AccordionTrigger className="border-b-0 px-4 py-3 hover:no-underline hover:bg-transparent [&>svg]:text-muted-foreground/50 transition-all [&[data-state=open]>svg]:rotate-180 [&>svg]:transition-transform [&>svg]:duration-300 [&>svg]:ease-[cubic-bezier(0.4,0,0.2,1)]">
                     <SectionTrigger sectionKey={key} healthScore={displayScore} />
                   </AccordionTrigger>
-                  <AccordionContent className="px-4 pb-4 pt-0">
-                    {key === "timeline"    && <DealTimeline dealId={dealId} />}
-                    {key === "health"      && <HealthBreakdown dealId={dealId} />}
-                    {key === "activity"    && <ActivityFeedPanel dealId={dealId} stage={stage} />}
-                    {key === "ai-rep"      && <AIRepPanel dealId={dealId} dealName={dealName} repName={repName} />}
-                    {key === "call-brief"  && <CallBriefPanel dealId={dealId} repName={repName} />}
-                    {key === "mismatch"    && <MismatchChecker dealId={dealId} />}
-                    {key === "trackers"    && <TrackerPanel dealId={dealId} />}
-                    {key === "ack"         && <AckSection dealId={dealId} dealName={dealName} />}
-                    {key === "coaching"    && <CoachingPanel dealId={dealId} repName={repName} />}
-                    {key === "ask"         && <AskDealIQPanel dealId={dealId} dealName={dealName} />}
-                    {key === "outcome"     && <MarkOutcomeSection dealId={dealId} dealName={dealName} />}
+                  <AccordionContent className="px-4 pb-4 pt-0 transition-all duration-300 data-[state=closed]:animate-accordion-up data-[state=open]:animate-accordion-down">
+                    {key === "timeline" && <DealTimeline dealId={dealId} />}
+                    {key === "health" && <HealthBreakdown dealId={dealId} />}
+                    {key === "activity" && <ActivityFeedPanel dealId={dealId} stage={stage} />}
+                    {key === "ai-rep" && <AIRepPanel dealId={dealId} dealName={dealName} repName={repName} />}
+                    {key === "call-brief" && <CallBriefPanel dealId={dealId} repName={repName} />}
+                    {key === "mismatch" && <MismatchChecker dealId={dealId} />}
+                    {key === "trackers" && <TrackerPanel dealId={dealId} />}
+                    {key === "ack" && <AckSection dealId={dealId} dealName={dealName} />}
+                    {key === "coaching" && <CoachingPanel dealId={dealId} repName={repName} />}
+                    {key === "ask" && <AskDealIQPanel dealId={dealId} dealName={dealName} />}
+                    {key === "outcome" && <MarkOutcomeSection dealId={dealId} dealName={dealName} />}
                   </AccordionContent>
                 </AccordionItem>
               ))}

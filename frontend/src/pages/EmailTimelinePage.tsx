@@ -108,8 +108,8 @@ interface ThreadData {
 
 interface ChainMessage {
   sender: string;   // raw "Name <email>" or extracted name
-  date:   string;   // raw date string as found in header, may be empty
-  body:   string;   // trimmed body text for this message only
+  date: string;   // raw date string as found in header, may be empty
+  body: string;   // trimmed body text for this message only
 }
 
 /**
@@ -136,14 +136,14 @@ function parseEmailChain(raw: string): ChainMessage[] {
   while ((m = gmailRe.exec(text)) !== null) {
     // Extract date + sender from the matched header
     const header = m[0];
-    const dateMatch  = header.match(/On\s+(.+?)\s+[A-Z][a-z]+ [A-Z][a-z]+\s+</i)
-                    ?? header.match(/On\s+(.+?)\s+wrote:/i);
+    const dateMatch = header.match(/On\s+(.+?)\s+[A-Z][a-z]+ [A-Z][a-z]+\s+</i)
+      ?? header.match(/On\s+(.+?)\s+wrote:/i);
     const senderMatch = header.match(/([\w\s]+)\s*<([^>]+)>\s+wrote:/i)
-                     ?? header.match(/([^<\n]+)\s+wrote:/i);
+      ?? header.match(/([^<\n]+)\s+wrote:/i);
     splits.push({
-      index:  m.index,
+      index: m.index,
       sender: senderMatch ? senderMatch[1].trim() : "",
-      date:   dateMatch   ? dateMatch[1].trim()   : "",
+      date: dateMatch ? dateMatch[1].trim() : "",
     });
   }
 
@@ -175,14 +175,14 @@ function parseEmailChain(raw: string): ChainMessage[] {
   if (firstBody) parts.push({ sender: "", date: "", body: firstBody });
 
   for (let i = 0; i < splits.length; i++) {
-    const sp   = splits[i];
-    const end  = splits[i + 1]?.index ?? text.length;
+    const sp = splits[i];
+    const end = splits[i + 1]?.index ?? text.length;
     // Find the end of the header line(s) — skip past "Subject: ..." line
     const afterHeader = text.indexOf("\n", sp.index + 10);
-    const bodyStart   = afterHeader > -1 ? afterHeader : sp.index;
-    const body        = text.slice(bodyStart, end).trim();
+    const bodyStart = afterHeader > -1 ? afterHeader : sp.index;
+    const body = text.slice(bodyStart, end).trim();
     // Strip nested quoted lines (">") from this body slice
-    const cleanBody   = body
+    const cleanBody = body
       .split("\n")
       .filter(line => !line.trimStart().startsWith(">"))
       .join("\n")
@@ -198,9 +198,9 @@ function parseEmailChain(raw: string): ChainMessage[] {
 // ── Constants ──────────────────────────────────────────────────────────────────
 
 const HEALTH_DOT: Record<string, string> = {
-  healthy:  "bg-green-500",
+  healthy: "bg-green-500",
   watching: "bg-yellow-500",
-  at_risk:  "bg-orange-500",
+  at_risk: "bg-orange-500",
   critical: "bg-red-500",
 };
 
@@ -278,8 +278,8 @@ function sanitizeEmailHtml(html: string, stripQuoted = true): string {
   h = h.replace(/\s*color="[^"]*"/gi, "");
   h = h.replace(/\s*face="[^"]*"/gi, "");
   return DOMPurify.sanitize(h, {
-    ALLOWED_TAGS: ["p","br","div","span","b","strong","i","em","u","a","ul","ol","li","h1","h2","h3","pre","table","tr","td","th","tbody","thead"],
-    ALLOWED_ATTR: ["href","target"],
+    ALLOWED_TAGS: ["p", "br", "div", "span", "b", "strong", "i", "em", "u", "a", "ul", "ol", "li", "h1", "h2", "h3", "pre", "table", "tr", "td", "th", "tbody", "thead"],
+    ALLOWED_ATTR: ["href", "target"],
     FORCE_BODY: true,
   });
 }
@@ -298,10 +298,10 @@ function signalIcon(signal: string) {
 function signalConfidence(signal: string): { label: string; cls: string } {
   const s = signal.toLowerCase();
   if (/(confirmed|agreed|scheduled|signed|committed|approved|ready to|will proceed)/.test(s))
-    return { label: "High",   cls: "text-green-400 border-green-500/30 bg-green-500/10" };
+    return { label: "High", cls: "text-green-400 border-green-500/30 bg-green-500/10" };
   if (/(interested|considering|open to|requested|asked|exploring|evaluating)/.test(s))
     return { label: "Medium", cls: "text-yellow-400 border-yellow-500/30 bg-yellow-500/10" };
-  return { label: "Low",    cls: "text-muted-foreground border-border/40 bg-muted/20" };
+  return { label: "Low", cls: "text-muted-foreground border-border/40 bg-muted/20" };
 }
 
 /** Derive thread health from sentiment + momentum. */
@@ -311,8 +311,8 @@ function threadHealthBadge(sentiment: string, momentum: string): { label: string
   if (s === "positive" && (m === "accelerating" || m === "steady"))
     return { label: "Progressing", emoji: "🟢", cls: "text-green-400 border-green-500/30 bg-green-500/10" };
   if (s === "positive" || m === "steady")
-    return { label: "Active",      emoji: "🟡", cls: "text-yellow-400 border-yellow-500/30 bg-yellow-500/10" };
-  return { label: "Stalled",    emoji: "🔴", cls: "text-red-400 border-red-500/30 bg-red-500/10" };
+    return { label: "Active", emoji: "🟡", cls: "text-yellow-400 border-yellow-500/30 bg-yellow-500/10" };
+  return { label: "Stalled", emoji: "🔴", cls: "text-red-400 border-red-500/30 bg-red-500/10" };
 }
 
 function normaliseCommitment(c: Commitment | string): Commitment {
@@ -328,9 +328,9 @@ function normaliseDeadline(d: Deadline | string): Deadline {
 // Per-thread accent colours — cycles for > 4 threads
 const THREAD_COLORS = [
   { border: "border-l-4 border-purple-500", badgeCls: "bg-purple-500/10 text-purple-400 border-purple-500/30" },
-  { border: "border-l-4 border-blue-500",   badgeCls: "bg-blue-500/10 text-blue-400 border-blue-500/30"   },
-  { border: "border-l-4 border-teal-500",   badgeCls: "bg-teal-500/10 text-teal-400 border-teal-500/30"   },
-  { border: "border-l-4 border-amber-500",  badgeCls: "bg-amber-500/10 text-amber-400 border-amber-500/30" },
+  { border: "border-l-4 border-blue-500", badgeCls: "bg-blue-500/10 text-blue-400 border-blue-500/30" },
+  { border: "border-l-4 border-teal-500", badgeCls: "bg-teal-500/10 text-teal-400 border-teal-500/30" },
+  { border: "border-l-4 border-amber-500", badgeCls: "bg-amber-500/10 text-amber-400 border-amber-500/30" },
 ];
 
 /** Returns true when a deadline string (ISO or human-readable) is in the past. */
@@ -411,9 +411,9 @@ function DraftEmailModal({
   const { toast } = useToast();
   const [copied, setCopied] = useState(false);
 
-  const toField   = contactEmail  || "";
-  const subject   = threadSubject ? `Re: ${threadSubject}` : `Following up — ${dealName}`;
-  const bodyInit  = nextStep
+  const toField = contactEmail || "";
+  const subject = threadSubject ? `Re: ${threadSubject}` : `Following up — ${dealName}`;
+  const bodyInit = nextStep
     ? `Hi,\n\nFollowing up on our previous conversation.\n\nNext step: ${nextStep}\n\nWould love to connect — please let me know your availability.\n\nBest,`
     : `Hi,\n\nFollowing up on our previous conversation.\n\nWould love to connect — please let me know your availability.\n\nBest,`;
 
@@ -540,9 +540,9 @@ function MessageBubble({
   email: EmailMessage;
   defaultExpanded?: boolean;
 }) {
-  const [expanded,     setExpanded]     = useState(defaultExpanded);
-  const [showHistory,  setShowHistory]  = useState(false);
-  const [hoverDate,    setHoverDate]    = useState(false);
+  const [expanded, setExpanded] = useState(defaultExpanded);
+  const [showHistory, setShowHistory] = useState(false);
+  const [hoverDate, setHoverDate] = useState(false);
 
   const outbound = isOurTeam(email.from) || email.direction === "sent";
   const name = senderName(email.from);
@@ -557,7 +557,7 @@ function MessageBubble({
   const chain = !safeHtml ? parseEmailChain(plainBody) : [];
   // chain[0] = newest message (this email's actual content)
   // chain[1..] = quoted history
-  const latestBody  = chain[0]?.body ?? stripQuotedText(plainBody);
+  const latestBody = chain[0]?.body ?? stripQuotedText(plainBody);
   const quotedChain = chain.slice(1);
 
   const previewText = latestBody.slice(0, 180);
@@ -578,8 +578,8 @@ function MessageBubble({
       <div className={cn(
         "max-w-[82%] rounded-2xl border text-xs transition-all duration-200",
         outbound
-          ? "rounded-tr-sm bg-primary/10 border-primary/30 border-l-2 border-l-primary/60"
-          : "rounded-tl-sm bg-muted/40 border-border/50 border-l-2 border-l-border/60",
+          ? "rounded-tr-sm bg-primary/10 border-primary/30 border-l-[3px] border-l-primary/60"
+          : "rounded-tl-sm bg-muted/40 border-border/50 border-l-[3px] border-l-border/60",
         "hover:shadow-md"
       )}>
         {/* Header */}
@@ -691,8 +691,8 @@ function ThreadView({
   const [open, setOpen] = useState(true);
 
   const sentiment = (extracted?.sentiment || "").toLowerCase();
-  const momentum  = (extracted?.momentum  || "").toLowerCase();
-  const health    = sentiment && momentum ? threadHealthBadge(sentiment, momentum) : null;
+  const momentum = (extracted?.momentum || "").toLowerCase();
+  const health = sentiment && momentum ? threadHealthBadge(sentiment, momentum) : null;
 
   const color = THREAD_COLORS[threadIndex % THREAD_COLORS.length];
 
@@ -710,13 +710,17 @@ function ThreadView({
   // Build unique participant initials for avatar stack (max 3)
   const uniqueParticipants = [...new Set(thread.participants ?? [])].slice(0, 4);
 
+  // Style active (recently active) threads
+  const isActiveThread = ageInDays !== null && ageInDays <= 3;
+
   return (
     <div className={cn(
-      "rounded-xl border border-border/30 bg-card/20 overflow-hidden transition-all duration-200 hover:border-border/50",
+      "rounded-xl border bg-card/20 overflow-hidden transition-all duration-200 hover:border-border/50",
       color.border,
+      isActiveThread ? "border-l-[3px] border-l-blue-500 bg-blue-500/5 shadow-sm shadow-blue-500/5" : "border-border/30 border-l-[3px]"
     )}>
       <button
-        className="w-full flex items-center gap-2.5 px-4 py-3 text-left bg-card/50 hover:bg-card/70 transition-colors"
+        className={cn("w-full flex items-center gap-2.5 px-4 py-3 text-left transition-colors", isActiveThread ? "bg-blue-500/10 hover:bg-blue-500/20" : "bg-card/50 hover:bg-card/70")}
         onClick={() => setOpen(v => !v)}
       >
         {/* Thread number badge */}
@@ -800,24 +804,24 @@ function ThreadView({
 // ── AIInsightsPanel ────────────────────────────────────────────────────────────
 
 const SENTIMENT_CONFIG: Record<string, { label: string; cls: string }> = {
-  positive: { label: "Positive",  cls: "text-green-400  border-green-500/30  bg-green-500/10"  },
-  neutral:  { label: "Neutral",   cls: "text-yellow-400 border-yellow-500/30 bg-yellow-500/10" },
-  negative: { label: "Negative",  cls: "text-red-400    border-red-500/30    bg-red-500/10"    },
-  at_risk:  { label: "At Risk",   cls: "text-orange-400 border-orange-500/30 bg-orange-500/10" },
-  mixed:    { label: "Mixed",     cls: "text-yellow-400 border-yellow-500/30 bg-yellow-500/10" },
+  positive: { label: "Positive", cls: "text-green-400  border-green-500/30  bg-green-500/10" },
+  neutral: { label: "Neutral", cls: "text-yellow-400 border-yellow-500/30 bg-yellow-500/10" },
+  negative: { label: "Negative", cls: "text-red-400    border-red-500/30    bg-red-500/10" },
+  at_risk: { label: "At Risk", cls: "text-orange-400 border-orange-500/30 bg-orange-500/10" },
+  mixed: { label: "Mixed", cls: "text-yellow-400 border-yellow-500/30 bg-yellow-500/10" },
 };
 
 const MOMENTUM_CONFIG: Record<string, { label: string; Icon: any; cls: string }> = {
-  accelerating: { label: "Accelerating", Icon: TrendingUp,   cls: "text-green-400"  },
-  steady:       { label: "Steady",       Icon: Minus,        cls: "text-yellow-400" },
-  stalling:     { label: "Stalling",     Icon: TrendingDown, cls: "text-orange-400" },
-  gone_cold:    { label: "Gone cold",    Icon: TrendingDown, cls: "text-red-400"    },
+  accelerating: { label: "Accelerating", Icon: TrendingUp, cls: "text-green-400" },
+  steady: { label: "Steady", Icon: Minus, cls: "text-yellow-400" },
+  stalling: { label: "Stalling", Icon: TrendingDown, cls: "text-orange-400" },
+  gone_cold: { label: "Gone cold", Icon: TrendingDown, cls: "text-red-400" },
 };
 
 const URGENCY_CLS: Record<string, string> = {
-  high:   "text-red-400",
+  high: "text-red-400",
   medium: "text-yellow-400",
-  low:    "text-muted-foreground",
+  low: "text-muted-foreground",
 };
 
 function AIInsightsPanel({
@@ -830,21 +834,21 @@ function AIInsightsPanel({
   dealName?: string;
   dealId?: string;
 }) {
-  const [showOpenQ,  setShowOpenQ]  = useState(false);
+  const [showOpenQ, setShowOpenQ] = useState(false);
   const [showRelMap, setShowRelMap] = useState(false);
-  const [doneStep,      setDoneStep]      = useState(false);
+  const [doneStep, setDoneStep] = useState(false);
   const [confirmingDone, setConfirmingDone] = useState(false);
   const [checkedCommitments, setCheckedCommitments] = useState<Set<number>>(new Set());
 
-  const sentiment  = (extracted.sentiment || "").toLowerCase();
-  const momentum   = (extracted.momentum  || "").toLowerCase();
-  const sentCfg    = SENTIMENT_CONFIG[sentiment]  ?? SENTIMENT_CONFIG["neutral"];
-  const momCfg     = MOMENTUM_CONFIG[momentum];
-  const MomIcon    = momCfg?.Icon ?? Minus;
+  const sentiment = (extracted.sentiment || "").toLowerCase();
+  const momentum = (extracted.momentum || "").toLowerCase();
+  const sentCfg = SENTIMENT_CONFIG[sentiment] ?? SENTIMENT_CONFIG["neutral"];
+  const momCfg = MOMENTUM_CONFIG[momentum];
+  const MomIcon = momCfg?.Icon ?? Minus;
 
   const commitments = (extracted.commitments ?? []).map(normaliseCommitment);
-  const deadlines   = (extracted.deadlines   ?? []).map(normaliseDeadline);
-  const contacts    = extracted.key_contacts  ?? [];
+  const deadlines = (extracted.deadlines ?? []).map(normaliseDeadline);
+  const contacts = extracted.key_contacts ?? [];
 
   const allCommitmentsChecked = commitments.length > 0 && checkedCommitments.size === commitments.length;
 
@@ -856,7 +860,7 @@ function AIInsightsPanel({
       return next;
     });
     if (!alreadyChecked && dealId) {
-      api.postDecision(dealId, "commitment_met", commitment.what).catch(() => {});
+      api.postDecision(dealId, "commitment_met", commitment.what).catch(() => { });
     }
   };
 
@@ -955,7 +959,7 @@ function AIInsightsPanel({
                     setDoneStep(true);
                     setConfirmingDone(false);
                     if (dealId && extracted.next_step) {
-                      api.postDecision(dealId, "next_step_completed", extracted.next_step).catch(() => {});
+                      api.postDecision(dealId, "next_step_completed", extracted.next_step).catch(() => { });
                     }
                   }}
                 >
@@ -1075,10 +1079,10 @@ function AIInsightsPanel({
                     {checked
                       ? <CheckSquare className="h-3.5 w-3.5 text-green-400 shrink-0 mt-0.5" />
                       : c.status === "fulfilled"
-                      ? <CheckCircle2 className="h-3.5 w-3.5 text-green-400 shrink-0 mt-0.5" />
-                      : isOverdue
-                      ? <AlertTriangle className="h-3.5 w-3.5 text-red-400 shrink-0 mt-0.5" />
-                      : <Square className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0 mt-0.5" />}
+                        ? <CheckCircle2 className="h-3.5 w-3.5 text-green-400 shrink-0 mt-0.5" />
+                        : isOverdue
+                          ? <AlertTriangle className="h-3.5 w-3.5 text-red-400 shrink-0 mt-0.5" />
+                          : <Square className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0 mt-0.5" />}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5 flex-wrap">
                         {c.by && (
@@ -1098,7 +1102,7 @@ function AIInsightsPanel({
                       {c.deadline && (
                         <span className={cn("text-[10px]",
                           checked ? "text-muted-foreground/40" :
-                          isOverdue ? "text-red-400" : "text-muted-foreground/60"
+                            isOverdue ? "text-red-400" : "text-muted-foreground/60"
                         )}>
                           · {c.deadline}
                         </span>
@@ -1166,9 +1170,9 @@ function AIInsightsPanel({
                   {/* Avatar */}
                   <div className={cn(
                     "h-8 w-8 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0",
-                    c.engagement === "high"   ? "bg-green-500/20 text-green-400"  :
-                    c.engagement === "medium" ? "bg-yellow-500/20 text-yellow-400" :
-                                                "bg-muted text-muted-foreground"
+                    c.engagement === "high" ? "bg-green-500/20 text-green-400" :
+                      c.engagement === "medium" ? "bg-yellow-500/20 text-yellow-400" :
+                        "bg-muted text-muted-foreground"
                   )}>
                     {(c.name || "?").split(" ").slice(0, 2).map((w: string) => w[0]).join("")}
                   </div>
@@ -1191,7 +1195,7 @@ function AIInsightsPanel({
                       <div className={cn(
                         "h-1.5 w-1.5 rounded-full",
                         c.engagement === "high" ? "bg-green-400" :
-                        c.engagement === "medium" ? "bg-yellow-400" : "bg-muted-foreground/40"
+                          c.engagement === "medium" ? "bg-yellow-400" : "bg-muted-foreground/40"
                       )} />
                       <span className="text-[9px] text-muted-foreground/50 capitalize">{c.engagement} engagement</span>
                     </div>
@@ -1266,17 +1270,17 @@ function AIInsightsPanel({
 export default function EmailTimelinePage() {
   const { toast } = useToast();
 
-  const [deals,          setDeals]          = useState<Deal[]>([]);
-  const [dealsLoading,   setDealsLoading]   = useState(true);
-  const [open,           setOpen]           = useState(false);
+  const [deals, setDeals] = useState<Deal[]>([]);
+  const [dealsLoading, setDealsLoading] = useState(true);
+  const [open, setOpen] = useState(false);
   const [selectedDealId, setSelectedDealId] = useState("");
 
-  const [thread,         setThread]         = useState<ThreadData | null>(null);
-  const [threadLoading,  setThreadLoading]  = useState(false);
-  const [syncing,        setSyncing]        = useState(false);
-  const [analysing,      setAnalysing]      = useState(false);
+  const [thread, setThread] = useState<ThreadData | null>(null);
+  const [threadLoading, setThreadLoading] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [analysing, setAnalysing] = useState(false);
 
-  const [viewMode,       setViewMode]       = useState<"grouped" | "flat">("grouped");
+  const [viewMode, setViewMode] = useState<"grouped" | "flat">("grouped");
   const [draftModalOpen, setDraftModalOpen] = useState(false);
 
   const selectedDeal = deals.find(d => d.id === selectedDealId);
@@ -1290,11 +1294,11 @@ export default function EmailTimelinePage() {
         if (cancelled) return;
         const list = Array.isArray(data) ? data : [];
         setDeals(list.map((d: any) => ({
-          id:           d.id,
-          name:         d.name ?? d.deal_name ?? "Unnamed Deal",
-          stage:        d.stage ?? "Unknown",
+          id: d.id,
+          name: d.name ?? d.deal_name ?? "Unnamed Deal",
+          stage: d.stage ?? "Unknown",
           health_label: d.health_label ?? "critical",
-          amount:       d.amount ?? 0,
+          amount: d.amount ?? 0,
         })));
       })
       .catch((err: unknown) => {
@@ -1359,11 +1363,11 @@ export default function EmailTimelinePage() {
     }
   }
 
-  const emails        = thread?.emails   ?? [];
-  const threads       = thread?.threads  ?? [];
-  const sentCount     = emails.filter(e => isOurTeam(e.from) || e.direction === "sent").length;
+  const emails = thread?.emails ?? [];
+  const threads = thread?.threads ?? [];
+  const sentCount = emails.filter(e => isOurTeam(e.from) || e.direction === "sent").length;
   const receivedCount = emails.length - sentCount;
-  const responseRate  = sentCount > 0 ? Math.round((receivedCount / sentCount) * 100) : 0;
+  const responseRate = sentCount > 0 ? Math.round((receivedCount / sentCount) * 100) : 0;
 
   // Days since last buyer response
   const lastBuyerEmail = [...emails]
@@ -1420,9 +1424,9 @@ export default function EmailTimelinePage() {
                   className="h-8 min-w-[220px] max-w-xs justify-between text-xs border-border/50 font-normal">
                   {selectedDeal
                     ? <span className="flex items-center gap-2 truncate">
-                        <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", HEALTH_DOT[selectedDeal.health_label] ?? "bg-muted-foreground")} />
-                        <span className="truncate">{selectedDeal.name}</span>
-                      </span>
+                      <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", HEALTH_DOT[selectedDeal.health_label] ?? "bg-muted-foreground")} />
+                      <span className="truncate">{selectedDeal.name}</span>
+                    </span>
                     : <span className="text-muted-foreground">Select a deal…</span>}
                   <ChevronsUpDown className="ml-2 h-3 w-3 shrink-0 opacity-50" />
                 </Button>
@@ -1503,16 +1507,16 @@ export default function EmailTimelinePage() {
 
               {viewMode === "grouped"
                 ? threads.map((t, i) => (
-                    <ThreadView
-                      key={t.thread_id || i}
-                      thread={t}
-                      extracted={thread?.extracted}
-                      threadIndex={i}
-                    />
-                  ))
+                  <ThreadView
+                    key={t.thread_id || i}
+                    thread={t}
+                    extracted={thread?.extracted}
+                    threadIndex={i}
+                  />
+                ))
                 : emails.map((e, i) => (
-                    <MessageBubble key={e.message_id || i} email={e} defaultExpanded={i === 0} />
-                  ))
+                  <MessageBubble key={e.message_id || i} email={e} defaultExpanded={i === 0} />
+                ))
               }
             </div>
 

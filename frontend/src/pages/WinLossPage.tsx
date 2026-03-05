@@ -780,6 +780,11 @@ export default function WinLossPage() {
   const chartData = buildChartData(wonSummary.pattern_counts, lostSummary.pattern_counts);
   const showFullContent = !showSkeleton && (hasRealDeals || isDemo);
 
+  // Win rate computed at component level so hooks can be called safely
+  const total = wonSummary.count + lostSummary.count;
+  const winRatePercent = total > 0 ? Math.round((wonSummary.count / total) * 100) : (isDemo ? 50 : 0);
+  const animatedWinRate = useCountUp(winRatePercent, 1200, showFullContent);
+
   return (
     <>
       <style>{KEYFRAMES}</style>
@@ -872,9 +877,6 @@ export default function WinLossPage() {
             <>
               {/* Metric cards + Win Rate donut */}
               {(() => {
-                const total = wonSummary.count + lostSummary.count;
-                const winRatePercent = total > 0 ? Math.round((wonSummary.count / total) * 100) : (isDemo ? 50 : 0);
-                const donutData = [{ name: "Win Rate", value: winRatePercent, fill: "#10b981" }];
                 return (
                   <div className="grid gap-4 grid-cols-1 sm:grid-cols-[1fr_1fr_180px]">
                     <AnimatedMetricCard outcome="won" summary={wonSummary} delay={0} animated />
@@ -896,7 +898,7 @@ export default function WinLossPage() {
                           outerRadius={46}
                           startAngle={90}
                           endAngle={-270}
-                          data={donutData}
+                          data={[{ name: "Win Rate", value: animatedWinRate, fill: "#10b981" }]}
                           barSize={10}
                         >
                           <RadialBar
@@ -906,7 +908,7 @@ export default function WinLossPage() {
                           />
                         </RadialBarChart>
                         <span className="absolute inset-0 flex items-center justify-center text-lg font-bold text-emerald-400 tabular-nums">
-                          {winRatePercent}%
+                          {animatedWinRate}%
                         </span>
                       </div>
                       <p className="mt-2 text-[11px] text-muted-foreground/60">
@@ -1027,8 +1029,8 @@ export default function WinLossPage() {
                           className={cn(
                             "rounded-xl border px-4 py-3",
                             isWon
-                              ? "border-emerald-500/20 bg-emerald-500/5"
-                              : "border-rose-500/20 bg-rose-500/5"
+                              ? "border-emerald-500/20 bg-emerald-500/5 border-l-[3px] border-l-emerald-500"
+                              : "border-rose-500/20 bg-rose-500/5 border-l-[3px] border-l-rose-500"
                           )}
                         >
                           <div className="flex items-center gap-2 mb-1.5">
