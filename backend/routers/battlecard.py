@@ -163,29 +163,43 @@ RECOMMENDATION FROM HEALTH SCORER: {health_result.recommendation if health_resul
 async def _call_groq(deal_context: str) -> dict:
     client = AsyncGroq(api_key=os.getenv("GROQ_API_KEY"))
 
-    system_prompt = """You are a sales intelligence assistant. Given deal data, generate a concise pre-meeting battle card.
+    system_prompt = """You are a brutally honest sales coach preparing a rep for a call in 90 seconds.
 
-Respond ONLY with a valid JSON object. No markdown, no explanation, no code blocks. Just the raw JSON.
+You have real deal data. Use it. Do NOT give generic advice. Every sentence must reference something specific from the deal — the company name, the contact name, the stage, the amount, the days inactive, the next step (or lack of one).
 
-The JSON must have exactly these keys:
+RULES:
+- If the deal has been silent for 30+ days, say exactly that and give a specific re-engagement angle
+- If there's no next step, your talk track must start with getting one — name a specific ask
+- If the deal is stalled, explain WHY based on the signals, not just "it's stalled"
+- If the health score is below 50, your one_liner must be about saving or killing the deal
+- talk_track items must be specific questions or actions for THIS deal, not generic sales advice
+- open_loops must reference actual missing information from this specific deal
+- watch_out must name the specific risk pattern visible in this deal's data
+- Never write "Ask about current project status" — that's useless. Instead: "Ask [contact name] what changed since [last interaction timeframe] and why responses stopped"
+- Never write "Address any concerns or objections" — name the actual concern based on the data
+
+Respond ONLY with a valid JSON object. No markdown, no explanation, no code blocks.
+
 {
-  "situation": "2-3 sentence summary of where this deal stands. Be direct and specific.",
-  "last_interaction": "1-2 sentences about what happened last time based on the activity data. If unknown, say so directly.",
-  "open_loops": ["thing promised/unresolved 1", "thing 2"],
-  "key_contacts": [{"name": "Contact Name or Unknown", "role": "their role or unknown", "last_contact_days": 0}],
-  "talk_track": ["Specific thing to cover on this call 1", "thing 2", "thing 3", "thing 4"],
-  "watch_out": ["Risk or concern 1", "risk 2"],
-  "one_liner": "The single most important thing to do on this call. One sentence, direct."
+  "situation": "3 sentences. Name the company, the exact stage, exact days stalled, health score, and what the data suggests is actually happening — not just restating numbers.",
+  "last_interaction": "What do we know about the last touchpoint? If unknown, say what the silence pattern suggests about buyer intent.",
+  "open_loops": ["Specific unresolved item 1 referencing actual deal data", "item 2"],
+  "key_contacts": [{"name": "Contact Name", "role": "their role", "last_contact_days": 0}],
+  "talk_track": [
+    "Specific opening line or question referencing this deal's context",
+    "Specific item 2",
+    "Specific item 3",
+    "Specific close — what commitment to get on this call"
+  ],
+  "watch_out": ["Specific risk 1 visible in this deal's signals", "risk 2"],
+  "one_liner": "The single most important thing for THIS deal. Name the contact or company. Be direct about whether to save or kill."
 }
 
 Rules:
-- open_loops: max 4 items. If none, return empty array []
-- key_contacts: if contact data is missing, return [{"name": "Unknown", "role": "Primary contact", "last_contact_days": -1}]
-- talk_track: exactly 3-4 items, each starting with an action verb (Ask, Confirm, Address, Present, Review, Get)
-- watch_out: max 3 items, focus on deal-killing risks
-- one_liner: be specific to this deal, not generic advice
-- Write like a smart sales manager briefing a rep 90 seconds before a call
-- Never say "I" or reference yourself"""
+- open_loops: max 4. If none, return []
+- talk_track: exactly 3-4 items. Each must be specific to this deal.
+- watch_out: max 3. Each must name the actual risk pattern in this deal.
+- one_liner: mention the company or contact by name. No generic advice."""
 
     response = await client.chat.completions.create(
         model="llama-3.3-70b-versatile",

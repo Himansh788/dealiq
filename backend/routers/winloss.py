@@ -4,11 +4,13 @@ from typing import Optional, Literal
 import asyncio
 import base64
 import json
+import logging
 import os
 from datetime import datetime, timezone
 from groq import AsyncGroq
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 # In-memory store — persists across requests, resets on server restart
 _winloss_store: list[dict] = []
@@ -49,12 +51,16 @@ def _get_groq_client() -> AsyncGroq:
 
 
 def _classify_outcome(stage: str) -> Optional[str]:
-    """Return 'won', 'lost', or None for an active deal based on Zoho stage name."""
-    s = stage.lower()
-    if "closed won" in s or s == "won":
-        return "won"
-    if "closed lost" in s or s == "lost":
-        return "lost"
+    """Return 'won', 'lost', or None based on Zoho stage name."""
+    s = stage.lower().strip()
+    won_keywords = ["closed won", "won", "closed-won", "deal won", "closed/won"]
+    lost_keywords = ["closed lost", "lost", "closed-lost", "deal lost", "closed/lost"]
+    for kw in won_keywords:
+        if kw in s:
+            return "won"
+    for kw in lost_keywords:
+        if kw in s:
+            return "lost"
     return None
 
 
@@ -74,57 +80,137 @@ def _strip_json_fences(text: str) -> str:
     return text.strip()
 
 
+def _build_deal_summary(deal: dict) -> str:
+    """Build a rich text summary of the deal for the AI prompt."""
+    name = deal.get("name") or deal.get("Deal_Name") or "Unknown"
+    amount = deal.get("amount") or deal.get("Amount") or 0
+    stage = deal.get("stage") or deal.get("Stage") or "Unknown"
+    description = deal.get("description") or deal.get("Description") or ""
+    next_step = deal.get("next_step") or deal.get("Next_Step") or ""
+    probability = deal.get("probability") or deal.get("Probability") or 0
+    contact = deal.get("contact_name") or deal.get("contact") or "unknown"
+    account = deal.get("account_name") or deal.get("Account_Name") or name
+    closing_date = deal.get("closing_date") or deal.get("Closing_Date") or "not set"
+    days_in_stage = deal.get("days_in_stage") or "unknown"
+    last_activity = deal.get("last_activity_days") or "unknown"
+
+    notes = []
+    if description:
+        notes.append(f"Description: {description}")
+    if next_step:
+        notes.append(f"Next step: {next_step}")
+    notes_str = " | ".join(notes) if notes else "No notes recorded"
+
+    return f"""Company: {account}
+Deal name: {name}
+Amount: ${amount}
+Stage when closed: {stage}
+Days in stage: {days_in_stage}
+Last activity: {last_activity} days ago
+Close probability: {probability}%
+Closing date: {closing_date}
+Primary contact: {contact}
+Notes: {notes_str}"""
+
+
 async def _call_groq_full(deal_json: dict, outcome: str, deal_name: str) -> dict:
-    """Full analysis prompt (used for manual /analyze calls)."""
+    """Full analysis for manually submitted deals."""
     client = _get_groq_client()
     signals_key = "success_signals" if outcome == "won" else "warning_signs_missed"
+    outcome_label = "WON" if outcome == "won" else "LOST"
+    deal_summary = _build_deal_summary(deal_json)
 
-    prompt = f"""Analyze this B2B SaaS deal outcome.
+    won_instructions = """This deal WAS WON. Your job:
+- Identify the specific behavior or event that caused the close
+- Name the earliest signal that indicated this would close
+- Identify what the rep did right that should be repeated on every similar deal
+- Be specific — reference the stage, contact name, timeline, or notes"""
 
-Deal data: {json.dumps(deal_json, indent=2)}
-Outcome: {outcome.upper()}
-Deal name: {deal_name}
+    lost_instructions = """This deal WAS LOST. Your job:
+- Identify the specific moment or behavior that caused the loss
+- Name the earliest warning sign that was visible but missed
+- Identify one concrete action at a specific point in the deal that would have changed the outcome
+- Be specific — reference the stage, days inactive, contact name, or notes"""
 
-Return ONLY valid JSON (no markdown, no explanation):
+    prompt = f"""You are a senior sales coach analyzing a real B2B deal outcome.
+
+DEAL DATA:
+{deal_summary}
+
+{won_instructions if outcome == "won" else lost_instructions}
+
+RULES:
+- Every field must reference specific data from above — company name, contact, amount, days, or notes
+- Never write generic sales advice like "follow up more" or "build relationships"
+- If notes say something specific happened (e.g. "reference from X", "went with in-house"), use that
+- contributing_factors must name what actually happened in this deal, not general patterns
+- {signals_key} must describe observable signals specific to this deal
+
+Return ONLY valid JSON — no markdown, no explanation:
 {{
-  "primary_reason": "one clear sentence explaining the main reason for this outcome",
-  "contributing_factors": ["factor 1", "factor 2", "factor 3"],
-  "{signals_key}": ["signal 1", "signal 2", "signal 3"],
+  "primary_reason": "One sentence naming what decided the {outcome_label} outcome for {deal_name} — must reference specific deal data",
+  "contributing_factors": [
+    "Factor 1 — specific to this deal (e.g. '{deal_name} was in [stage] for [X] days with no defined next step')",
+    "Factor 2 — specific event or behavior observed in this deal",
+    "Factor 3"
+  ],
+  "{signals_key}": [
+    "Signal 1 — specific observable event in this deal that {'indicated success' if outcome == 'won' else 'should have triggered action'}",
+    "Signal 2",
+    "Signal 3"
+  ],
   "deal_pattern": "exactly one of: pricing_issue, champion_lost, no_urgency, competitor_win, single_threaded, budget_cut, good_execution, multi_threaded, strong_champion, urgency_created",
-  "lesson": "one actionable sentence for future deals"
+  "what_to_replicate_or_avoid": "{'Specific action that won this deal — what was done, when, and with whom' if outcome == 'won' else 'Specific action that should have been taken — name the moment (e.g. after X days silence, after demo, when POC changed) and the exact better move'}",
+  "lesson": "One sentence a rep can act on in their next similar deal — name the trigger condition (e.g. when a deal hits X days in stage, when POC changes, when probability drops below Y%)"
 }}"""
 
     response = await client.chat.completions.create(
         model="llama-3.3-70b-versatile",
         messages=[{"role": "user", "content": prompt}],
-        max_tokens=600,
+        max_tokens=800,
     )
     return json.loads(_strip_json_fences(response.choices[0].message.content))
 
 
 async def _call_groq_lightweight(deal: dict, outcome: str) -> dict:
-    """Lighter prompt for auto-detected Zoho closed deals."""
+    """Analysis for auto-detected Zoho closed deals — same quality, slightly shorter output."""
     client = _get_groq_client()
-    name = deal.get("name", "Unknown")
-    amount = deal.get("amount", 0)
-    description = deal.get("description") or deal.get("next_step") or ""
-    stage = deal.get("stage", "")
+    outcome_label = "WON" if outcome == "won" else "LOST"
+    deal_summary = _build_deal_summary(deal)
+    deal_name = deal.get("name") or deal.get("Deal_Name") or "this deal"
 
-    prompt = f"""This B2B deal was {outcome.upper()}.
-Deal name: {name}, Amount: ${amount}, Stage: {stage}, Notes: {description}
+    won_instructions = "This deal WAS WON. What specific behavior or event caused the close? What should the rep repeat next time?"
+    lost_instructions = "This deal WAS LOST. What specifically went wrong? What was the earliest warning sign? What one action at what specific point would have changed the outcome?"
 
-Return ONLY valid JSON:
+    prompt = f"""You are a sales coach analyzing a real B2B deal outcome. Be specific — use the actual data below.
+
+DEAL DATA:
+{deal_summary}
+
+{won_instructions if outcome == "won" else lost_instructions}
+
+RULES:
+- Reference the actual company name, contact, amount, stage, days, or notes in every field
+- If notes mention a specific reason (competitor, reference, pricing), use it
+- Never write generic advice — name the specific moment, person, or action
+- contributing_factors must describe what actually happened, not abstract patterns
+
+Return ONLY valid JSON — no markdown:
 {{
-  "primary_reason": "one sentence",
-  "contributing_factors": ["factor 1", "factor 2"],
-  "deal_pattern": "one of: pricing_issue, champion_lost, no_urgency, competitor_win, single_threaded, budget_cut, good_execution, multi_threaded, strong_champion, urgency_created",
-  "lesson": "one actionable sentence"
+  "primary_reason": "One sentence specific to {deal_name} — reference the actual stage, contact, notes, or timeline",
+  "contributing_factors": [
+    "Specific factor from this deal's data — not a generic label",
+    "Specific factor 2"
+  ],
+  "deal_pattern": "exactly one of: pricing_issue, champion_lost, no_urgency, competitor_win, single_threaded, budget_cut, good_execution, multi_threaded, strong_champion, urgency_created",
+  "what_to_replicate_or_avoid": "{'What specific action drove the win — name it concretely' if outcome == 'won' else 'What should have been done differently — name the specific moment and the better action'}",
+  "lesson": "One actionable sentence — name the trigger (e.g. when deal hits X days silent, when POC changes, when notes say Y)"
 }}"""
 
     response = await client.chat.completions.create(
-        model="llama-3.1-8b-instant",
+        model="llama-3.3-70b-versatile",  # same model for quality
         messages=[{"role": "user", "content": prompt}],
-        max_tokens=300,
+        max_tokens=500,
     )
     return json.loads(_strip_json_fences(response.choices[0].message.content))
 
@@ -134,6 +220,36 @@ def _normalize_pattern(analysis: dict, outcome: str) -> dict:
     if pattern not in DEAL_PATTERNS:
         analysis["deal_pattern"] = "good_execution" if outcome == "won" else "no_urgency"
     return analysis
+
+
+@router.get("/debug-stages")
+async def debug_stages(authorization: str = Header(default="")):
+    """Shows all deal stages from Zoho to help configure win/loss detection."""
+    session = _decode_session(authorization)
+    if _is_demo(session):
+        return {"mode": "demo", "message": "Not available in demo mode"}
+    from services.zoho_client import fetch_deals, map_zoho_deal
+    access_token = session.get("access_token", "")
+    raw = await fetch_deals(access_token, page=1, per_page=200)
+    deals = [map_zoho_deal(r) for r in raw] if raw else []
+
+    stages: dict[str, int] = {}
+    for d in deals:
+        stage = d.get("stage", "Unknown")
+        stages[stage] = stages.get(stage, 0) + 1
+
+    return {
+        "total_deals": len(deals),
+        "stages": stages,
+        "classified": {
+            stage: _classify_outcome(stage)
+            for stage in stages
+        },
+        "sample_deals": [
+            {"name": d.get("name"), "stage": d.get("stage"), "amount": d.get("amount")}
+            for d in deals[:10]
+        ]
+    }
 
 
 @router.post("/analyze")
@@ -198,17 +314,11 @@ async def analyze_outcome(
 async def get_board(
     authorization: str = Header(default=""),
 ):
-    """
-    Return all analyzed deals grouped by outcome with pattern summary.
-    Also auto-detects and lightly analyzes Zoho Closed Won/Lost deals
-    that haven't been manually marked yet. Capped at AUTO_ANALYZE_CAP.
-    """
     session = _decode_session(authorization)
     is_demo = _is_demo(session)
 
     already_analyzed_ids = {e["deal_id"] for e in _winloss_store}
 
-    # ── Auto-detect closed deals from Zoho / demo ─────────────────────────────
     auto_entries: list[dict] = []
     auto_analyzed_count = 0
 
@@ -222,9 +332,7 @@ async def get_board(
             raw = await fetch_deals(access_token, page=1, per_page=200)
             all_deals = [map_zoho_deal(r) for r in raw] if raw else []
 
-        # For demo mode: classify by health score since demo deals don't have
-        # "Closed Won"/"Closed Lost" stage labels.
-        closed_deals: list[tuple[dict, str]] = []  # (deal, outcome)
+        closed_deals: list[tuple[dict, str]] = []
         for deal in all_deals:
             deal_id = deal.get("id", "")
             if deal_id in already_analyzed_ids:
@@ -241,7 +349,6 @@ async def get_board(
                 if outcome:
                     closed_deals.append((deal, outcome))
 
-        # Analyze in parallel — cap to avoid rate limits
         to_analyze = closed_deals[:AUTO_ANALYZE_CAP]
 
         async def _analyze_one(deal: dict, outcome: str) -> Optional[dict]:
@@ -257,7 +364,8 @@ async def get_board(
                     "auto_detected": True,
                     **analysis,
                 }
-            except Exception:
+            except Exception as e:
+                logger.warning(f"Auto-analysis failed for {deal.get('name')}: {e}")
                 return None
 
         results = await asyncio.gather(
@@ -267,11 +375,9 @@ async def get_board(
         auto_entries = [r for r in results if r is not None]
         auto_analyzed_count = len(auto_entries)
 
-    except Exception:
-        # Board still works if Zoho/Groq fails — just shows manual entries
-        pass
+    except Exception as e:
+        logger.warning(f"Win/loss board auto-detection failed: {e}")
 
-    # Merge: manual store takes priority (auto entries for IDs not in manual store)
     manual_ids = {e["deal_id"] for e in _winloss_store}
     merged = list(_winloss_store) + [e for e in auto_entries if e["deal_id"] not in manual_ids]
 
@@ -290,9 +396,7 @@ async def get_board(
         return round(sum(amounts) / len(amounts)) if amounts else 0
 
     def _top_pattern(counts: dict) -> str:
-        if not counts:
-            return ""
-        return max(counts, key=lambda k: counts[k])
+        return max(counts, key=lambda k: counts[k]) if counts else ""
 
     won_patterns = _pattern_counts(won)
     lost_patterns = _pattern_counts(lost)

@@ -812,13 +812,19 @@ export default function Dashboard() {
                       {card.label}
                     </p>
                     {card.label === "Avg Health" ? (
-                      <div className="mt-1">
+                      <div className="flex items-center gap-2">
+                        <p className={cn(
+                          "font-black tracking-tight tabular-nums leading-tight font-numeric text-2xl",
+                          card.colorFn ? card.colorFn(card.value ?? 0) : "text-foreground"
+                        )}>
+                          {card.value != null ? <MetricValue value={card.value} format={card.format} /> : "—"}
+                        </p>
                         <HealthGauge value={card.value ?? 0} />
                       </div>
                     ) : (
                       <p className={cn(
                         "font-black tracking-tight tabular-nums leading-tight font-numeric",
-                        card.colorFn ? card.colorFn(card.value ?? 0) : card.isAlert ? "text-health-red text-4xl" : "text-foreground text-2xl"
+                        card.colorFn ? card.colorFn(card.value ?? 0) : card.isAlert ? "text-health-red text-2xl" : "text-foreground text-2xl"
                       )}>
                         {card.value != null ? <MetricValue value={card.value} format={card.format} /> : "—"}
                       </p>
