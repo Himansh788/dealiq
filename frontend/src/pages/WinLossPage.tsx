@@ -302,14 +302,14 @@ function AnimatedMetricCard({
       </div>
       <div className="flex items-end gap-6">
         <div>
-          <p className="text-3xl font-bold tabular-nums text-foreground">
+          <p className="font-mono text-3xl font-bold tabular-nums text-foreground">
             {displayCount}
           </p>
           <p className="text-xs text-muted-foreground">deals</p>
         </div>
         {summary.avg_amount > 0 && (
           <div>
-            <p className="text-xl font-semibold text-foreground tabular-nums">{formatCurrency(displayAvg)}</p>
+            <p className="font-mono text-xl font-semibold text-foreground tabular-nums">{formatCurrency(displayAvg)}</p>
             <p className="text-xs text-muted-foreground">avg deal size</p>
           </div>
         )}
@@ -379,7 +379,7 @@ function DealCard({ entry, index = 0 }: { entry: WinLossEntry; index?: number })
             </span>
 
             {entry.amount > 0 && (
-              <span className="text-xs text-muted-foreground tabular-nums">{formatCurrency(entry.amount)}</span>
+              <span className="font-mono text-xs text-muted-foreground tabular-nums">{formatCurrency(entry.amount)}</span>
             )}
 
             <span className="text-[10px] text-muted-foreground/40 ml-auto">{humanPattern(entry.deal_pattern)}</span>
@@ -916,7 +916,7 @@ export default function WinLossPage() {
                             cornerRadius={5}
                           />
                         </RadialBarChart>
-                        <span className="absolute inset-0 flex items-center justify-center text-lg font-bold text-primary tabular-nums">
+                        <span className="absolute inset-0 flex items-center justify-center font-mono text-lg font-bold text-primary tabular-nums">
                           {animatedWinRate}%
                         </span>
                       </div>

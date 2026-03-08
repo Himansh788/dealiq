@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   AlertTriangle, AlertCircle, CheckCircle2, Activity, DollarSign, Users, Search, X, Filter,
   ChevronRight, ChevronDown, Users2, TrendingUp, TrendingDown, Minus, RefreshCw,
-  ArrowUpDown, BarChart2, Inbox, ClipboardCheck, Map, Loader2, Zap,
+  ArrowUpDown, BarChart2, Inbox, ClipboardCheck, Map, Loader2, Zap, BrainCircuit,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -26,7 +26,6 @@ import DealDetailPanel from "@/components/DealDetailPanel";
 import AlertsDigestPanel from "@/components/AlertsDigestPanel";
 import BuyingSignalPanel from "@/components/BuyingSignalPanel";
 import NavBar from "@/components/NavBar";
-import PipelineQABar from "@/components/PipelineQABar";
 import DemoTour from "@/components/DemoTour";
 import { useCountUp } from "@/hooks/useCountUp";
 import { MetricCardSkeleton, TableRowSkeleton } from "@/components/ui/Skeletons";
@@ -189,27 +188,47 @@ function MetricValue({ value, format, className }: { value: number; format: (v: 
 }
 
 function HealthGauge({ value }: { value: number }) {
-  const animatedValue = useCountUp(value, 800);
-  const r = 20;
+  const animatedValue = useCountUp(value, 900);
+  const SIZE = 120;
+  const STROKE = 9;
+  const r = (SIZE - STROKE) / 2;
   const circ = 2 * Math.PI * r;
   const filled = (animatedValue / 100) * circ;
-  const color = animatedValue >= 75 ? "stroke-health-green" : animatedValue >= 50 ? "stroke-health-yellow" : "stroke-health-red";
+  const strokeColor = animatedValue >= 75 ? "#10b981" : animatedValue >= 50 ? "#f59e0b" : "#f43f5e";
+  const textColor = animatedValue >= 75 ? "text-emerald-400" : animatedValue >= 50 ? "text-amber-400" : "text-rose-400";
 
   return (
-    <div className="relative flex items-center justify-center w-12 h-12">
-      <svg width="48" height="48" viewBox="0 0 48 48" className="-rotate-90">
-        <circle cx="24" cy="24" r={r} fill="none" strokeWidth="4" className="stroke-border/40" />
+    <div className="relative shrink-0" style={{ width: SIZE, height: SIZE }}>
+      <svg
+        width={SIZE} height={SIZE}
+        viewBox={`0 0 ${SIZE} ${SIZE}`}
+        style={{ display: "block", transform: "rotate(-90deg)" }}
+      >
         <circle
-          cx="24" cy="24" r={r} fill="none" strokeWidth="4"
-          strokeDasharray={`${filled} ${circ}`} strokeLinecap="round"
-          className={cn("transition-all duration-100", color)}
+          cx={SIZE / 2} cy={SIZE / 2} r={r}
+          fill="none" strokeWidth={STROKE}
+          stroke="rgba(148,163,184,0.12)"
+          strokeLinecap="round"
+        />
+        <circle
+          cx={SIZE / 2} cy={SIZE / 2} r={r}
+          fill="none" strokeWidth={STROKE}
+          stroke={strokeColor}
+          strokeDasharray={`${filled} ${circ}`}
+          strokeLinecap="round"
+          style={{ transition: "stroke-dasharray 0.9s cubic-bezier(0.4,0,0.2,1)" }}
         />
       </svg>
-      <span className={cn("absolute inset-0 flex items-center justify-center text-xs font-bold font-numeric tabular-nums",
-        animatedValue >= 75 ? "text-health-green" : animatedValue >= 50 ? "text-health-yellow" : "text-health-red"
-      )}>
-        {animatedValue}
-      </span>
+      {/* Label overlay — absolutely positioned, NOT rotated */}
+      <div
+        style={{ position: "absolute", top: 0, left: 0, width: SIZE, height: SIZE }}
+        className="flex flex-col items-center justify-center gap-0"
+      >
+        <span className={cn("font-mono font-bold tabular-nums leading-none", textColor)} style={{ fontSize: 30 }}>
+          {animatedValue}
+        </span>
+        <span className="font-mono text-[11px] text-slate-500 leading-none mt-1">/100</span>
+      </div>
     </div>
   );
 }
@@ -345,7 +364,8 @@ export default function Dashboard() {
   const [teamSummaryFetched, setTeamSummaryFetched] = useState(false);
   const [tourActive, setTourActive] = useState(false);
   const [dealWarnings, setDealWarnings] = useState<Record<string, DealWarningInfo>>({});
-  const [pipelineIntel, setPipelineIntel] = useState<{ coverage_ratio: number; commit_total: number; commit_count: number; ai_risk_count: number; critical_count: number; at_risk_count: number } | null>(null);
+  const [pipelineSummary, setPipelineSummary] = useState<string | null>(null);
+  const [loadingSummary, setLoadingSummary] = useState(false);
 
   // Inline stage edit
   const [editingStage, setEditingStage] = useState<{ dealId: string; value: string } | null>(null);
@@ -375,14 +395,16 @@ export default function Dashboard() {
   const [filterStage, setFilterStage] = useState("all");
   const [filterHealth, setFilterHealth] = useState("all");
 
-  // Load metrics
+  // Load metrics + AI summary in one shot (both served from shared server cache)
   useEffect(() => {
     if (!session) { navigate("/", { replace: true }); return; }
     const controller = new AbortController();
     let cancelled = false;
 
-    api.getMetrics(controller.signal)
-      .then((data: any) => {
+    setLoadingSummary(true);
+
+    api.getMetricsWithSummary(controller.signal)
+      .then(({ metrics: data, summary }) => {
         if (cancelled) return;
         setMetrics({
           total_deals: data.total_deals ?? 0,
@@ -394,6 +416,7 @@ export default function Dashboard() {
           zombie_count: data.zombie_count ?? 0,
           deals_needing_action: data.deals_needing_action ?? data.needs_action ?? 0,
         });
+        setPipelineSummary(summary || null);
       })
       .catch((err: unknown) => {
         if (cancelled) return;
@@ -401,7 +424,9 @@ export default function Dashboard() {
         if (err instanceof Error && err.name === "AbortError") return;
         setMetrics(DEMO_METRICS);
       })
-      .finally(() => { if (!cancelled) setLoadingMetrics(false); });
+      .finally(() => {
+        if (!cancelled) { setLoadingMetrics(false); setLoadingSummary(false); }
+      });
 
     return () => { cancelled = true; controller.abort(); };
   }, [session, navigate]);
@@ -509,26 +534,6 @@ export default function Dashboard() {
     }
   }
 
-  // Load pipeline intelligence from forecast board (lazy, non-critical)
-  useEffect(() => {
-    if (!session) return;
-    const controller = new AbortController();
-    api.getForecastBoard(controller.signal)
-      .then((data: any) => {
-        const commit = data.categories?.commit;
-        setPipelineIntel({
-          coverage_ratio: data.coverage_ratio ?? 0,
-          commit_total: commit?.total ?? 0,
-          commit_count: commit?.deals?.length ?? 0,
-          ai_risk_count: data.ai_risk_count ?? 0,
-          critical_count: data.critical_count ?? 0,
-          at_risk_count: data.at_risk_count ?? 0,
-        });
-      })
-      .catch(() => {/* non-critical — silent */ });
-    return () => controller.abort();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session]);
 
   async function saveStageEdit(dealId: string, newStage: string, oldStage: string) {
     setSavingStage(dealId);
@@ -803,141 +808,150 @@ export default function Dashboard() {
             <>
               {/* Hero: Pipeline Health — 2/3 width */}
               <Card
-                className="lg:col-span-2 relative overflow-hidden bg-card/60 border-border/40 hover:border-border/70 transition-all duration-200 hover:shadow-xl hover:shadow-black/25 animate-slide-up"
+                className="lg:col-span-2 relative overflow-hidden border-border/30 bg-card/50 animate-slide-up"
                 style={{ animationDelay: "0ms" }}
               >
-                <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/50 to-transparent" />
-                <CardContent className="flex items-center justify-between gap-6 p-6 sm:p-8">
-                  <div className="min-w-0">
-                    <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/60 mb-1">
-                      Pipeline Health
-                    </p>
-                    <div className="flex items-baseline gap-2 mt-2">
-                      <span className={cn("text-5xl font-black tabular-nums leading-none font-numeric", scoreColor(avgScore))}>
-                        <MetricValue value={avgScore} format={(v) => String(Math.round(v))} />
-                      </span>
-                      <span className="text-2xl text-muted-foreground/50 font-semibold">/ 100</span>
-                    </div>
-                    <p className={cn("mt-2 text-sm font-medium", scoreColor(avgScore))}>
-                      {healthStatusLabel(avgScore)}
-                    </p>
-                    {metrics && (
-                      <p className="mt-3 text-xs text-muted-foreground/60">
-                        {metrics.deals_needing_action} of {metrics.total_deals} deals need attention
-                        {metrics.healthy_count > 0 && ` · ${metrics.healthy_count} healthy`}
-                      </p>
-                    )}
-                  </div>
-                  <div className="shrink-0">
+                <CardContent className="px-8 py-6 space-y-4">
+                  {/* Row 1: Gauge + status + distribution bar */}
+                  <div className="flex items-center gap-6">
                     <HealthGauge value={avgScore} />
+                    <div className="min-w-0 flex-1 space-y-2">
+                      <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+                        Pipeline Health
+                      </p>
+                      <p className={cn("text-lg font-semibold leading-snug", scoreColor(avgScore))}>
+                        {healthStatusLabel(avgScore)}
+                      </p>
+                      {metrics && (
+                        <p className="text-xs text-slate-500">
+                          {metrics.deals_needing_action} of {metrics.total_deals} deals need attention
+                          {metrics.healthy_count > 0 && ` · ${metrics.healthy_count} healthy`}
+                        </p>
+                      )}
+                      {metrics && metrics.total_deals > 0 && (
+                        <div className="space-y-1.5">
+                          <div className="flex h-1.5 rounded-full overflow-hidden bg-slate-200 dark:bg-slate-800 w-full">
+                            {metrics.healthy_count > 0 && (
+                              <div className="bg-emerald-500 h-full transition-all duration-700"
+                                style={{ width: `${(metrics.healthy_count / metrics.total_deals) * 100}%` }} />
+                            )}
+                            {metrics.at_risk_count > 0 && (
+                              <div className="bg-amber-500 h-full transition-all duration-700"
+                                style={{ width: `${(metrics.at_risk_count / metrics.total_deals) * 100}%` }} />
+                            )}
+                            {(metrics.critical_count + metrics.zombie_count) > 0 && (
+                              <div className="bg-rose-500 h-full flex-1" />
+                            )}
+                          </div>
+                          <div className="flex gap-5 text-xs text-slate-500">
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="cursor-default underline decoration-dotted decoration-slate-600">
+                                  <span className="text-emerald-400 font-semibold">{metrics.healthy_count}</span> healthy
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent side="bottom" className="max-w-[230px] text-xs">
+                                <strong className="text-emerald-400">Healthy</strong> — score ≥ 75. Progressing well: recent activity, engaged stakeholders, aligned timeline. No action required.
+                              </TooltipContent>
+                            </Tooltip>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="cursor-default underline decoration-dotted decoration-slate-600">
+                                  <span className="text-amber-400 font-semibold">{metrics.at_risk_count}</span> at risk
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent side="bottom" className="max-w-[230px] text-xs">
+                                <strong className="text-amber-400">At Risk</strong> — score 50–74. Warning signs: slowing engagement, missed follow-ups, or stalled stage. Take action this week.
+                              </TooltipContent>
+                            </Tooltip>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="cursor-default underline decoration-dotted decoration-slate-600">
+                                  <span className="text-rose-400 font-semibold">{metrics.critical_count + metrics.zombie_count}</span> critical
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent side="bottom" className="max-w-[230px] text-xs">
+                                <strong className="text-rose-400">Critical</strong> — score &lt; 50. Deal in serious jeopardy: no recent activity, ghosted contacts, or major signal mismatch. Immediate intervention needed.
+                              </TooltipContent>
+                            </Tooltip>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Row 2: Full-width AI summary */}
+                  <div className="flex items-start gap-3 rounded-lg bg-white/[0.03] border border-border/20 px-4 py-3 w-full">
+                    <div className="shrink-0 mt-0.5 flex h-7 w-7 items-center justify-center rounded-md bg-violet-500/15">
+                      <BrainCircuit className="h-4 w-4 text-violet-400" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[10px] font-semibold uppercase tracking-widest text-violet-400/70 mb-1">
+                        AI Pipeline Analysis
+                      </p>
+                      {loadingSummary ? (
+                        <div className="flex items-center gap-2">
+                          <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-500" />
+                          <span className="text-sm text-slate-500 italic">Analysing pipeline…</span>
+                        </div>
+                      ) : pipelineSummary ? (
+                        <p className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed">{pipelineSummary}</p>
+                      ) : null}
+                    </div>
                   </div>
                 </CardContent>
               </Card>
 
               {/* Supporting metrics — stacked 1/3 */}
-              <div className="flex flex-col gap-3 animate-slide-up" style={{ animationDelay: "55ms" }}>
-                {[summaryCards[1], summaryCards[0], summaryCards[3]].map((card, idx) => (
-                  <Card
-                    key={card.label}
-                    className={cn(
-                      "relative overflow-hidden bg-card/60 transition-all duration-200",
-                      card.isAlert
-                        ? "pulse-border-red border-health-red/30 shadow-[0_0_15px_rgba(239,68,68,0.1)]"
-                        : "border-border/40 hover:border-border/60"
-                    )}
+              <div className="flex flex-col gap-3 animate-slide-up" style={{ animationDelay: "60ms" }}>
+                {([
+                  {
+                    label: "Pipeline Value",
+                    value: metrics?.total_value,
+                    format: formatCurrency,
+                    desc: "Active deals this quarter",
+                    valueClass: "text-slate-900 dark:text-white",
+                    icon: DollarSign,
+                  },
+                  {
+                    label: "Total Deals",
+                    value: metrics?.total_deals,
+                    format: (v: number) => String(v),
+                    desc: "In your pipeline",
+                    valueClass: "text-slate-900 dark:text-white",
+                    icon: Users,
+                  },
+                  {
+                    label: "Needs Action",
+                    value: metrics?.deals_needing_action,
+                    format: (v: number) => String(v),
+                    desc: "Health score below 75",
+                    valueClass: (metrics?.deals_needing_action ?? 0) > 0 ? "text-rose-400" : "text-emerald-400",
+                    icon: AlertTriangle,
+                  },
+                ] as const).map((stat) => (
+                  <div
+                    key={stat.label}
+                    className="flex-1 rounded-xl border border-border/30 bg-card/50 px-5 py-4 flex items-center gap-4"
                   >
-                    <div className={cn(
-                      "absolute inset-x-0 top-0 h-px",
-                      card.isAlert
-                        ? "bg-gradient-to-r from-transparent via-health-red/60 to-transparent"
-                        : "bg-gradient-to-r from-transparent via-primary/40 to-transparent"
-                    )} />
-                    <CardContent className="flex items-center gap-3 px-4 py-3">
-                      <div className={cn(
-                        "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg",
-                        card.isAlert ? "bg-health-red/10" : "bg-primary/10"
-                      )}>
-                        <card.icon className={cn("h-4 w-4", card.isAlert ? "text-health-red" : "text-primary")} />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50">
-                          {card.label}
-                        </p>
-                        <p className={cn(
-                          "font-black tabular-nums leading-tight font-numeric text-xl",
-                          card.colorFn ? card.colorFn(card.value ?? 0)
-                            : card.isAlert ? "text-health-red" : "text-foreground"
-                        )}>
-                          {card.value != null ? <MetricValue value={card.value} format={card.format} /> : "—"}
-                        </p>
-                      </div>
-                    </CardContent>
-                  </Card>
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/5">
+                      <stat.icon className="h-4 w-4 text-slate-400" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-500 mb-0.5">
+                        {stat.label}
+                      </p>
+                      <p className={cn("font-mono text-2xl font-bold tabular-nums leading-none", stat.valueClass)}>
+                        {stat.value != null ? <MetricValue value={stat.value} format={stat.format} /> : "—"}
+                      </p>
+                      <p className="text-[10px] text-slate-600 mt-1">{stat.desc}</p>
+                    </div>
+                  </div>
                 ))}
               </div>
             </>
           )}
         </div>
-
-        {/* ── Pipeline Intelligence ── */}
-        {pipelineIntel && (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 animate-slide-up" style={{ animationDelay: "230ms" }}>
-            {/* Coverage */}
-            <div className="bg-card border border-border rounded-2xl px-5 py-4">
-              <div className="text-[11px] text-muted-foreground/60 uppercase tracking-wider mb-1">Pipeline Coverage</div>
-              <div className={cn("text-3xl font-bold", pipelineIntel.coverage_ratio >= 3 ? "text-emerald-500" : pipelineIntel.coverage_ratio >= 2 ? "text-amber-500" : "text-rose-500")}>
-                {pipelineIntel.coverage_ratio > 0 ? `${pipelineIntel.coverage_ratio.toFixed(1)}x` : "—"}
-              </div>
-              <div className="text-xs text-muted-foreground/50 mt-1">
-                target: 3x · {pipelineIntel.coverage_ratio >= 3 ? "healthy" : pipelineIntel.coverage_ratio >= 2 ? "below target" : pipelineIntel.coverage_ratio > 0 ? "critical" : "set quota to track"}
-              </div>
-              <div className="mt-3 h-1.5 bg-border/60 rounded-full overflow-hidden">
-                <div
-                  className={cn("h-full rounded-full transition-all", pipelineIntel.coverage_ratio >= 3 ? "bg-emerald-500" : pipelineIntel.coverage_ratio >= 2 ? "bg-amber-500" : "bg-rose-500")}
-                  style={{ width: `${Math.min((pipelineIntel.coverage_ratio / 3) * 100, 100)}%`, transformOrigin: 'left', animation: 'scaleXIn 800ms ease-out forwards' }}
-                />
-              </div>
-            </div>
-
-            {/* Committed */}
-            <div className="bg-card border border-border rounded-2xl px-5 py-4">
-              <div className="text-[11px] text-muted-foreground/60 uppercase tracking-wider mb-1">Committed</div>
-              <div className="text-3xl font-bold text-emerald-500">
-                {pipelineIntel.commit_total >= 1000 ? `$${Math.round(pipelineIntel.commit_total / 1000)}K` : pipelineIntel.commit_total > 0 ? `$${pipelineIntel.commit_total}` : "—"}
-              </div>
-              <div className="text-xs text-muted-foreground/50 mt-1">{pipelineIntel.commit_count} deal{pipelineIntel.commit_count !== 1 ? "s" : ""} in Commit</div>
-              {pipelineIntel.ai_risk_count > 0 && (
-                <div className="mt-2 text-xs text-rose-500 flex items-center gap-1.5">
-                  <AlertTriangle size={11} strokeWidth={2.5} />
-                  {pipelineIntel.ai_risk_count} commit deal{pipelineIntel.ai_risk_count > 1 ? "s" : ""} at risk
-                </div>
-              )}
-            </div>
-
-            {/* Risk count */}
-            <div className="bg-card border border-border rounded-2xl px-5 py-4">
-              <div className="text-[11px] text-muted-foreground/60 uppercase tracking-wider mb-1">Deals Needing Action</div>
-              <div className={cn("text-3xl font-bold",
-                pipelineIntel.critical_count > 0 ? "text-rose-500"
-                  : pipelineIntel.at_risk_count > 0 ? "text-amber-500"
-                    : "text-emerald-500"
-              )}>
-                {pipelineIntel.critical_count + pipelineIntel.at_risk_count}
-              </div>
-              <div className="text-xs text-muted-foreground/50 mt-1">
-                {pipelineIntel.critical_count > 0
-                  ? `${pipelineIntel.critical_count} critical · ${pipelineIntel.at_risk_count} at risk`
-                  : pipelineIntel.at_risk_count > 0
-                    ? `${pipelineIntel.at_risk_count} deals need attention`
-                    : "pipeline looks healthy"
-                }
-              </div>
-              <a href="/forecast" className="mt-2 text-xs text-primary hover:text-primary/80 flex items-center gap-1 transition-colors">
-                View Forecast Board →
-              </a>
-            </div>
-          </div>
-        )}
 
         {/* ── Health breakdown pills ── */}
         {metrics && !loadingMetrics && (
@@ -968,11 +982,6 @@ export default function Dashboard() {
             )}
           </div>
         )}
-
-        {/* ── Pipeline Q&A ── */}
-        <div className="animate-slide-up" style={{ animationDelay: "165ms" }}>
-          <PipelineQABar onSelectDeal={(id) => { setPanelInitialSection(undefined); setSelectedDealId(id); }} />
-        </div>
 
         {/* ── Deal Pipeline Table ── */}
         <Card ref={dealTableRef} className="overflow-hidden border-border/40 bg-card/60 animate-slide-up" style={{ animationDelay: "180ms" }} data-tour="deals-table">
@@ -1261,7 +1270,7 @@ export default function Dashboard() {
 
                           {/* Amount */}
                           <TableCell className="py-3.5 text-right">
-                            <span className="tabular-nums text-sm font-semibold text-foreground/90">
+                            <span className="font-mono tabular-nums text-sm font-semibold text-foreground/90">
                               {formatCurrency(deal.amount)}
                             </span>
                           </TableCell>

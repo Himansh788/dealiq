@@ -157,7 +157,23 @@ def _extract_json(text: str) -> dict[str, Any]:
     clean = re.sub(r"```json\s*|\s*```", "", text).strip()
     match = re.search(r"\{.*\}", clean, re.DOTALL)
     if match:
-        return json.loads(match.group())
+        candidate = match.group()
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            # Model truncated mid-output — salvage complete match objects before the cut
+            complete_matches = re.findall(
+                r'\{\s*"tracker_id".*?"context_snippet"\s*:\s*"[^"]*"\s*\}',
+                candidate,
+                re.DOTALL,
+            )
+            salvaged = []
+            for m in complete_matches:
+                try:
+                    salvaged.append(json.loads(m))
+                except json.JSONDecodeError:
+                    continue
+            return {"matches": salvaged}
     raise ValueError(f"No JSON found in response: {text[:200]}")
 
 
@@ -212,7 +228,7 @@ class SmartTracker:
 
         response = await _get_client().chat.completions.create(
             model=MODEL,
-            max_tokens=2000,
+            max_tokens=4000,
             temperature=0.1,
             messages=[
                 {"role": "system", "content": TRACKER_SYSTEM},

@@ -122,6 +122,18 @@ export const api = {
   getMetrics: (signal?: AbortSignal) =>
     fetchWithTimeout(`${API_URL}/deals/metrics`, { headers: authHeaders(), signal }).then(handleResponse),
 
+  getPipelineSummary: (signal?: AbortSignal) =>
+    fetchWithTimeout(`${API_URL}/deals/pipeline-summary`, { headers: authHeaders(), signal }).then(handleResponse),
+
+  /** Single call that returns metrics + AI summary together from the shared server cache. */
+  getMetricsWithSummary: async (signal?: AbortSignal): Promise<{ metrics: any; summary: string }> => {
+    const [metrics, summaryData] = await Promise.all([
+      fetchWithTimeout(`${API_URL}/deals/metrics`, { headers: authHeaders(), signal }).then(handleResponse),
+      fetchWithTimeout(`${API_URL}/deals/pipeline-summary`, { headers: authHeaders(), signal }).then(handleResponse),
+    ]);
+    return { metrics, summary: summaryData?.summary ?? "" };
+  },
+
   getDeals: (signal?: AbortSignal) =>
     fetchWithTimeout(`${API_URL}/deals/?per_page=20&page=1`, { headers: authHeaders(), signal }).then(handleResponse),
 

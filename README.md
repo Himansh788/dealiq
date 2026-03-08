@@ -32,6 +32,7 @@ DealIQ sits between your CRM and your communication stack and answers the questi
 | **Smart Trackers** | Buying signal and risk signal detection |
 | **Alerts Digest** | Prioritised deal alerts across the pipeline |
 | **Light / Dark Theme** | CSS-variable-based theme system with localStorage persistence |
+| **Geist Font System** | Geist Sans (body) + Geist Mono (all numbers/metrics) — bundled locally, no CDN |
 
 ---
 
@@ -393,6 +394,9 @@ Score trends (from DB history): **↗ improving** | **→ stable** | **↘ decli
 | Email drafting, pipeline questions, Battle Card | `llama-3.3-70b-versatile` | Quality output |
 | Email coaching (real-time), timeline | `llama-3.1-8b-instant` | Debounced, must be fast |
 | NBA, call brief, objection | `llama-3.3-70b-versatile` | Sales-critical output |
+| Smart Tracker analysis | `llama-3.1-8b-instant` | Structured extraction — speed over depth |
+
+> **Rate limits:** The free Groq tier has a 100k tokens/day limit on `llama-3.3-70b-versatile`. If you hit it, Smart Trackers will still work (it uses the 8B model). Other AI features will return a 429 error until the daily quota resets.
 
 All AI calls use `GROQ_API_KEY` via the Groq API.
 

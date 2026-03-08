@@ -133,9 +133,13 @@ export default function CommandPalette({
               <X className="h-3.5 w-3.5" />
             </button>
           )}
-          <kbd className="rounded border border-border/50 bg-background/50 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground/50">
-            esc
-          </kbd>
+          <button
+            onClick={onClose}
+            className="flex items-center justify-center rounded-md border border-border/50 bg-background/50 p-1 text-muted-foreground/50 transition-colors hover:border-border hover:bg-secondary hover:text-foreground"
+            aria-label="Close search"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
         </div>
 
         {/* Results */}
