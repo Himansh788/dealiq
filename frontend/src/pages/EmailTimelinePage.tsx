@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import DOMPurify from "dompurify";
+import EmailThreadView, { getChainStats } from "@/components/email/EmailThreadView";
 import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -125,7 +126,9 @@ function parseEmailChain(raw: string): ChainMessage[] {
   const text = raw.replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n");
 
   // ── Build a list of split positions ───────────────────────────────────────
-  type SplitPoint = { index: number; sender: string; date: string };
+  // headerEnd tracks the character position AFTER the full delimiter block so we
+  // can correctly skip it when slicing the body text.
+  type SplitPoint = { index: number; headerEnd: number; sender: string; date: string };
   const splits: SplitPoint[] = [];
 
   // Pattern A — Gmail / Apple Mail style:
@@ -142,20 +145,26 @@ function parseEmailChain(raw: string): ChainMessage[] {
       ?? header.match(/([^<\n]+)\s+wrote:/i);
     splits.push({
       index: m.index,
+      headerEnd: m.index + m[0].length,
       sender: senderMatch ? senderMatch[1].trim() : "",
       date: dateMatch ? dateMatch[1].trim() : "",
     });
   }
 
-  // Pattern B — Outlook "From:" block (multi-line, terminated by "Subject:"):
+  // Pattern B — Outlook "From:" block (multi-line, terminated by "Subject: …" line):
   //   "From: Name <email>\nSent: date\nTo: ...\nSubject: ..."
   const outlookRe =
-    /^From:\s*(.+?)[\r\n]+(?:Sent|Date):\s*(.+?)[\r\n]+(?:To|Cc):.*?[\r\n]+Subject:/gim;
+    /^From:\s*(.+?)[\r\n]+(?:Sent|Date):\s*(.+?)[\r\n]+(?:To|Cc):.*?[\r\n]+Subject:[^\n]*/gim;
   while ((m = outlookRe.exec(text)) !== null) {
     // Avoid double-counting a position already captured by gmailRe (within ±80 chars)
     const near = splits.some(s => Math.abs(s.index - m!.index) < 80);
     if (!near) {
-      splits.push({ index: m.index, sender: m[1].trim(), date: m[2].trim() });
+      splits.push({
+        index: m.index,
+        headerEnd: m.index + m[0].length,
+        sender: m[1].trim(),
+        date: m[2].trim(),
+      });
     }
   }
 
@@ -177,9 +186,9 @@ function parseEmailChain(raw: string): ChainMessage[] {
   for (let i = 0; i < splits.length; i++) {
     const sp = splits[i];
     const end = splits[i + 1]?.index ?? text.length;
-    // Find the end of the header line(s) — skip past "Subject: ..." line
-    const afterHeader = text.indexOf("\n", sp.index + 10);
-    const bodyStart = afterHeader > -1 ? afterHeader : sp.index;
+    // Skip past the full matched header block, then advance to the next line start
+    const afterHeader = text.indexOf("\n", sp.headerEnd);
+    const bodyStart = afterHeader > -1 ? afterHeader + 1 : sp.headerEnd;
     const body = text.slice(bodyStart, end).trim();
     // Strip nested quoted lines (">") from this body slice
     const cleanBody = body
@@ -193,6 +202,113 @@ function parseEmailChain(raw: string): ChainMessage[] {
   }
 
   return parts;
+}
+
+// ── Plain-text email renderer ──────────────────────────────────────────────────
+
+/** Detect URLs and wrap them in <a> tags, returning an array of strings + elements. */
+function renderWithLinks(text: string): React.ReactNode[] {
+  const urlRe = /https?:\/\/[^\s<>"')]+/g;
+  const parts: React.ReactNode[] = [];
+  let last = 0;
+  let key = 0;
+  let m: RegExpExecArray | null;
+  while ((m = urlRe.exec(text)) !== null) {
+    if (m.index > last) parts.push(text.slice(last, m.index));
+    const url = m[0].replace(/[.,;!?)\]]+$/, ""); // trim trailing punctuation
+    const label = url.length > 55 ? url.slice(0, 55) + "…" : url;
+    parts.push(
+      <a
+        key={key++}
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-primary underline underline-offset-2 hover:text-primary/70 break-all transition-colors"
+        onClick={e => e.stopPropagation()}
+      >
+        {label}
+      </a>
+    );
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) parts.push(text.slice(last));
+  return parts;
+}
+
+/** Collapsible signature block shown at the bottom of a message. */
+function SignatureBlock({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mt-3 pt-2.5 border-t border-border/20">
+      <button
+        onClick={e => { e.stopPropagation(); setOpen(v => !v); }}
+        className="flex items-center gap-1.5 text-[10px] text-muted-foreground/40 hover:text-muted-foreground/70 transition-colors"
+      >
+        <span className="font-mono tracking-widest">{open ? "▾" : "⋯"}</span>
+        {!open && <span>Show signature</span>}
+      </button>
+      {open && (
+        <p className="mt-2 text-[11px] text-muted-foreground/60 whitespace-pre-wrap leading-relaxed pl-2 border-l border-border/30">
+          {text}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Render a plain-text email body properly:
+ * - Splits double-newlines → paragraph blocks
+ * - Single newlines within a paragraph → preserved line breaks
+ * - URLs auto-linked
+ * - Signature detected and collapsed behind a toggle
+ */
+function renderPlainBody(text: string, compact = false): React.ReactNode {
+  if (!text) return null;
+
+  // Split off signature
+  let mainText = text;
+  let sigText = "";
+  for (const pat of SIG_PATTERNS) {
+    const idx = mainText.search(pat);
+    if (idx > 60) {
+      sigText = mainText.slice(idx).trim();
+      mainText = mainText.slice(0, idx).trim();
+      break;
+    }
+  }
+
+  // Split on double newlines → paragraphs
+  const paras = mainText.split(/\n{2,}/).filter(p => p.trim());
+
+  return (
+    <>
+      <div className={cn(compact ? "space-y-1.5" : "space-y-3")}>
+        {paras.map((para, i) => {
+          // Within each paragraph, split on single newlines to get line-break structure
+          const lines = para.split("\n");
+          return (
+            <p
+              key={i}
+              className={cn(
+                compact
+                  ? "text-[11px] text-foreground/75 leading-relaxed"
+                  : "text-[13px] text-foreground leading-[1.65]"
+              )}
+            >
+              {lines.map((line, j) => (
+                <span key={j}>
+                  {renderWithLinks(line)}
+                  {j < lines.length - 1 && <br />}
+                </span>
+              ))}
+            </p>
+          );
+        })}
+      </div>
+      {sigText && <SignatureBlock text={sigText} />}
+    </>
+  );
 }
 
 // ── Constants ──────────────────────────────────────────────────────────────────
@@ -223,6 +339,17 @@ const SIG_PATTERNS = [
 
 function isOurTeam(from: string): boolean {
   return from.toLowerCase().includes(OUR_DOMAIN);
+}
+
+/**
+ * Determine if an email was sent by our team.
+ * Prioritises the `from` address (domain check) over Zoho's `direction` field,
+ * because Zoho returns `direction: "sent"` for ALL emails on a Deal record —
+ * including replies from the buyer — making that field unreliable for direction.
+ */
+function isOutbound(e: { from?: string; direction?: string }): boolean {
+  if (e.from) return isOurTeam(e.from);
+  return (e.direction ?? "") === "sent";
 }
 
 function senderInitials(from: string): string {
@@ -523,9 +650,7 @@ function QuotedMessage({ msg, depth }: { msg: ChainMessage; depth: number }) {
       </button>
       {open && (
         <div className="px-3 pb-3 border-t border-border/20 pt-2">
-          <p className="text-[11px] leading-relaxed text-foreground/80 whitespace-pre-wrap">
-            {msg.body}
-          </p>
+          {renderPlainBody(msg.body, true)}
         </div>
       )}
     </div>
@@ -541,10 +666,9 @@ function MessageBubble({
   defaultExpanded?: boolean;
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded);
-  const [showHistory, setShowHistory] = useState(false);
   const [hoverDate, setHoverDate] = useState(false);
 
-  const outbound = isOurTeam(email.from) || email.direction === "sent";
+  const outbound = isOutbound(email);
   const name = senderName(email.from);
   const initials = senderInitials(email.from);
 
@@ -553,15 +677,8 @@ function MessageBubble({
 
   const plainBody = email.body_full || email.body_preview || email.snippet || "";
 
-  // Parse the reply chain from the plain body
-  const chain = !safeHtml ? parseEmailChain(plainBody) : [];
-  // chain[0] = newest message (this email's actual content)
-  // chain[1..] = quoted history
-  const latestBody = chain[0]?.body ?? stripQuotedText(plainBody);
-  const quotedChain = chain.slice(1);
-
-  const previewText = latestBody.slice(0, 180);
-  const hasBody = Boolean(safeHtml || latestBody);
+  const previewText = stripQuotedText(plainBody).slice(0, 180);
+  const hasBody = Boolean(safeHtml || plainBody);
   const dateStr = email.date || email.sent_at;
 
   return (
@@ -629,41 +746,39 @@ function MessageBubble({
             <div className="px-4 py-3 space-y-3">
               {hasBody ? (
                 <>
-                  {/* ── Latest message body ── */}
+                  {/* ── Email body — HTML or plain-text thread ── */}
                   {safeHtml ? (
                     <div
-                      className="email-body text-[12px] leading-relaxed text-foreground [&_a]:text-primary [&_a]:underline [&_p]:mb-2 [&_div]:mb-1"
+                      className={cn(
+                        "email-body text-[13px] leading-[1.65] text-foreground",
+                        "[&_a]:text-primary [&_a]:underline [&_a]:underline-offset-2 [&_a:hover]:text-primary/70",
+                        "[&_p]:mb-3 [&_p:last-child]:mb-0",
+                        "[&_div]:mb-1",
+                        "[&_br]:leading-none",
+                        "[&_ul]:list-disc [&_ul]:pl-5 [&_ul]:mb-3 [&_ul]:space-y-1",
+                        "[&_ol]:list-decimal [&_ol]:pl-5 [&_ol]:mb-3 [&_ol]:space-y-1",
+                        "[&_li]:leading-relaxed",
+                        "[&_h1]:text-base [&_h1]:font-semibold [&_h1]:mb-2 [&_h1]:mt-3",
+                        "[&_h2]:text-sm [&_h2]:font-semibold [&_h2]:mb-1.5 [&_h2]:mt-2",
+                        "[&_h3]:text-xs [&_h3]:font-semibold [&_h3]:mb-1 [&_h3]:mt-2",
+                        "[&_strong]:font-semibold [&_b]:font-semibold",
+                        "[&_em]:italic [&_i]:italic",
+                        "[&_pre]:bg-muted [&_pre]:rounded-md [&_pre]:p-2.5 [&_pre]:text-[11px] [&_pre]:overflow-x-auto [&_pre]:my-2",
+                        "[&_blockquote]:border-l-2 [&_blockquote]:border-border/40 [&_blockquote]:pl-3 [&_blockquote]:text-muted-foreground [&_blockquote]:my-2",
+                        "[&_table]:w-full [&_table]:text-[11px] [&_table]:my-2",
+                        "[&_td]:py-1 [&_td]:pr-4 [&_th]:py-1 [&_th]:pr-4 [&_th]:font-semibold [&_th]:text-left",
+                        "[&_hr]:border-border/30 [&_hr]:my-3",
+                      )}
                       dangerouslySetInnerHTML={{ __html: safeHtml }}
                     />
                   ) : (
-                    <p className="text-[12px] leading-relaxed text-foreground whitespace-pre-wrap">
-                      {latestBody}
-                    </p>
-                  )}
-
-                  {/* ── Quoted reply chain ── */}
-                  {quotedChain.length > 0 && (
-                    <div className="mt-2">
-                      <button
-                        className="flex items-center gap-1.5 text-[10px] text-muted-foreground/50 hover:text-muted-foreground transition-colors"
-                        onClick={e => { e.stopPropagation(); setShowHistory(v => !v); }}
-                      >
-                        {showHistory
-                          ? <ChevronDown className="h-3 w-3" />
-                          : <ChevronRight className="h-3 w-3" />}
-                        {showHistory
-                          ? "Hide reply history"
-                          : `Show ${quotedChain.length} earlier message${quotedChain.length > 1 ? "s" : ""}`}
-                      </button>
-
-                      {showHistory && (
-                        <div className="mt-2 space-y-2 border-l-2 border-border/30 pl-3">
-                          {quotedChain.map((msg, qi) => (
-                            <QuotedMessage key={qi} msg={msg} depth={qi} />
-                          ))}
-                        </div>
-                      )}
-                    </div>
+                    /* Plain text: use EmailThreadView to parse & render the full reply chain */
+                    <EmailThreadView
+                      rawBody={plainBody}
+                      senderName={name}
+                      senderEmail={email.from}
+                      internalDomains={[OUR_DOMAIN]}
+                    />
                   )}
                 </>
               ) : (
@@ -705,7 +820,7 @@ function ThreadView({
   const dateIsOld = ageInDays !== null && ageInDays > 60;
 
   // Sent/received indicator from messages
-  const hasBuyerReply = thread.messages.some(m => !isOurTeam(m.from) && m.direction !== "sent");
+  const hasBuyerReply = thread.messages.some(m => !isOutbound(m));
 
   // Build unique participant initials for avatar stack (max 3)
   const uniqueParticipants = [...new Set(thread.participants ?? [])].slice(0, 4);
@@ -1365,17 +1480,47 @@ export default function EmailTimelinePage() {
 
   const emails = thread?.emails ?? [];
   const threads = thread?.threads ?? [];
-  const sentCount = emails.filter(e => isOurTeam(e.from) || e.direction === "sent").length;
-  const receivedCount = emails.length - sentCount;
+
+  // sentCount: Zoho only returns outbound emails, so the flat list is already sent-only.
+  // receivedCount: buyer replies are NOT separate Zoho records — they exist only as quoted
+  // text inside body_full. Parse the richest email's chain to extract received messages.
+  const sentCount = emails.filter(e => isOutbound(e)).length;
+  const receivedCount = useMemo(() => {
+    if (emails.length === 0) return 0;
+    // Use the email with the longest body — it has the most complete reply chain
+    const richest = emails.reduce((best, e) => {
+      const len = (e.body_full || e.body_preview || "").length;
+      const bestLen = (best?.body_full || best?.body_preview || "").length;
+      return len > bestLen ? e : best;
+    }, emails[0]);
+    if (!richest) return 0;
+    const body = richest.body_full || richest.body_preview || "";
+    if (!body) return 0;
+    return getChainStats(body, richest.from, [OUR_DOMAIN]).received;
+  }, [emails]);
   const responseRate = sentCount > 0 ? Math.round((receivedCount / sentCount) * 100) : 0;
 
-  // Days since last buyer response
-  const lastBuyerEmail = [...emails]
-    .reverse()
-    .find(e => !isOurTeam(e.from) && e.direction !== "sent");
+  // Days since last buyer response — check chain-parsed messages in the richest email
+  const lastBuyerEmail = useMemo(() => {
+    // First try the flat list (in case Zoho ever returns received emails)
+    const fromFlat = [...emails].reverse().find(e => !isOutbound(e));
+    if (fromFlat) return fromFlat;
+    // Fallback: look through chains for external-sender messages with a date
+    for (const email of [...emails].reverse()) {
+      const body = email.body_full || email.body_preview || "";
+      if (!body) continue;
+      const chain = getChainStats(body, email.from, [OUR_DOMAIN]);
+      if (chain.received > 0) {
+        // Return a synthetic marker with the containing email's date as approximation
+        return { ...email, _chain_received: true };
+      }
+    }
+    return undefined;
+  }, [emails]);
+  const lastBuyerEmail_forDate = lastBuyerEmail as (EmailMessage & { _chain_received?: boolean }) | undefined;
   const daysSinceReply = (() => {
-    if (!lastBuyerEmail) return null;
-    const ds = lastBuyerEmail.date || lastBuyerEmail.sent_at || "";
+    if (!lastBuyerEmail_forDate) return null;
+    const ds = lastBuyerEmail_forDate.date || lastBuyerEmail_forDate.sent_at || "";
     if (!ds) return null;
     try { const d = parseISO(ds); return isNaN(d.getTime()) ? null : differenceInDays(new Date(), d); }
     catch { return null; }
@@ -1386,7 +1531,7 @@ export default function EmailTimelinePage() {
   // Last sent email date for no-reply banner
   const lastSentEmail = [...emails]
     .reverse()
-    .find(e => isOurTeam(e.from) || e.direction === "sent");
+    .find(e => isOutbound(e));
   const lastSentAgo = (() => {
     if (!lastSentEmail) return null;
     const ds = lastSentEmail.date || lastSentEmail.sent_at || "";
@@ -1563,13 +1708,6 @@ export default function EmailTimelinePage() {
                   </p>
                 </div>
               </div>
-
-              {/* One-sided conversation warning */}
-              {noReply && (
-                <p className="text-sm border-l-4 border-orange-500 pl-3 text-orange-400/80 -mt-2">
-                  One-sided conversation detected. Consider a different approach.
-                </p>
-              )}
 
               {/* ── No-reply alert banner ── */}
               {noReply && (

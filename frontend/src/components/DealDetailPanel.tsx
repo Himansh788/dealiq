@@ -77,7 +77,7 @@ const SECTION_STYLES = {
 
 type SectionKey = keyof typeof SECTION_STYLES;
 
-const DEFAULT_OPEN: SectionKey[] = ["timeline", "health", "ai-rep"];
+const DEFAULT_OPEN: SectionKey[] = ["timeline"];
 
 // Per-section badge previews shown in the collapsed accordion header
 function SectionBadge({ sectionKey, healthScore }: { sectionKey: SectionKey; healthScore?: number }) {
@@ -122,6 +122,9 @@ export default function DealDetailPanel({
   const [liveScore, setLiveScore] = useState<number | undefined>(undefined);
   const [liveLabel, setLiveLabel] = useState<string | undefined>(undefined);
 
+  // Track which accordion sections have ever been opened — gates child rendering (lazy-load)
+  const [openedSections, setOpenedSections] = useState<Set<string>>(new Set(DEFAULT_OPEN));
+
   // Inline edit state
   const [localStage, setLocalStage] = useState<string | undefined>(stage);
   const [localAmount, setLocalAmount] = useState<number | undefined>(amount);
@@ -145,7 +148,9 @@ export default function DealDetailPanel({
     setNoteText("");
     setNoteOpen(false);
     setActiveTab(initialTab ?? "Overview");
-  }, [dealId, stage, amount, initialTab]);
+    // Reset opened sections — only timeline (+ initialSection if provided) auto-open
+    setOpenedSections(new Set(initialSection ? ["timeline", initialSection] : ["timeline"]));
+  }, [dealId, stage, amount, initialTab, initialSection]);
 
   async function handleFieldSave(field: string, value: string | number) {
     if (!dealId) return;
@@ -188,8 +193,13 @@ export default function DealDetailPanel({
     setLiveLabel(undefined);
     api.getDealHealth(dealId)
       .then((data) => {
-        setLiveScore(data.total_score ?? data.overall_score);
-        setLiveLabel(data.health_label);
+        const score = data.total_score ?? data.overall_score;
+        const label = data.health_label;
+        setLiveScore(score);
+        setLiveLabel(label);
+        // Propagate fresh score back to deal list so list row stays in sync
+        if (score != null) onDealUpdated?.("health_score", score);
+        if (label) onDealUpdated?.("health_label", label);
       })
       .catch(() => { /* fall back to stale list score */ });
   }, [dealId]);
@@ -348,7 +358,7 @@ export default function DealDetailPanel({
                   "px-4 py-2.5 text-sm font-medium border-b-2 transition-colors",
                   activeTab === tab
                     ? "border-sky-500 text-sky-400"
-                    : "border-transparent text-slate-500 hover:text-slate-300"
+                    : "border-transparent text-muted-foreground hover:text-foreground"
                 )}
               >
                 {tab === "Battle Card" && (
@@ -373,6 +383,14 @@ export default function DealDetailPanel({
             <Accordion
               type="multiple"
               defaultValue={defaultOpen}
+              onValueChange={(vals) => {
+                // Mark every newly opened section — never un-marks, keeps child mounted
+                setOpenedSections(prev => {
+                  const next = new Set(prev);
+                  vals.forEach(v => next.add(v));
+                  return next;
+                });
+              }}
               className="space-y-2"
             >
               {(Object.keys(SECTION_STYLES) as SectionKey[]).map(key => (
@@ -385,17 +403,18 @@ export default function DealDetailPanel({
                     <SectionTrigger sectionKey={key} healthScore={displayScore} />
                   </AccordionTrigger>
                   <AccordionContent className="px-4 pb-4 pt-0 transition-all duration-300 data-[state=closed]:animate-accordion-up data-[state=open]:animate-accordion-down">
-                    {key === "timeline" && <DealTimeline dealId={dealId} />}
-                    {key === "health" && <HealthBreakdown dealId={dealId} />}
-                    {key === "activity" && <ActivityFeedPanel dealId={dealId} stage={stage} />}
-                    {key === "ai-rep" && <AIRepPanel dealId={dealId} dealName={dealName} repName={repName} />}
-                    {key === "call-brief" && <CallBriefPanel dealId={dealId} repName={repName} />}
-                    {key === "mismatch" && <MismatchChecker dealId={dealId} />}
-                    {key === "trackers" && <TrackerPanel dealId={dealId} />}
-                    {key === "ack" && <AckSection dealId={dealId} dealName={dealName} />}
-                    {key === "coaching" && <CoachingPanel dealId={dealId} repName={repName} />}
-                    {key === "ask" && <AskDealIQPanel dealId={dealId} dealName={dealName} />}
-                    {key === "outcome" && <MarkOutcomeSection dealId={dealId} dealName={dealName} />}
+                    {/* Only mount child once the section has been opened at least once */}
+                    {openedSections.has(key) && key === "timeline" && <DealTimeline dealId={dealId} />}
+                    {openedSections.has(key) && key === "health" && <HealthBreakdown dealId={dealId} />}
+                    {openedSections.has(key) && key === "activity" && <ActivityFeedPanel dealId={dealId} stage={stage} />}
+                    {openedSections.has(key) && key === "ai-rep" && <AIRepPanel dealId={dealId} dealName={dealName} repName={repName} />}
+                    {openedSections.has(key) && key === "call-brief" && <CallBriefPanel dealId={dealId} repName={repName} />}
+                    {openedSections.has(key) && key === "mismatch" && <MismatchChecker dealId={dealId} />}
+                    {openedSections.has(key) && key === "trackers" && <TrackerPanel dealId={dealId} />}
+                    {openedSections.has(key) && key === "ack" && <AckSection dealId={dealId} dealName={dealName} />}
+                    {openedSections.has(key) && key === "coaching" && <CoachingPanel dealId={dealId} repName={repName} />}
+                    {openedSections.has(key) && key === "ask" && <AskDealIQPanel dealId={dealId} dealName={dealName} />}
+                    {openedSections.has(key) && key === "outcome" && <MarkOutcomeSection dealId={dealId} dealName={dealName} />}
                   </AccordionContent>
                 </AccordionItem>
               ))}

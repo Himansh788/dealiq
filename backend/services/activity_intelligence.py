@@ -3,6 +3,7 @@ Activity Intelligence service — engagement velocity scoring, ghost stakeholder
 and team activity summaries. Stateless: all analysis is based on current data only.
 """
 
+import logging
 from datetime import datetime, timezone
 from typing import Optional
 from models.activity_schemas import (
@@ -13,6 +14,8 @@ from models.activity_schemas import (
     RepActivity,
     TeamActivitySummary,
 )
+
+logger = logging.getLogger(__name__)
 
 # Stages where ghost detection is meaningful (late-stage deals only)
 GHOST_DETECTION_STAGES = {
@@ -254,17 +257,29 @@ def _map_zoho_activity_to_item(raw: dict, act_type: str) -> ActivityItem:
     else:
         direction = "internal"
 
-    # Date field varies by Zoho endpoint (priority order)
+    # Date field varies by Zoho endpoint (priority order — broader list catches edge cases)
     date = (
-        raw.get("sent_time")          # emails
+        raw.get("sent_time")          # emails (email_related_list)
+        or raw.get("Sent_Time")       # emails capitalised variant
+        or raw.get("Date")            # some Zoho email records
+        or raw.get("date")
         or raw.get("Call_Start_Time") # calls
         or raw.get("Start_DateTime")  # meetings/events
         or raw.get("activity_time")
-        or raw.get("date")
+        or raw.get("Activity_Date")
+        or raw.get("Due_Date")        # tasks
         or raw.get("Created_Time")    # tasks, notes (Zoho capitalised)
         or raw.get("created_time")    # normalised variant
+        or raw.get("Modified_Time")   # last resort
         or ""
     )
+    if not date:
+        logger.warning(
+            "activity_intelligence: missing date — type=%s subject=%r keys=%s",
+            act_type,
+            str(raw.get("subject") or raw.get("Subject") or "")[:60],
+            list(raw.keys()),
+        )
 
     # Participants — handle both plain strings and Zoho nested dicts
     participants: list[str] = []

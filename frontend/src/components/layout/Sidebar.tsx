@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { useSession } from "@/contexts/SessionContext";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 // ── Nav config ────────────────────────────────────────────────────────────────
 
@@ -61,7 +62,7 @@ function NavItem({
           {active && (
             <span className="sidebar-active-bar" />
           )}
-          <Icon className="h-5 w-5" style={active ? { filter: "drop-shadow(0 0 6px rgba(59,130,246,0.5))" } : undefined} />
+          <Icon className="h-5 w-5" style={active ? { filter: "drop-shadow(0 0 6px rgba(19,104,170,0.5))" } : undefined} />
           {/* Notification dot */}
           {dot && !active && (
             <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-health-red ring-2 ring-background" />
@@ -124,6 +125,16 @@ export default function Sidebar() {
 
       {/* Bottom nav */}
       <div className="flex flex-col items-center gap-1.5">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span>
+              <ThemeToggle compact />
+            </span>
+          </TooltipTrigger>
+          <TooltipContent side="right" className="text-xs font-medium">
+            Toggle theme
+          </TooltipContent>
+        </Tooltip>
         <NavItem
           icon={Settings}
           label="Settings"

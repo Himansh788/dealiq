@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { BarChart3, Zap, Activity, Brain, Shield } from "lucide-react";
+import { BarChart3, Zap, Activity, Brain, Shield, TrendingUp, Target } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { useSession } from "@/contexts/SessionContext";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
@@ -12,6 +11,8 @@ const FEATURES = [
   { icon: Brain, label: "AI Sales Coach" },
   { icon: Zap, label: "Pipeline Intelligence" },
   { icon: Shield, label: "Deal Autopsy" },
+  { icon: TrendingUp, label: "Win/Loss Analysis" },
+  { icon: Target, label: "Forecast Board" },
 ];
 
 export default function Login() {
@@ -66,92 +67,109 @@ export default function Login() {
   };
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center bg-background p-4 overflow-hidden">
+    <div className="flex min-h-screen">
 
-      {/* Animated Mesh Gradient Background */}
-      <div className="absolute inset-0 overflow-hidden bg-[#060a13] -z-10">
-        <div className="absolute w-[80vw] h-[80vh] rounded-full bg-blue-600/20 blur-[100px] animate-mesh-1" />
-        <div className="absolute w-[60vw] h-[60vh] rounded-full bg-teal-500/15 blur-[100px] animate-mesh-2" />
-        <div className="absolute w-[70vw] h-[70vh] rounded-full bg-purple-600/20 blur-[100px] animate-mesh-3" />
-      </div>
-
-      {/* Card */}
-      <Card className="relative w-full max-w-md border-border/50 bg-card/70 shadow-2xl shadow-black/40 backdrop-blur-md animate-slide-up">
-
-        {/* Top accent */}
-        <div className="absolute inset-x-0 top-0 h-px rounded-t-[inherit] bg-gradient-to-r from-transparent via-primary/60 to-transparent" />
-
-        <CardContent className="flex flex-col items-center gap-7 px-8 py-10">
-
-          {/* Logo */}
-          <div className="flex items-center gap-3 fade-slide-in" style={{ animationDelay: '100ms' }}>
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-primary via-primary/80 to-accent shadow-lg shadow-primary/25">
-              <BarChart3 className="h-7 w-7 text-white" />
-            </div>
-            <span className="text-3xl font-black tracking-tight text-foreground">DealIQ</span>
+      {/* ── Left: Brand panel ── */}
+      <div
+        className="hidden lg:flex flex-col justify-between w-[45%] p-12"
+        style={{ background: "linear-gradient(145deg, #020887 0%, #1368AA 100%)" }}
+      >
+        {/* Logo */}
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/20">
+            <BarChart3 className="h-6 w-6 text-white" />
           </div>
+          <span className="text-2xl font-black tracking-tight text-white">DealIQ</span>
+        </div>
 
-          {/* Tagline */}
-          <div className="text-center">
-            <p className="text-lg font-semibold text-foreground fade-slide-in" style={{ animationDelay: '250ms' }}>Revenue without guesswork.</p>
-            <p className="mt-1.5 text-sm text-muted-foreground/70 max-w-xs leading-relaxed fade-slide-in" style={{ animationDelay: '400ms' }}>
-              AI-powered deal clarity for B2B SaaS revenue teams
-            </p>
-          </div>
-
-          {/* CTA */}
-          <div className="w-full space-y-3 relative z-10">
-            <div className="fade-slide-in" style={{ animationDelay: '550ms' }}>
-              <Button
-                className="h-12 w-full text-base font-semibold border-0 text-white transition-all duration-300 transform hover:-translate-y-[2px] active:translate-y-0"
-                style={{
-                  background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
-                  boxShadow: '0 4px 20px rgba(59,130,246,0.3)',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.boxShadow = '0 6px 24px rgba(59,130,246,0.5)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.boxShadow = '0 4px 20px rgba(59,130,246,0.3)';
-                }}
-                onClick={handleZohoLogin}
-                disabled={loading}
-              >
-                {loading ? (
-                  <span className="flex items-center gap-2">
-                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-                    Connecting…
-                  </span>
-                ) : "Login with Zoho CRM"}
-              </Button>
-            </div>
-
-            <div className="fade-slide-in" style={{ animationDelay: '700ms' }}>
-              <button
-                onClick={handleDemoLogin}
-                disabled={loading}
-                className="w-full text-center text-sm text-muted-foreground/60 transition-colors hover:text-muted-foreground"
-              >
-                Try demo without login →
-              </button>
-            </div>
-          </div>
-
+        {/* Headline */}
+        <div>
+          <h2 className="text-3xl font-bold text-white leading-tight mb-4">
+            AI-powered deal intelligence for revenue teams
+          </h2>
+          <p className="text-blue-200/75 text-base leading-relaxed mb-8">
+            Score every deal, surface hidden risks, and close with confidence. Know exactly which deals need attention — before it's too late.
+          </p>
           {/* Feature chips */}
-          <div className="flex flex-wrap justify-center gap-2 fade-slide-in" style={{ animationDelay: '850ms' }}>
+          <div className="flex flex-wrap gap-2">
             {FEATURES.map(({ icon: Icon, label }) => (
               <span
                 key={label}
-                className="flex items-center gap-1.5 rounded-full border border-border/40 bg-secondary/30 px-3 py-1 text-xs font-medium text-muted-foreground/70"
+                className="flex items-center gap-1.5 rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs font-medium text-white/80"
               >
-                <Icon className="h-3 w-3 text-primary/60" />
+                <Icon className="h-3 w-3" />
                 {label}
               </span>
             ))}
           </div>
+        </div>
 
-        </CardContent>
-      </Card>
+        <p className="text-blue-200/35 text-xs">© 2026 DealIQ · Revenue without guesswork.</p>
+      </div>
+
+      {/* ── Right: Sign-in panel ── */}
+      <div className="flex flex-1 flex-col items-center justify-center p-8 bg-background">
+
+        {/* Mobile logo */}
+        <div className="lg:hidden flex items-center gap-2.5 mb-10">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary">
+            <BarChart3 className="h-5 w-5 text-white" />
+          </div>
+          <span className="text-2xl font-black tracking-tight text-foreground">DealIQ</span>
+        </div>
+
+        <div className="w-full max-w-sm animate-slide-up">
+          <div className="mb-8">
+            <h1 className="text-2xl font-bold text-foreground">Welcome back</h1>
+            <p className="mt-1.5 text-sm text-muted-foreground">Sign in to your account to continue</p>
+          </div>
+
+          <div className="space-y-3">
+            {/* Primary CTA */}
+            <Button
+              className="h-11 w-full text-sm font-semibold text-white border-0 transition-all duration-150 hover:opacity-90"
+              style={{ background: "#020887" }}
+              onClick={handleZohoLogin}
+              disabled={loading}
+            >
+              {loading ? (
+                <span className="flex items-center gap-2">
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                  Connecting…
+                </span>
+              ) : (
+                <span className="flex items-center gap-2">
+                  <Shield className="h-4 w-4" />
+                  Sign in with Zoho CRM
+                </span>
+              )}
+            </Button>
+
+            {/* Divider */}
+            <div className="relative py-1">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-border/40" />
+              </div>
+              <div className="relative flex justify-center text-xs">
+                <span className="bg-background px-2 text-muted-foreground/50">or</span>
+              </div>
+            </div>
+
+            {/* Demo */}
+            <button
+              onClick={handleDemoLogin}
+              disabled={loading}
+              className="w-full h-10 rounded-lg border border-border/50 bg-secondary/30 text-sm text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground disabled:opacity-50"
+            >
+              Try demo without login
+            </button>
+          </div>
+
+          <p className="mt-8 text-center text-xs text-muted-foreground/40">
+            Don't have an account? Contact your admin.
+          </p>
+        </div>
+      </div>
     </div>
   );
 }

@@ -8,6 +8,10 @@ import logging
 from datetime import datetime, timezone
 import httpx
 
+# ── Simple in-memory cache for health scores ──────────────────────────────────
+_health_cache: dict = {}  # deal_id -> (result, expires_at)
+_HEALTH_CACHE_TTL = 60    # seconds
+
 logger = logging.getLogger(__name__)
 from database import get_db
 from services.zoho_client import (
@@ -571,6 +575,15 @@ async def get_deal_health(deal_id: str, authorization: str = Header(...)):
     session = _decode_session(authorization)
     demo = _is_demo(session) or deal_id.startswith("sim_")
 
+    # Cache check — skip cache for demo (fast anyway)
+    if not demo:
+        cached = _health_cache.get(deal_id)
+        if cached:
+            result, expires_at = cached
+            if datetime.now(timezone.utc).timestamp() < expires_at:
+                logger.debug("health cache hit deal=%s", deal_id)
+                return result
+
     if demo:
         raw_list = [d for d in SIMULATED_DEALS if d["id"] == deal_id]
         if not raw_list:
@@ -578,7 +591,12 @@ async def get_deal_health(deal_id: str, authorization: str = Header(...)):
         raw = raw_list[0]
     else:
         try:
-            raw = await get_fully_enriched_deal(session["access_token"], deal_id)
+            raw = await asyncio.wait_for(
+                get_fully_enriched_deal(session["access_token"], deal_id),
+                timeout=15,
+            )
+        except asyncio.TimeoutError:
+            raise HTTPException(status_code=504, detail="Zoho timed out fetching deal data")
         except HTTPException:
             raise
         except Exception as e:
@@ -592,8 +610,11 @@ async def get_deal_health(deal_id: str, authorization: str = Header(...)):
     else:
         try:
             from services.zoho_client import get_all_activity_for_deal
-            activity_data = await get_all_activity_for_deal(session["access_token"], deal_id)
-        except Exception as e:
+            activity_data = await asyncio.wait_for(
+                get_all_activity_for_deal(session["access_token"], deal_id),
+                timeout=15,
+            )
+        except (asyncio.TimeoutError, Exception) as e:
             logger.warning("Activity fetch failed deal=%s: %s", deal_id, e)
 
     # Fetch timeline analysis — non-blocking, graceful fallback
@@ -607,21 +628,99 @@ async def get_deal_health(deal_id: str, authorization: str = Header(...)):
         try:
             from services.zoho_client import fetch_deal_timeline
             from services.timeline_analyzer import analyze_timeline
-            raw_tl = await fetch_deal_timeline(session["access_token"], deal_id)
+            raw_tl = await asyncio.wait_for(
+                fetch_deal_timeline(session["access_token"], deal_id),
+                timeout=10,
+            )
             timeline_analysis = analyze_timeline(raw_tl.get("timeline", []))
-        except Exception as e:
+        except (asyncio.TimeoutError, Exception) as e:
             logger.warning("Timeline fetch failed deal=%s: %s", deal_id, e)
 
     # Score with best available signals
     if activity_data and activity_data.get("summary") and timeline_analysis.get("total_entries"):
-        from services.health_scorer import score_deal_with_timeline
-        return score_deal_with_timeline(raw, activity_data, timeline_analysis)
+        from services.health_scorer import score_deal_with_timeline, enrich_signal_details
+        result = score_deal_with_timeline(raw, activity_data, timeline_analysis)
+    elif activity_data and activity_data.get("summary"):
+        from services.health_scorer import score_deal_with_activities, enrich_signal_details
+        result = score_deal_with_activities(raw, activity_data)
+    else:
+        from services.health_scorer import enrich_signal_details
+        result = score_deal_from_zoho(raw)
 
-    if activity_data and activity_data.get("summary"):
-        from services.health_scorer import score_deal_with_activities
-        return score_deal_with_activities(raw, activity_data)
+    # Enrich signal details with cross-signal context
+    activity_summary = (activity_data or {}).get("summary", {})
+    days_silent = (
+        timeline_analysis.get("days_since_last_human_activity")
+        or activity_summary.get("days_since_any_activity")
+    )
+    if isinstance(days_silent, int) and days_silent >= 999:
+        days_silent = None
+    contact_count = activity_summary.get("total_contacts") or raw.get("contact_count", 1)
+    last_email_subject = timeline_analysis.get("last_email_subject")
 
-    return score_deal_from_zoho(raw)
+    enriched_signals = enrich_signal_details(
+        result.signals,
+        days_silent=days_silent,
+        contact_count=contact_count,
+        last_email_subject=last_email_subject,
+        stage_name=raw.get("stage"),
+    )
+
+    # Generate AI analysis (non-blocking — returns {} on failure)
+    ai_analysis: dict = {}
+    try:
+        from services.deal_health_ai import generate_deal_health_analysis
+        deal_age_days = None
+        if raw.get("created_time"):
+            try:
+                created = datetime.fromisoformat(raw["created_time"].replace("Z", "+00:00"))
+                deal_age_days = (datetime.now(timezone.utc) - created).days
+            except Exception:
+                pass
+
+        ai_analysis = await generate_deal_health_analysis(
+            deal_name=raw.get("name", "Unknown"),
+            deal_stage=raw.get("stage", "Unknown"),
+            deal_amount=raw.get("amount"),
+            deal_age_days=deal_age_days,
+            deal_owner=raw.get("owner"),
+            contact_name=raw.get("contact_name"),
+            signals=enriched_signals,
+            health_label=result.health_label,
+            total_score=result.total_score,
+            timeline_analysis=timeline_analysis,
+            activity_summary=activity_summary,
+        )
+    except Exception as e:
+        logger.warning("deal_health_ai call failed for %s: %s", deal_id, e)
+
+    # Parse recommended_actions into RecommendedAction models
+    from models.schemas import RecommendedAction
+    recommended_actions = None
+    if ai_analysis.get("recommended_actions"):
+        try:
+            recommended_actions = [
+                RecommendedAction(**a) for a in ai_analysis["recommended_actions"]
+            ]
+        except Exception:
+            recommended_actions = None
+
+    result = result.model_copy(update={
+        "signals": enriched_signals,
+        "analysis_summary": ai_analysis.get("analysis_summary"),
+        "key_risk": ai_analysis.get("key_risk"),
+        "root_cause": ai_analysis.get("root_cause"),
+        "deal_status_assessment": ai_analysis.get("deal_status_assessment"),
+        "win_probability_estimate": ai_analysis.get("win_probability_estimate"),
+        "escalation_needed": ai_analysis.get("escalation_needed"),
+        "recommended_actions": recommended_actions,
+    })
+
+    # Store in cache
+    if not demo:
+        _health_cache[deal_id] = (result, datetime.now(timezone.utc).timestamp() + _HEALTH_CACHE_TTL)
+
+    return result
 
 
 @router.get("/{deal_id}/timeline")

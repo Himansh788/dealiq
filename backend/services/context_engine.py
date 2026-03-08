@@ -29,6 +29,18 @@ _log = logging.getLogger(__name__)
 MAX_EMAIL_BODY_CHARS = 1500
 MAX_TRANSCRIPT_CHARS = 3000
 
+# Regex patterns to detect quoted-message headers inside body_full.
+# Zoho only stores outbound emails; buyer replies live as quoted text.
+_INLINE_QUOTE_RE = re.compile(
+    r"From:\s*([^<\n]*?<[^>\n]+>|[^\n]{3,80}?)\s+"
+    r"(?:Sent|Date):\s*([^\n]{5,60}?)\s+To:\s+[^\n]+",
+    re.IGNORECASE,
+)
+_MULTILINE_QUOTE_RE = re.compile(
+    r"^From:\s*(.+?)[\r\n]+(?:Sent|Date):\s*(.+?)[\r\n]+(?:To|Cc):",
+    re.IGNORECASE | re.MULTILINE,
+)
+
 
 # ── Data classes ──────────────────────────────────────────────────────────────
 
@@ -150,27 +162,47 @@ class DealContext:
         else:
             parts.append("=== CALL TRANSCRIPT ===\nNo transcript available.")
 
-        # 5. Email thread (most recent 8, direction-tagged)
+        # 5. Email thread — Zoho-returned emails + quoted-chain recovery
+        #    Zoho only stores outbound emails; buyer replies exist only as quoted
+        #    text inside body_full. We parse those chains to surface [← BUYER] context.
+        internal_domains = ContextEngine._detect_internal_domains(self.emails)
+
         thread = sorted(
-            self.emails[-8:],
-            key=lambda e: e.get("sent_time") or e.get("date") or "",
+            self.emails,
+            key=lambda e: e.get("sent_time") or e.get("date") or e.get("sent_at") or "",
         )
-        email_lines = []
+        email_lines: list[str] = []
         for e in thread:
             direction_val = (e.get("direction") or "").lower()
-            is_buyer = (
-                direction_val in ("incoming", "received", "inbound")
-                and e.get("sent") is not True
-            )
+            # "delivered" = our normalised value for inbound emails (set by _normalise_zoho_email)
+            is_buyer = direction_val in ("incoming", "received", "inbound", "delivered")
             tag = "← BUYER" if is_buyer else "→ REP"
             body = (
                 e.get("body_full") or e.get("content") or e.get("body") or e.get("text_body") or ""
             )[:MAX_EMAIL_BODY_CHARS]
-            sent_at = e.get("sent_time") or e.get("date") or "unknown date"
+            sent_at = e.get("sent_time") or e.get("date") or e.get("sent_at") or "unknown date"
             subj = e.get("subject") or "No subject"
-            email_lines.append(f"[{tag}] {sent_at} | {subj}\n{body}")
+            from_addr = e.get("from") or ""
+            header = f"[{tag}] {sent_at[:10]} | {subj}"
+            if from_addr:
+                header += f" | From: {from_addr}"
+            email_lines.append(f"{header}\n{body}")
+
+        # Recover buyer replies from quoted chains when they aren't in the flat list
+        has_buyer = any("← BUYER" in ln for ln in email_lines)
+        if not has_buyer and self.emails:
+            quoted = ContextEngine._extract_quoted_replies(self.emails, internal_domains)
+            for q in quoted:
+                email_lines.append(
+                    f"[{q['direction']} — quoted] {q['date']} | From: {q['sender']}\n{q['body']}"
+                )
+
         if email_lines:
-            parts.append("=== EMAIL THREAD (recent) ===\n\n" + "\n\n---\n\n".join(email_lines))
+            # Cap to last 10 entries so we don't blow the token budget
+            parts.append(
+                "=== EMAIL THREAD (recent) ===\n\n"
+                + "\n\n---\n\n".join(email_lines[-10:])
+            )
         else:
             parts.append("=== EMAIL THREAD ===\nNo email history available.")
 
@@ -190,15 +222,85 @@ class ContextEngine:
     """Assembles DealContext from raw deal data, emails, and transcript."""
 
     @staticmethod
+    def _detect_internal_domains(emails: list) -> list[str]:
+        """
+        Infer the rep's email domain(s) from the from-addresses of outbound emails.
+        Falls back to ["vervotech.com"] if nothing can be detected.
+        """
+        import re as _re
+        domains: set[str] = set()
+        for e in emails:
+            direction = (e.get("direction") or "").lower()
+            if direction not in ("sent", "outgoing", "outbound"):
+                continue
+            from_str = e.get("from") or ""
+            match = _re.search(r"@([\w.-]+)", from_str)
+            if match:
+                domains.add(match.group(1).lower())
+        return list(domains) or ["vervotech.com"]
+
+    @staticmethod
+    def _extract_quoted_replies(emails: list, internal_domains: list[str]) -> list[dict]:
+        """
+        Parse quoted email chains from body_full to recover buyer replies.
+
+        Zoho only stores outbound emails — inbound replies exist only as quoted text
+        inside subsequent sent emails. This function surfaces them for the AI.
+        Returns a list of dicts: {direction, sender, date, body} oldest-first.
+        """
+        if not emails:
+            return []
+
+        # Use the email with the longest body — it has the most complete chain
+        richest = max(emails, key=lambda e: len(e.get("body_full") or e.get("content") or ""))
+        body = richest.get("body_full") or richest.get("content") or ""
+        if len(body) < 200:
+            return []
+
+        seen_positions: list[int] = []
+        matches: list[dict] = []
+
+        for pat in (_MULTILINE_QUOTE_RE, _INLINE_QUOTE_RE):
+            for m in pat.finditer(body):
+                # Deduplicate overlapping matches
+                if any(abs(pos - m.start()) < 100 for pos in seen_positions):
+                    continue
+                seen_positions.append(m.start())
+                sender = m.group(1).strip()
+                date_str = m.group(2).strip()
+                is_rep = any(d.lower() in sender.lower() for d in internal_domains)
+                # Snippet: text after this header until the next header
+                snippet_start = m.end()
+                next_hdr = body.find("From:", snippet_start + 10)
+                snippet = body[snippet_start: next_hdr if next_hdr > 0 else snippet_start + 800]
+                # Strip nested quoted lines (">")
+                snippet = "\n".join(
+                    ln for ln in snippet.splitlines() if not ln.lstrip().startswith(">")
+                ).strip()[:600]
+                matches.append({
+                    "pos": m.start(),
+                    "direction": "→ REP" if is_rep else "← BUYER",
+                    "sender": sender,
+                    "date": date_str,
+                    "body": snippet,
+                })
+
+        # Sort oldest-first (deepest in chain = highest position index in text)
+        matches.sort(key=lambda x: x["pos"], reverse=True)
+        return matches
+
+    @staticmethod
     def build_deal_context(
         deal: dict,
         emails: list,
         transcript: Optional[str],
     ) -> DealContext:
         contacts = deal.get("contacts") or deal.get("contact_roles") or []
+        # "sent" = our normalised direction for outbound; also keep legacy Zoho values
         outbound = [
             e for e in emails
-            if (e.get("direction") or "").lower() in ("outgoing", "sent", "outbound")
+            if (e.get("direction") or "").lower()
+            in ("outgoing", "sent", "outbound")
             or e.get("sent") is True
         ]
         rep_style = ContextEngine._analyse_rep_style(outbound)

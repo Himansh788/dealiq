@@ -82,16 +82,32 @@ LATE_STAGE_LENIENT = {"Negotiation/Review", "Value Proposition", "Id. Decision M
                       "Contract Sent", "Evaluation", "Sales Approved Deal"}
 
 
-def score_response_recency(days_since_response: Optional[int], stage: str = "") -> HealthSignal:
+def score_response_recency(
+    days_since_response: Optional[int],
+    stage: str = "",
+    has_outbound: bool = False,
+) -> HealthSignal:
     """Signal 2: How recently did the buyer respond?
-    Later-stage deals (negotiation, evaluation) tolerate longer response gaps."""
+    Later-stage deals (negotiation, evaluation) tolerate longer response gaps.
+
+    has_outbound=True means we've sent at least one email — so None means "never responded"
+    rather than "no email data at all", which is a harder critical signal.
+    """
     if days_since_response is None:
+        if has_outbound:
+            return HealthSignal(
+                name="Buyer Response Recency",
+                score=0,
+                max_score=20,
+                label="critical",
+                detail="Buyer has never responded to any outreach. This is not yet a two-way conversation.",
+            )
         return HealthSignal(
             name="Buyer Response Recency",
             score=5,
             max_score=20,
             label="warn",
-            detail="No response date recorded. Cannot measure buyer engagement."
+            detail="No response date recorded. Cannot measure buyer engagement.",
         )
     lenient = stage in LATE_STAGE_LENIENT
     if days_since_response <= 3:
@@ -235,16 +251,36 @@ def build_recommendation(signals: List[HealthSignal], score: int, stage: str) ->
 # ── Activity-data signal scorers (used by score_deal_with_activities) ──────────
 
 def _score_communication_balance(emails_out: int, emails_in: int) -> HealthSignal:
-    ratio = emails_out / max(emails_in, 1)
-    if 0.5 <= ratio <= 2.0:
+    # Zero inbound = buyer has NEVER responded — always critical regardless of outbound count
+    if emails_in == 0:
+        if emails_out == 0:
+            return HealthSignal(name="Communication Balance", score=0, max_score=10, label="insufficient_data",
+                                detail="No emails exchanged yet.")
+        return HealthSignal(name="Communication Balance", score=0, max_score=10, label="critical",
+                            detail=f"{emails_out} sent / 0 received — buyer has never responded. No two-way dialogue exists.")
+
+    # Zero outbound = buyer is reaching out but rep hasn't responded
+    if emails_out == 0:
+        return HealthSignal(name="Communication Balance", score=2, max_score=10, label="warn",
+                            detail=f"0 sent / {emails_in} received — buyer is reaching out but rep hasn't responded.")
+
+    ratio = emails_out / emails_in
+    total = emails_out + emails_in
+
+    # Too few emails to judge pattern
+    if total < 4:
+        return HealthSignal(name="Communication Balance", score=3, max_score=10, label="warn",
+                            detail=f"{emails_out} sent / {emails_in} received — too few emails to assess pattern reliably.")
+
+    if 0.5 <= ratio <= 2.5:
         return HealthSignal(name="Communication Balance", score=10, max_score=10, label="good",
-                            detail=f"{emails_out} out / {emails_in} in — healthy two-way dialogue.")
-    elif 0.3 <= ratio <= 3.0:
-        return HealthSignal(name="Communication Balance", score=6, max_score=10, label="warn",
-                            detail=f"Ratio {ratio:.1f}:1 — slightly imbalanced communication.")
+                            detail=f"Ratio {ratio:.1f}:1 — healthy two-way dialogue.")
+    elif ratio <= 4.0:
+        return HealthSignal(name="Communication Balance", score=4, max_score=10, label="warn",
+                            detail=f"Ratio {ratio:.1f}:1 — communication is imbalanced. Buyer may be disengaging.")
     else:
-        return HealthSignal(name="Communication Balance", score=2, max_score=10, label="critical",
-                            detail=f"{emails_out} outbound, {emails_in} inbound — one-sided conversation.")
+        return HealthSignal(name="Communication Balance", score=1, max_score=10, label="critical",
+                            detail=f"Ratio {ratio:.1f}:1 — heavily one-sided. Buyer is not responding.")
 
 
 def _score_multithreading(contact_count: int) -> HealthSignal:
@@ -449,9 +485,14 @@ def score_from_timeline(timeline_analysis: dict) -> Dict[str, Any]:
             detail=f"No email in {days} days — risk of buyer going dark."
         )
 
-    # Deal Engagement — human vs automation ratio (max 10 pts)
+    # Deal Engagement — human vs automation ratio + recency (max 10 pts)
+    # Recency is critical: a deal where the rep was active 3 months ago but not in 14 days
+    # should NOT score as "strong engagement."
     ratio = signals.get("human_activity_ratio", 0.5)
     total = timeline_analysis.get("total_entries", 0)
+    days_since_human = timeline_analysis.get("days_since_last_human_activity")
+    human_pct = int(ratio * 100)
+
     if total == 0:
         engagement = HealthSignal(
             name="Deal Engagement",
@@ -459,22 +500,52 @@ def score_from_timeline(timeline_analysis: dict) -> Dict[str, Any]:
             detail="No timeline entries to assess engagement quality."
         )
     elif ratio >= 0.7:
-        engagement = HealthSignal(
-            name="Deal Engagement",
-            score=10, max_score=10, label="good",
-            detail=f"{int(ratio * 100)}% human-driven activity — strong rep engagement."
-        )
+        # High human ratio — but check if it's recent
+        if days_since_human is not None and days_since_human > 14:
+            engagement = HealthSignal(
+                name="Deal Engagement",
+                score=4, max_score=10, label="warn",
+                detail=(
+                    f"{human_pct}% human-driven historically, but last rep activity was "
+                    f"{days_since_human} days ago. Engagement has dropped off."
+                )
+            )
+        elif days_since_human is not None and days_since_human > 30:
+            engagement = HealthSignal(
+                name="Deal Engagement",
+                score=2, max_score=10, label="critical",
+                detail=(
+                    f"{human_pct}% human-driven historically, but no rep activity in "
+                    f"{days_since_human} days. Deal is effectively unattended."
+                )
+            )
+        else:
+            engagement = HealthSignal(
+                name="Deal Engagement",
+                score=10, max_score=10, label="good",
+                detail=f"{human_pct}% human-driven activity — strong rep engagement."
+            )
     elif ratio >= 0.4:
-        engagement = HealthSignal(
-            name="Deal Engagement",
-            score=6, max_score=10, label="warn",
-            detail=f"{int(ratio * 100)}% human activity. Automations handling the rest — rep should be more active."
-        )
+        if days_since_human is not None and days_since_human > 14:
+            engagement = HealthSignal(
+                name="Deal Engagement",
+                score=2, max_score=10, label="critical",
+                detail=(
+                    f"{human_pct}% human activity, last rep action {days_since_human} days ago. "
+                    f"Automations handling the rest — deal needs rep attention."
+                )
+            )
+        else:
+            engagement = HealthSignal(
+                name="Deal Engagement",
+                score=6, max_score=10, label="warn",
+                detail=f"{human_pct}% human activity. Automations handling the rest — rep should be more active."
+            )
     else:
         engagement = HealthSignal(
             name="Deal Engagement",
             score=2, max_score=10, label="critical",
-            detail=f"Only {int(ratio * 100)}% human activity. This deal is running on autopilot — no real rep engagement."
+            detail=f"Only {human_pct}% human activity. This deal is running on autopilot — no real rep engagement."
         )
 
     return {
@@ -511,6 +582,10 @@ def score_deal_with_activities(deal_data: Dict[str, Any], activity_data: dict) -
     )
     next_step = deal_data.get("next_step") or deal_data.get("description")
 
+    # 3 new activity-data signals (read before building signals for has_outbound check)
+    emails_out = summary.get("emails_outbound", 0)
+    emails_in = summary.get("emails_inbound", 0)
+
     # Use real inbound email date; treat sentinel 999 as "no data"
     days_since_inbound = summary.get("days_since_last_inbound")
     if isinstance(days_since_inbound, int) and days_since_inbound >= 999:
@@ -519,7 +594,8 @@ def score_deal_with_activities(deal_data: Dict[str, Any], activity_data: dict) -
     # Existing 6 signals, rescaled to new max weights
     raw_signals = [
         (_rescale_signal(score_next_step(next_step), 15)),
-        score_response_recency(days_since_inbound, stage),      # stays 20
+        # has_outbound=True lets scorer distinguish "buyer never responded" from "no email data"
+        score_response_recency(days_since_inbound, stage, has_outbound=(emails_out > 0)),
         (_rescale_signal(score_stakeholder_depth(
             deal_data.get("contact_count", 1),
             deal_data.get("economic_buyer_engaged", False),
@@ -529,9 +605,6 @@ def score_deal_with_activities(deal_data: Dict[str, Any], activity_data: dict) -
         (_rescale_signal(score_activity_velocity(), 10)),
     ]
 
-    # 3 new activity-data signals
-    emails_out = summary.get("emails_outbound", 0)
-    emails_in = summary.get("emails_inbound", 0)
     contact_count = summary.get("total_contacts", 0)
     days_since_any_raw = summary.get("days_since_any_activity")
     days_since_any = None if (days_since_any_raw is None or (isinstance(days_since_any_raw, int) and days_since_any_raw >= 999)) else days_since_any_raw
@@ -556,6 +629,65 @@ def score_deal_with_activities(deal_data: Dict[str, Any], activity_data: dict) -
         recommendation=recommendation,
         action_required=action_required,
     )
+
+
+def enrich_signal_details(
+    signals: List[HealthSignal],
+    days_silent: Optional[int] = None,
+    contact_count: int = 1,
+    last_email_subject: Optional[str] = None,
+    stage_name: Optional[str] = None,
+) -> List[HealthSignal]:
+    """
+    Post-process signals to add cross-signal context to detail strings.
+    Signals that are critical gain richer details when other critical signals compound them.
+    Returns a new list of HealthSignal instances (immutable-safe).
+    """
+    critical_names = {s.name for s in signals if s.label == "critical"}
+    days_str = f"{days_silent} days" if days_silent else "an extended period"
+    subject_str = f" about '{last_email_subject}'" if last_email_subject and last_email_subject != "N/A" else ""
+
+    enriched = []
+    for sig in signals:
+        detail = sig.detail
+
+        if sig.label == "critical":
+            if sig.name == "Buyer Response Recency" and "Multi-threading" in critical_names:
+                detail = (
+                    f"Buyer silent for {days_str}. With only {contact_count} contact(s) engaged, "
+                    f"there's no fallback path — this is the highest-priority fix."
+                )
+            elif sig.name == "Multi-threading" and "Buyer Response Recency" in critical_names:
+                detail = (
+                    f"Only {contact_count} contact(s) engaged. Buyer has been silent for {days_str} "
+                    f"— no alternative path to advance. Identify and engage the economic buyer this week."
+                )
+            elif sig.name == "Stage Velocity" and any(
+                n in critical_names for n in ("Activity Momentum", "Activity Velocity", "Buyer Response Recency")
+            ):
+                detail = sig.detail + (
+                    " Combined with buyer silence and low activity, this deal shows no forward momentum. "
+                    "Escalate or disqualify."
+                )
+            elif sig.name == "Email Recency (Timeline)" and last_email_subject:
+                detail = (
+                    f"Last email{subject_str} was {days_silent or '?'} days ago — "
+                    f"the conversation has gone cold. Reference this topic when re-engaging."
+                )
+            elif sig.name == "Activity Momentum":
+                other_critical = [n for n in critical_names if n != sig.name]
+                if len(other_critical) >= 2:
+                    detail = (
+                        f"{days_str} since any activity, combined with {len(other_critical)} other critical signals. "
+                        f"This deal is at serious risk — escalate to manager for pipeline review."
+                    )
+
+        enriched.append(HealthSignal(
+            name=sig.name, score=sig.score, max_score=sig.max_score,
+            label=sig.label, detail=detail,
+        ))
+
+    return enriched
 
 
 def score_deal_with_timeline(
@@ -589,18 +721,16 @@ def score_deal_with_timeline(
     )
     next_step = deal_data.get("next_step") or deal_data.get("description")
 
-    # Prefer timeline email recency over activity summary (more accurate)
-    days_since_email = timeline_analysis.get("days_since_last_email")
-    days_since_inbound = summary.get("days_since_last_inbound")
-    if isinstance(days_since_inbound, int) and days_since_inbound >= 999:
-        days_since_inbound = None
-    best_recency = min(
-        v for v in [days_since_email, days_since_inbound] if v is not None
-    ) if any(v is not None for v in [days_since_email, days_since_inbound]) else None
-
     emails_out = summary.get("emails_outbound", 0)
     emails_in = summary.get("emails_inbound", 0)
     contact_count = summary.get("total_contacts", 0)
+
+    # Buyer Response Recency: use ONLY inbound email date.
+    # days_since_last_email from timeline_analysis is when WE sent an email (outbound) —
+    # using it as "buyer response recency" is wrong. Keep it for the Email Recency signal only.
+    days_since_inbound = summary.get("days_since_last_inbound")
+    if isinstance(days_since_inbound, int) and days_since_inbound >= 999:
+        days_since_inbound = None
 
     # Activity Momentum: prefer timeline human-activity scan over Zoho summary field
     # (Last_Activity_Time is often null; timeline events are always present when synced)
@@ -611,7 +741,8 @@ def score_deal_with_timeline(
 
     core_signals = [
         _rescale_signal(score_next_step(next_step), 15),
-        score_response_recency(best_recency, stage),
+        # has_outbound lets scorer distinguish "buyer never responded" from "no email data"
+        score_response_recency(days_since_inbound, stage, has_outbound=(emails_out > 0)),
         _rescale_signal(score_stakeholder_depth(
             deal_data.get("contact_count", 1),
             deal_data.get("economic_buyer_engaged", False),

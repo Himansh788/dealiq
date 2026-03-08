@@ -28,6 +28,8 @@ import {
   AlertTriangle,
   CheckCircle,
   Loader2,
+  Lightbulb,
+  Eye,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -277,26 +279,30 @@ function AnimatedMetricCard({
   const displayCount = animated ? animCount : summary.count;
   const displayAvg = animated ? animAvg : summary.avg_amount;
 
+  const wonBorderColor = "border-l-[#10b981]";
+  const lostBorderColor = "border-l-[#F26A4F]";
+
   return (
     <div
       className={cn(
-        "flex flex-col gap-3 rounded-xl border p-5 cursor-default",
-        "transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg",
-        isWon
-          ? "border-l-4 border-l-emerald-500 border-border/40 bg-emerald-500/5 hover:shadow-emerald-500/5"
-          : "border-l-4 border-l-rose-500 border-border/40 bg-rose-500/5 hover:shadow-rose-500/5"
+        "flex flex-col gap-3 rounded-xl border bg-card p-5 cursor-default",
+        "transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md",
+        "border-l-4 border-border/40",
+        isWon ? wonBorderColor : lostBorderColor
       )}
       style={{ animation: `wl-slide-up 0.4s ease both`, animationDelay: `${delay}ms` }}
     >
       <div className="flex items-center gap-2">
-        {isWon ? <Trophy className="h-5 w-5 text-emerald-400" /> : <XCircle className="h-5 w-5 text-rose-400" />}
-        <span className={cn("text-sm font-semibold", isWon ? "text-emerald-400" : "text-rose-400")}>
+        {isWon
+          ? <Trophy className="h-5 w-5 text-emerald-500" />
+          : <XCircle className="h-5 w-5" style={{ color: "#F26A4F" }} />}
+        <span className={cn("text-sm font-semibold", isWon ? "text-emerald-600 dark:text-emerald-400" : "text-foreground")}>
           {isWon ? "Deals Won" : "Deals Lost"}
         </span>
       </div>
       <div className="flex items-end gap-6">
         <div>
-          <p className={cn("text-3xl font-bold tabular-nums", isWon ? "text-emerald-300" : "text-rose-300")}>
+          <p className="text-3xl font-bold tabular-nums text-foreground">
             {displayCount}
           </p>
           <p className="text-xs text-muted-foreground">deals</p>
@@ -311,13 +317,11 @@ function AnimatedMetricCard({
       {summary.top_pattern && (
         <div className="flex items-center gap-1.5">
           {isWon
-            ? <TrendingUp className="h-3.5 w-3.5 text-emerald-400/70" />
-            : <TrendingDown className="h-3.5 w-3.5 text-rose-400/70" />}
+            ? <TrendingUp className="h-3.5 w-3.5 text-muted-foreground/50" />
+            : <TrendingDown className="h-3.5 w-3.5 text-muted-foreground/50" />}
           <span className="text-xs text-muted-foreground">
             Top pattern:{" "}
-            <span className={cn("font-medium", isWon ? "text-emerald-400" : "text-rose-400")}>
-              {humanPattern(summary.top_pattern)}
-            </span>
+            <span className="font-medium text-foreground/80">{humanPattern(summary.top_pattern)}</span>
           </span>
         </div>
       )}
@@ -335,12 +339,16 @@ function DealCard({ entry, index = 0 }: { entry: WinLossEntry; index?: number })
   return (
     <div
       className={cn(
-        "rounded-lg border bg-slate-900/60 transition-all duration-150 hover:bg-slate-800/70",
+        "rounded-lg border bg-card transition-all duration-150 hover:bg-muted/20",
         isWon
-          ? "border-l-2 border-l-emerald-500 border-border/30"
-          : "border-l-2 border-l-rose-500 border-border/30"
+          ? "border-l-[3px] border-l-emerald-500 border-border/30"
+          : "border-l-[3px] border-border/30"
       )}
-      style={{ animation: `wl-slide-up 0.35s ease both`, animationDelay: `${index * 80}ms` }}
+      style={{
+        animation: `wl-slide-up 0.35s ease both`,
+        animationDelay: `${index * 80}ms`,
+        ...(!isWon ? { borderLeftColor: "#F26A4F" } : {}),
+      }}
     >
       {/* Card header */}
       <button
@@ -357,13 +365,13 @@ function DealCard({ entry, index = 0 }: { entry: WinLossEntry; index?: number })
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-sm font-semibold text-foreground">{entry.deal_name}</span>
 
-            {/* Outcome badge — WON pulses */}
+            {/* Outcome badge */}
             <span
               className={cn(
-                "inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold tracking-wide",
+                "inline-flex items-center rounded-md border px-2 py-0.5 text-[10px] font-bold tracking-wide",
                 isWon
-                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
-                  : "border-rose-500/30 bg-rose-500/10 text-rose-400"
+                  ? "border-emerald-500/25 bg-emerald-500/8 text-emerald-600 dark:text-emerald-400"
+                  : "border-orange-400/25 bg-orange-400/8 text-orange-600 dark:text-orange-400"
               )}
               style={isWon ? { animation: "wl-badge-pulse 3s ease infinite" } : undefined}
             >
@@ -408,8 +416,9 @@ function DealCard({ entry, index = 0 }: { entry: WinLossEntry; index?: number })
             {entry.grade && <GradeBadge grade={entry.grade} />}
             {entry.lesson && (
               <div className="flex-1 rounded-md border border-amber-500/15 bg-amber-500/5 px-3 py-2">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-amber-400/60 mb-0.5">
-                  💡 Lesson
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-amber-400/60 mb-0.5 flex items-center gap-1">
+                  <Lightbulb className="h-3 w-3" />
+                  Lesson
                 </p>
                 <p className="text-xs text-foreground/80 italic">{entry.lesson}</p>
               </div>
@@ -462,36 +471,36 @@ function SkeletonLoader() {
     <div className="space-y-6">
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         {[0, 1].map((i) => (
-          <div key={i} className="rounded-xl border border-border/30 bg-slate-800/50 p-5 animate-pulse">
+          <div key={i} className="rounded-xl border border-border/30 bg-muted/40 p-5 animate-pulse">
             <div className="flex items-center gap-2 mb-4">
-              <div className="h-5 w-5 rounded bg-slate-700" />
-              <div className="h-4 w-24 rounded bg-slate-700" />
+              <div className="h-5 w-5 rounded bg-muted" />
+              <div className="h-4 w-24 rounded bg-muted" />
             </div>
             <div className="flex gap-6 mb-3">
-              <div className="h-9 w-12 rounded bg-slate-700" />
-              <div className="h-7 w-20 rounded bg-slate-700" />
+              <div className="h-9 w-12 rounded bg-muted" />
+              <div className="h-7 w-20 rounded bg-muted" />
             </div>
-            <div className="h-3 w-40 rounded bg-slate-700" />
+            <div className="h-3 w-40 rounded bg-muted" />
           </div>
         ))}
       </div>
-      <div className="rounded-xl border border-border/30 bg-slate-800/50 p-5 animate-pulse">
-        <div className="h-4 w-40 rounded bg-slate-700 mb-4" />
-        <div className="h-[220px] rounded-lg bg-slate-700" />
+      <div className="rounded-xl border border-border/30 bg-muted/40 p-5 animate-pulse">
+        <div className="h-4 w-40 rounded bg-muted mb-4" />
+        <div className="h-[220px] rounded-lg bg-muted" />
       </div>
       <div className="space-y-2">
-        <div className="h-4 w-28 rounded bg-slate-700 animate-pulse mb-2" />
+        <div className="h-4 w-28 rounded bg-muted animate-pulse mb-2" />
         {[0, 1, 2].map((i) => (
-          <div key={i} className="rounded-lg border border-border/30 bg-slate-800/50 px-4 py-3 animate-pulse">
+          <div key={i} className="rounded-lg border border-border/30 bg-muted/40 px-4 py-3 animate-pulse">
             <div className="flex items-center gap-3">
-              <div className="h-4 w-4 rounded bg-slate-700 shrink-0" />
+              <div className="h-4 w-4 rounded bg-muted shrink-0" />
               <div className="flex-1 space-y-2">
                 <div className="flex gap-2">
-                  <div className="h-4 w-28 rounded bg-slate-700" />
-                  <div className="h-4 w-12 rounded-full bg-slate-700" />
-                  <div className="h-4 w-16 rounded bg-slate-700" />
+                  <div className="h-4 w-28 rounded bg-muted" />
+                  <div className="h-4 w-12 rounded-full bg-muted" />
+                  <div className="h-4 w-16 rounded bg-muted" />
                 </div>
-                <div className="h-3 w-3/4 rounded bg-slate-700" />
+                <div className="h-3 w-3/4 rounded bg-muted" />
               </div>
             </div>
           </div>
@@ -715,11 +724,11 @@ function CustomBar(props: any) {
 }
 
 function WonBar(props: any) {
-  return <CustomBar {...props} fill="#10b981" gradientId="grad-won" />;
+  return <CustomBar {...props} fill="#020887" gradientId="grad-won" />;
 }
 
 function LostBar(props: any) {
-  return <CustomBar {...props} fill="#f43f5e" gradientId="grad-lost" />;
+  return <CustomBar {...props} fill="#F26A4F" gradientId="grad-lost" />;
 }
 
 // ── Custom chart tooltip ──────────────────────────────────────────────────────
@@ -727,12 +736,12 @@ function LostBar(props: any) {
 function CustomTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="rounded-xl border border-slate-700 bg-slate-900 px-3.5 py-2.5 text-xs shadow-2xl">
+    <div className="rounded-xl border border-border bg-card px-3.5 py-2.5 text-xs shadow-md">
       <p className="font-semibold text-foreground mb-2">{label}</p>
       {payload.map((p: any) => (
         <div key={p.name} className="flex items-center gap-2 mb-1 last:mb-0">
           <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: p.fill ?? p.color }} />
-          <span className="text-slate-400">{p.name}:</span>
+          <span className="text-muted-foreground">{p.name}:</span>
           <span className="font-bold text-foreground">{p.value}</span>
         </div>
       ))}
@@ -852,9 +861,9 @@ export default function WinLossPage() {
           {/* Demo banner */}
           {isDemo && (
             <div className="flex items-center justify-between rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-2.5">
-              <p className="text-xs text-amber-300/80">
-                👀 <span className="font-semibold">Showing sample data</span>
-                {" "}— mark a deal outcome to see your real intelligence
+              <p className="text-xs text-amber-300/80 flex items-center gap-1.5">
+                <Eye className="h-3.5 w-3.5 shrink-0" />
+                <span><span className="font-semibold">Showing sample data</span> — mark a deal outcome to see your real intelligence</span>
               </p>
               <button
                 onClick={() => setUserDismissedDemo(true)}
@@ -898,7 +907,7 @@ export default function WinLossPage() {
                           outerRadius={46}
                           startAngle={90}
                           endAngle={-270}
-                          data={[{ name: "Win Rate", value: animatedWinRate, fill: "#10b981" }]}
+                          data={[{ name: "Win Rate", value: animatedWinRate, fill: "#020887" }]}
                           barSize={10}
                         >
                           <RadialBar
@@ -907,7 +916,7 @@ export default function WinLossPage() {
                             cornerRadius={5}
                           />
                         </RadialBarChart>
-                        <span className="absolute inset-0 flex items-center justify-center text-lg font-bold text-emerald-400 tabular-nums">
+                        <span className="absolute inset-0 flex items-center justify-center text-lg font-bold text-primary tabular-nums">
                           {animatedWinRate}%
                         </span>
                       </div>
@@ -922,19 +931,19 @@ export default function WinLossPage() {
               {/* Pattern bar chart */}
               {chartData.length > 0 && (
                 <div
-                  className="rounded-2xl border border-slate-800 bg-slate-900 p-7"
+                  className="rounded-2xl border border-border bg-card p-7"
                   style={{ animation: "wl-slide-up 0.4s ease both", animationDelay: "250ms" }}
                 >
                   {/* Chart header + custom legend */}
                   <div className="flex items-center justify-between mb-5">
                     <h2 className="text-sm font-semibold text-foreground">Deal Pattern Breakdown</h2>
-                    <div className="flex items-center gap-4 text-xs text-slate-400">
+                    <div className="flex items-center gap-4 text-xs text-muted-foreground">
                       <span className="flex items-center gap-1.5">
-                        <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                        <span className="h-2 w-2 rounded-full" style={{ backgroundColor: "#020887" }} />
                         Won
                       </span>
                       <span className="flex items-center gap-1.5">
-                        <span className="h-2 w-2 rounded-full bg-rose-500" />
+                        <span className="h-2 w-2 rounded-full" style={{ backgroundColor: "#F26A4F" }} />
                         Lost
                       </span>
                     </div>

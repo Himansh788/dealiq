@@ -118,21 +118,21 @@ function DealCard({
 }) {
   const navigate = useNavigate();
   return (
-    <div className="bg-slate-800 hover:bg-slate-700 transition-all duration-300 hover:-translate-y-[2px] hover:shadow-lg hover:shadow-black/50 rounded-xl p-3 cursor-default group border border-slate-700/50 relative overflow-hidden">
+    <div className="bg-card hover:bg-muted/40 transition-all duration-300 hover:-translate-y-[2px] hover:shadow-md rounded-xl p-3 cursor-default group border border-border/60 relative overflow-hidden">
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
           {deal.has_critical_warning && (
             <AlertTriangle size={13} className="text-rose-400 flex-shrink-0" strokeWidth={2.5} />
           )}
-          <span className="text-slate-200 font-medium text-sm truncate">{deal.name}</span>
+          <span className="text-foreground font-medium text-sm truncate">{deal.name}</span>
         </div>
-        <span className="text-slate-300 font-semibold text-sm flex-shrink-0">{formatK(deal.amount)}</span>
+        <span className="text-foreground/80 font-semibold text-sm flex-shrink-0">{formatK(deal.amount)}</span>
       </div>
       <div className="flex items-center justify-between mt-2 gap-2">
-        <span className="text-slate-500 text-xs truncate">{deal.company}</span>
+        <span className="text-muted-foreground text-xs truncate">{deal.company}</span>
         <div className="flex items-center gap-2 flex-shrink-0">
           <div className="flex items-center gap-1.5">
-            <div className="w-12 h-1.5 bg-slate-700 rounded-full overflow-hidden">
+            <div className="w-12 h-1.5 bg-border rounded-full overflow-hidden">
               <div
                 className={cn("h-full rounded-full transition-all", healthBarColor(deal.health_score))}
                 style={{ width: `${deal.health_score}%` }}
@@ -143,7 +143,7 @@ function DealCard({
             </span>
           </div>
           <select
-            className="text-xs bg-slate-700 text-slate-300 border border-slate-600 rounded-lg px-2 py-1 cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity focus:opacity-100"
+            className="text-xs bg-background text-foreground border border-border rounded-lg px-2 py-1 cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity focus:opacity-100"
             value={deal.effective_category}
             onChange={(e) => onCategorize(deal.id, e.target.value)}
             onClick={(e) => e.stopPropagation()}
@@ -194,19 +194,19 @@ function DealColumn({
 
   return (
     <div className="flex flex-col min-w-0">
-      <div className={cn("border-t-[3px] rounded-t-xl bg-slate-900 px-4 py-3 flex justify-between items-center", colorClass)}>
+      <div className={cn("border-t-[3px] rounded-t-xl bg-card px-4 py-3 flex justify-between items-center", colorClass)}>
         <div className="flex items-center gap-2">
           {title === "Commit" && <Zap size={14} className={textClass} strokeWidth={2.5} />}
           {title === "Best Case" && <Shield size={14} className={textClass} strokeWidth={2.5} />}
           {title === "Pipeline" && <BarChart3 size={14} className={textClass} strokeWidth={2.5} />}
           <span className={cn("font-semibold text-sm uppercase tracking-wider", textClass)}>{title}</span>
         </div>
-        <span className={cn("font-bold text-sm", isEmptyCommit ? "text-rose-500" : "text-slate-300")}>
+        <span className={cn("font-bold text-sm", isEmptyCommit ? "text-rose-500" : "text-foreground/70")}>
           {isEmptyCommit ? "$0" : formatK(total)} · {deals.length} deal{deals.length !== 1 ? "s" : ""}
         </span>
       </div>
       <div className={cn(
-        "bg-slate-900/50 border border-t-0 border-slate-800 rounded-b-xl p-3 min-h-[320px] space-y-2 flex-1",
+        "bg-muted/20 border border-t-0 border-border rounded-b-xl p-3 min-h-[320px] space-y-2 flex-1",
         isEmptyCommit && "bg-rose-500/10 border-rose-500/20"
       )}>
         {deals.length === 0 ? (
@@ -218,22 +218,22 @@ function DealColumn({
           ) : (
             <>
               <div className="flex flex-col items-center justify-center h-32 gap-2">
-                <div className="w-8 h-8 rounded-full border-2 border-dashed border-slate-700 flex items-center justify-center">
-                  <Plus size={14} className="text-slate-600" />
+                <div className="w-8 h-8 rounded-full border-2 border-dashed border-border/50 flex items-center justify-center">
+                  <Plus size={14} className="text-muted-foreground/40" />
                 </div>
-                <span className="text-slate-600 text-xs">Move deals here</span>
+                <span className="text-muted-foreground/50 text-xs">Move deals here</span>
               </div>
               {promoteCandidates !== undefined && (
                 <div className="mt-3 px-1">
-                  <p className="text-xs text-slate-600 mb-2 uppercase tracking-wider">Promote to Commit?</p>
+                  <p className="text-xs text-muted-foreground/60 mb-2 uppercase tracking-wider">Promote to Commit?</p>
                   {candidates.length > 0 ? candidates.map(deal => (
                     <button
                       key={deal.id}
                       onClick={() => onCategorize(deal.id, "commit")}
-                      className="w-full text-left mb-1.5 px-3 py-2 rounded-lg bg-slate-800/50 hover:bg-emerald-500/10 hover:border-emerald-500/30 border border-slate-700/50 transition-all group/suggest"
+                      className="w-full text-left mb-1.5 px-3 py-2 rounded-lg bg-muted/30 hover:bg-emerald-500/10 hover:border-emerald-500/30 border border-border/50 transition-all group/suggest"
                     >
                       <div className="flex items-center justify-between">
-                        <span className="text-slate-400 group-hover/suggest:text-slate-200 text-xs truncate transition-colors">
+                        <span className="text-muted-foreground group-hover/suggest:text-foreground text-xs truncate transition-colors">
                           {deal.name}
                         </span>
                         <span className="text-emerald-500/60 group-hover/suggest:text-emerald-400 text-xs ml-2 flex-shrink-0 transition-colors">
@@ -242,7 +242,7 @@ function DealColumn({
                       </div>
                     </button>
                   )) : (
-                    <p className="text-xs text-slate-700 italic">No high-health deals in Best Case yet</p>
+                    <p className="text-xs text-muted-foreground/50 italic">No high-health deals in Best Case yet</p>
                   )}
                 </div>
               )}
@@ -263,7 +263,7 @@ function DealColumn({
 function BoardSkeleton() {
   return (
     <div className="space-y-6">
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
+      <div className="bg-card border border-border rounded-2xl p-6 space-y-4">
         <Skeleton className="h-7 w-48" />
         <div className="grid grid-cols-4 gap-4">
           {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-20 rounded-xl" />)}
@@ -486,7 +486,7 @@ export default function ForecastBoard() {
         </div>
 
         {/* ── SECTION A: Quota Progress ────────────────────────────────────── */}
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-5">
+        <div className="bg-card border border-border rounded-2xl p-6 space-y-5">
 
           {/* Header row */}
           <div className="flex items-center justify-between flex-wrap gap-3">
@@ -495,7 +495,7 @@ export default function ForecastBoard() {
                 <div className="w-6 h-6 rounded-md bg-sky-500/20 flex items-center justify-center">
                   <Target size={13} className="text-sky-400" strokeWidth={2} />
                 </div>
-                <span className="text-base font-semibold text-slate-200">{period_label} Forecast</span>
+                <span className="text-base font-semibold text-foreground">{period_label} Forecast</span>
               </div>
               {quota > 0 && (
                 <span className={cn(
@@ -513,7 +513,7 @@ export default function ForecastBoard() {
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setQuotaFormOpen((v) => !v)}
-                className="text-xs px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-700 transition-colors"
+                className="text-xs px-3 py-1.5 rounded-lg border border-border bg-muted/50 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
               >
                 {quotaFormOpen ? "Cancel" : "Set Quota"}
               </button>
@@ -522,28 +522,28 @@ export default function ForecastBoard() {
 
           {/* Quota form */}
           {quotaFormOpen && (
-            <div className="flex flex-wrap items-end gap-3 bg-slate-800/60 rounded-xl p-4 border border-slate-700">
+            <div className="flex flex-wrap items-end gap-3 bg-muted/40 rounded-xl p-4 border border-border">
               <div className="flex flex-col gap-1">
-                <label className="text-xs text-slate-500 uppercase tracking-wider">Quarterly Quota</label>
+                <label className="text-xs text-muted-foreground/70 uppercase tracking-wider">Quarterly Quota</label>
                 <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm">$</span>
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
                   <input
                     type="number"
                     value={quotaInput}
                     onChange={(e) => setQuotaInput(e.target.value)}
                     placeholder="150000"
-                    className="bg-slate-700 border border-slate-600 rounded-lg pl-7 pr-3 py-2 text-sm text-slate-200 placeholder:text-slate-600 focus:outline-none focus:ring-1 focus:ring-sky-500 w-40"
+                    className="bg-background border border-border rounded-lg pl-7 pr-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary w-40"
                   />
                 </div>
               </div>
               <div className="flex flex-col gap-1">
-                <label className="text-xs text-slate-500 uppercase tracking-wider">Period</label>
+                <label className="text-xs text-muted-foreground/70 uppercase tracking-wider">Period</label>
                 <input
                   type="text"
                   value={periodInput}
                   onChange={(e) => setPeriodInput(e.target.value)}
                   placeholder="Q1 2025"
-                  className="bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-200 placeholder:text-slate-600 focus:outline-none focus:ring-1 focus:ring-sky-500 w-28"
+                  className="bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary w-28"
                 />
               </div>
               <button
@@ -562,11 +562,11 @@ export default function ForecastBoard() {
               { label: "Commit", value: formatK(commitTotal), color: "text-emerald-400" },
               { label: "Best Case", value: formatK(bestCaseTotal), color: "text-amber-400" },
               { label: "Pipeline", value: formatK(pipelineTotal), color: "text-sky-400" },
-              { label: "Quota", value: quota > 0 ? formatK(quota) : "Not set", color: "text-slate-300" },
+              { label: "Quota", value: quota > 0 ? formatK(quota) : "Not set", color: "text-foreground/70" },
             ].map(({ label, value, color }) => (
-              <div key={label} className="bg-slate-800 rounded-xl px-5 py-3 text-center">
+              <div key={label} className="bg-muted/40 border border-border/50 rounded-xl px-5 py-3 text-center">
                 <div className={cn("text-2xl font-bold", color)}>{value}</div>
-                <div className="text-xs text-slate-500 mt-1 uppercase tracking-wider">{label}</div>
+                <div className="text-xs text-muted-foreground/60 mt-1 uppercase tracking-wider">{label}</div>
               </div>
             ))}
           </div>
@@ -574,7 +574,7 @@ export default function ForecastBoard() {
           {/* Progress bar */}
           {quota > 0 ? (
             <div className="space-y-2">
-              <div className="h-3 bg-slate-700 rounded-full overflow-hidden flex">
+              <div className="h-3 bg-border/60 rounded-full overflow-hidden flex">
                 <div
                   className="bg-emerald-500 h-full transition-all duration-500"
                   style={{ width: `${commitPct}%` }}
@@ -584,7 +584,7 @@ export default function ForecastBoard() {
                   style={{ width: `${bestCasePct}%` }}
                 />
               </div>
-              <div className="flex justify-between items-center text-xs text-slate-500">
+              <div className="flex justify-between items-center text-xs text-muted-foreground/70">
                 <div className="flex items-center gap-3">
                   <span className="flex items-center gap-1"><span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-500" /> Commit</span>
                   <span className="flex items-center gap-1"><span className="inline-block w-2.5 h-2.5 rounded-full bg-amber-500/70" /> Best Case</span>
@@ -595,7 +595,7 @@ export default function ForecastBoard() {
               </div>
             </div>
           ) : (
-            <p className="text-sm text-slate-500 italic">Set a quota to see coverage</p>
+            <p className="text-sm text-muted-foreground/60 italic">Set a quota to see coverage</p>
           )}
 
           {ai_risk_count > 0 && (
@@ -636,10 +636,10 @@ export default function ForecastBoard() {
         </div>
 
         {/* ── SECTION C: Submit Forecast ───────────────────────────────────── */}
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
+        <div className="bg-card border border-border rounded-2xl p-6 space-y-4">
           <div className="flex items-center justify-between flex-wrap gap-2">
-            <h2 className="text-sm font-semibold text-slate-200">Submit This Week's Forecast</h2>
-            <span className="text-xs text-slate-500">{currentWeekLabel()}</span>
+            <h2 className="text-sm font-semibold text-foreground">Submit This Week's Forecast</h2>
+            <span className="text-xs text-muted-foreground/60">{currentWeekLabel()}</span>
           </div>
 
           {/* Auto-calculated amounts */}
@@ -650,24 +650,24 @@ export default function ForecastBoard() {
               { label: "Pipeline", value: formatK(pipelineTotal), color: "text-sky-400" },
             ].map(({ label, value, color }) => (
               <div key={label} className="flex items-center gap-1.5">
-                <span className="text-slate-500">{label}:</span>
+                <span className="text-muted-foreground/70">{label}:</span>
                 <span className={cn("font-semibold", color)}>{value}</span>
               </div>
             ))}
           </div>
-          <p className="text-xs text-slate-600">Auto-calculated from your board above</p>
+          <p className="text-xs text-muted-foreground/50">Auto-calculated from your board above</p>
 
           {/* Notes */}
           <div className="space-y-1.5">
-            <label className="text-xs text-slate-500 uppercase tracking-wider">Notes for manager (optional)</label>
+            <label className="text-xs text-muted-foreground/70 uppercase tracking-wider">Notes for manager (optional)</label>
             <textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value.slice(0, 300))}
               placeholder="Any context or updates for your manager…"
               rows={3}
-              className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-sm text-slate-200 placeholder:text-slate-600 focus:outline-none focus:ring-1 focus:ring-sky-500 resize-none"
+              className="w-full bg-background border border-border rounded-xl px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary resize-none"
             />
-            <p className="text-right text-xs text-slate-600">{notes.length}/300</p>
+            <p className="text-right text-xs text-muted-foreground/50">{notes.length}/300</p>
           </div>
 
           {/* Submit + last submission line */}
@@ -680,7 +680,7 @@ export default function ForecastBoard() {
               {submitting ? "Submitting…" : <><CheckCircle2 size={15} strokeWidth={2.5} />Submit Forecast</>}
             </button>
             {last_submission && !submitSuccess && (
-              <span className="text-xs text-slate-500">
+              <span className="text-xs text-muted-foreground/60">
                 Last submitted: {formatWeekOf(last_submission.week_of)} · {formatK(last_submission.commit_amount)} commit
               </span>
             )}
@@ -693,12 +693,12 @@ export default function ForecastBoard() {
                 <CheckCircle2 size={15} className="text-emerald-400" strokeWidth={2.5} />
                 <p className="text-sm font-semibold text-emerald-400">Forecast submitted — {currentWeekLabel()}</p>
               </div>
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-muted-foreground">
                 Commit {formatK(submitSuccess.commit_amount)} · Best Case {formatK(submitSuccess.best_case_amount)} · Pipeline {formatK(submitSuccess.pipeline_amount)}
               </p>
               <button
                 onClick={handleToggleHistory}
-                className="text-xs text-sky-400 hover:text-sky-300 underline"
+                className="text-xs text-primary hover:text-primary/80 underline"
               >
                 {historyOpen ? "Hide" : "View"} submission history
               </button>
@@ -709,7 +709,7 @@ export default function ForecastBoard() {
           {!submitSuccess && (
             <button
               onClick={handleToggleHistory}
-              className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 transition-colors"
+              className="flex items-center gap-1 text-xs text-muted-foreground/60 hover:text-foreground transition-colors"
             >
               {historyOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
               {historyOpen ? "Hide" : "Show"} submission history
@@ -718,12 +718,12 @@ export default function ForecastBoard() {
 
           {/* History table */}
           {historyOpen && submissions.length > 0 && (
-            <div className="overflow-x-auto rounded-xl border border-slate-800">
+            <div className="overflow-x-auto rounded-xl border border-border">
               <table className="w-full text-xs">
                 <thead>
-                  <tr className="border-b border-slate-800 bg-slate-800/50">
+                  <tr className="border-b border-border bg-muted/40">
                     {["Week", "Commit", "Best Case", "Pipeline", "Notes"].map((h) => (
-                      <th key={h} className="px-4 py-2.5 text-left text-slate-500 uppercase tracking-wider font-semibold">
+                      <th key={h} className="px-4 py-2.5 text-left text-muted-foreground/70 uppercase tracking-wider font-semibold">
                         {h}
                       </th>
                     ))}
@@ -740,22 +740,22 @@ export default function ForecastBoard() {
                       <tr
                         key={s.week_of}
                         className={cn(
-                          "border-b border-slate-800/50 last:border-0",
-                          i === 0 ? "bg-slate-700/40" : "hover:bg-slate-800/30"
+                          "border-b border-border/50 last:border-0",
+                          i === 0 ? "bg-muted/50" : "hover:bg-muted/30"
                         )}
                       >
-                        <td className="px-4 py-2.5 text-slate-400">{formatWeekOf(s.week_of)}</td>
+                        <td className="px-4 py-2.5 text-muted-foreground">{formatWeekOf(s.week_of)}</td>
                         <td className="px-4 py-2.5 text-emerald-400 font-semibold">
                           <span className="flex items-center gap-1">
                             {formatK(s.commit_amount)}
                             {trendDir === "up" && <TrendingUp size={13} className="text-emerald-400" />}
                             {trendDir === "down" && <TrendingDown size={13} className="text-rose-400" />}
-                            {trendDir === "flat" && <ArrowRight size={13} className="text-slate-500" />}
+                            {trendDir === "flat" && <ArrowRight size={13} className="text-muted-foreground/50" />}
                           </span>
                         </td>
                         <td className="px-4 py-2.5 text-amber-400">{formatK(s.best_case_amount)}</td>
                         <td className="px-4 py-2.5 text-sky-400">{formatK(s.pipeline_amount)}</td>
-                        <td className="px-4 py-2.5 text-slate-500 max-w-[200px] truncate">{s.notes || "—"}</td>
+                        <td className="px-4 py-2.5 text-muted-foreground/60 max-w-[200px] truncate">{s.notes || "—"}</td>
                       </tr>
                     );
                   })}
@@ -765,7 +765,7 @@ export default function ForecastBoard() {
           )}
 
           {historyOpen && submissions.length === 0 && (
-            <p className="text-xs text-slate-600 text-center py-4">No submissions yet this quarter</p>
+            <p className="text-xs text-muted-foreground/50 text-center py-4">No submissions yet this quarter</p>
           )}
         </div>
 

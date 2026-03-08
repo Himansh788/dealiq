@@ -83,8 +83,8 @@ export default function BattleCardPanel({ dealId }: Props) {
           <Zap size={22} className="text-sky-400" strokeWidth={2} />
         </div>
         <div className="text-center">
-          <p className="text-slate-200 font-semibold mb-1">Pre-Meeting Battle Card</p>
-          <p className="text-slate-500 text-sm max-w-[260px]">
+          <p className="text-foreground font-semibold mb-1">Pre-Meeting Battle Card</p>
+          <p className="text-muted-foreground/70 text-sm max-w-[260px]">
             AI-generated brief for your next call. Takes ~5 seconds.
           </p>
         </div>
@@ -94,7 +94,7 @@ export default function BattleCardPanel({ dealId }: Props) {
           placeholder="Meeting type (optional): renewal, demo, pricing…"
           value={meetingContext}
           onChange={(e) => setMeetingContext(e.target.value)}
-          className="w-full max-w-xs bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-300 placeholder-slate-600 focus:outline-none focus:border-sky-500/50"
+          className="w-full max-w-xs bg-muted/50 border border-border rounded-xl px-3 py-2 text-sm text-foreground/80 placeholder:text-muted-foreground/40 focus:outline-none focus:border-sky-500/50"
         />
 
         <button
@@ -114,8 +114,8 @@ export default function BattleCardPanel({ dealId }: Props) {
     return (
       <div className="flex flex-col items-center justify-center py-10 gap-3">
         <div className="w-10 h-10 rounded-full border-2 border-sky-500/30 border-t-sky-400 animate-spin" />
-        <p className="text-slate-400 text-sm">Generating battle card…</p>
-        <p className="text-slate-600 text-xs">Analyzing deal history and signals</p>
+        <p className="text-muted-foreground text-sm">Generating battle card…</p>
+        <p className="text-muted-foreground/50 text-xs">Analyzing deal history and signals</p>
       </div>
     );
   }
@@ -133,14 +133,14 @@ export default function BattleCardPanel({ dealId }: Props) {
           <div className="w-6 h-6 rounded-lg bg-sky-500/20 flex items-center justify-center">
             <Zap size={13} className="text-sky-400" strokeWidth={2.5} />
           </div>
-          <span className="text-sm font-semibold text-slate-200">Battle Card</span>
+          <span className="text-sm font-semibold text-foreground">Battle Card</span>
           {card!.cached && (
-            <span className="text-xs text-slate-600 bg-slate-800 px-2 py-0.5 rounded-full">cached</span>
+            <span className="text-xs text-muted-foreground/50 bg-muted/50 px-2 py-0.5 rounded-full">cached</span>
           )}
         </div>
         <button
           onClick={() => generate(true)}
-          className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300 transition-colors"
+          className="flex items-center gap-1.5 text-xs text-muted-foreground/70 hover:text-foreground/80 transition-colors"
         >
           <RefreshCw size={11} strokeWidth={2.5} />
           Refresh
@@ -153,29 +153,29 @@ export default function BattleCardPanel({ dealId }: Props) {
           <Target size={13} className="text-sky-400" strokeWidth={2.5} />
           <span className="text-xs text-sky-400 uppercase tracking-wider font-semibold">Goal for this call</span>
         </div>
-        <p className="text-slate-100 font-medium text-sm leading-relaxed">{s.one_liner}</p>
+        <p className="text-foreground font-medium text-sm leading-relaxed">{s.one_liner}</p>
       </div>
 
       {/* Situation */}
-      <div className="bg-slate-800/60 rounded-2xl p-4">
+      <div className="bg-muted/50/60 rounded-2xl p-4">
         <div className="flex items-center gap-2 mb-2">
-          <BookOpen size={13} className="text-slate-400" strokeWidth={2} />
-          <span className="text-xs text-slate-500 uppercase tracking-wider font-medium">Situation</span>
+          <BookOpen size={13} className="text-muted-foreground" strokeWidth={2} />
+          <span className="text-xs text-muted-foreground/70 uppercase tracking-wider font-medium">Situation</span>
         </div>
-        <p className="text-slate-300 text-sm leading-relaxed">{s.situation}</p>
+        <p className="text-foreground/80 text-sm leading-relaxed">{s.situation}</p>
       </div>
 
       {/* Last interaction */}
-      <div className="bg-slate-800/60 rounded-2xl p-4">
+      <div className="bg-muted/50/60 rounded-2xl p-4">
         <div className="flex items-center gap-2 mb-2">
-          <Clock size={13} className="text-slate-400" strokeWidth={2} />
-          <span className="text-xs text-slate-500 uppercase tracking-wider font-medium">Last Interaction</span>
+          <Clock size={13} className="text-muted-foreground" strokeWidth={2} />
+          <span className="text-xs text-muted-foreground/70 uppercase tracking-wider font-medium">Last Interaction</span>
         </div>
-        <p className="text-slate-300 text-sm leading-relaxed">{s.last_interaction}</p>
+        <p className="text-foreground/80 text-sm leading-relaxed">{s.last_interaction}</p>
       </div>
 
       {/* Talk track */}
-      <div className="bg-slate-800/60 rounded-2xl p-4">
+      <div className="bg-muted/50/60 rounded-2xl p-4">
         <div className="flex items-center gap-2 mb-3">
           <MessageSquare size={13} className="text-emerald-400" strokeWidth={2} />
           <span className="text-xs text-emerald-400 uppercase tracking-wider font-semibold">Talk Track</span>
@@ -186,7 +186,7 @@ export default function BattleCardPanel({ dealId }: Props) {
               <div className="w-5 h-5 rounded-full bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center flex-shrink-0 mt-0.5">
                 <span className="text-emerald-400 text-xs font-bold">{i + 1}</span>
               </div>
-              <p className="text-slate-300 text-sm leading-relaxed">{item}</p>
+              <p className="text-foreground/80 text-sm leading-relaxed">{item}</p>
             </div>
           ))}
         </div>
@@ -231,27 +231,27 @@ export default function BattleCardPanel({ dealId }: Props) {
 
       {/* Key contacts */}
       {s.key_contacts.length > 0 && (
-        <div className="bg-slate-800/60 rounded-2xl p-4">
+        <div className="bg-muted/50/60 rounded-2xl p-4">
           <div className="flex items-center gap-2 mb-3">
-            <Users size={13} className="text-slate-400" strokeWidth={2} />
-            <span className="text-xs text-slate-500 uppercase tracking-wider font-medium">Key Contacts</span>
+            <Users size={13} className="text-muted-foreground" strokeWidth={2} />
+            <span className="text-xs text-muted-foreground/70 uppercase tracking-wider font-medium">Key Contacts</span>
           </div>
           <div className="space-y-2">
             {s.key_contacts.map((contact, i) => (
               <div key={i} className="flex items-center justify-between">
                 <div className="flex items-center gap-2.5">
-                  <div className="w-7 h-7 rounded-full bg-slate-700 flex items-center justify-center flex-shrink-0">
-                    <span className="text-slate-400 text-xs font-medium">
+                  <div className="w-7 h-7 rounded-full bg-muted/70 flex items-center justify-center flex-shrink-0">
+                    <span className="text-muted-foreground text-xs font-medium">
                       {contact.name !== "Unknown" ? contact.name[0].toUpperCase() : "?"}
                     </span>
                   </div>
                   <div>
-                    <p className="text-slate-300 text-xs font-medium">{contact.name}</p>
-                    <p className="text-slate-600 text-xs">{contact.role}</p>
+                    <p className="text-foreground/80 text-xs font-medium">{contact.name}</p>
+                    <p className="text-muted-foreground/50 text-xs">{contact.role}</p>
                   </div>
                 </div>
                 {contact.last_contact_days >= 0 && (
-                  <span className={cn("text-xs", contact.last_contact_days > 14 ? "text-rose-400" : "text-slate-500")}>
+                  <span className={cn("text-xs", contact.last_contact_days > 14 ? "text-rose-400" : "text-muted-foreground/70")}>
                     {contact.last_contact_days}d ago
                   </span>
                 )}
@@ -261,7 +261,7 @@ export default function BattleCardPanel({ dealId }: Props) {
         </div>
       )}
 
-      <p className="text-xs text-slate-700 text-center pb-2">
+      <p className="text-xs text-muted-foreground/40 text-center pb-2">
         Generated {new Date(card!.generated_at).toLocaleString()}
       </p>
     </div>

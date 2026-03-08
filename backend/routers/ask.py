@@ -120,13 +120,25 @@ async def _fetch_real_deal(access_token: str, deal_id: str) -> dict:
 
 
 async def _fetch_real_emails(access_token: str, deal_id: str) -> list:
+    """
+    Fetch and normalise emails for a deal.
+
+    Uses _normalise_zoho_email (from email_intel router) so that:
+      - direction is computed from the 'from' email domain (not Zoho's unreliable direction field)
+      - body_full / body_preview / snippet are all populated
+      - from/to fields are plain strings, not nested dicts
+    This gives the ContextEngine clean data it can directly use for the email thread section.
+    """
     cached = _EMAIL_CACHE.get(deal_id)
     if cached and time.monotonic() < cached[0]:
-        _log.debug("Email cache hit for deal=%s", deal_id)
+        _log.debug("Email cache hit for deal=%s count=%d", deal_id, len(cached[1]))
         return cached[1]
     try:
         from services.zoho_client import fetch_deal_emails
-        emails = await fetch_deal_emails(access_token, deal_id)
+        from routers.email_intel import _normalise_zoho_email
+        raw = await fetch_deal_emails(access_token, deal_id)
+        emails = [_normalise_zoho_email(e) for e in raw]
+        _log.info("Email fetch for deal=%s: %d emails normalised", deal_id, len(emails))
         _EMAIL_CACHE[deal_id] = (time.monotonic() + _EMAIL_CACHE_TTL, emails)
         return emails
     except Exception as exc:

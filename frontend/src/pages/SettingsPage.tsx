@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
-import { Settings, Mail, Calendar, Loader2, CheckCircle, XCircle } from "lucide-react";
+import { Settings, Mail, Calendar, Loader2, CheckCircle, XCircle, Palette } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
+import { ThemeToggle } from "@/components/ThemeToggle";
+import { useTheme } from "@/contexts/ThemeContext";
 
 interface OutlookStatus {
   connected: boolean;
@@ -13,6 +15,7 @@ interface OutlookStatus {
 
 export default function SettingsPage() {
   const { toast } = useToast();
+  const { theme } = useTheme();
   const [outlookStatus, setOutlookStatus] = useState<OutlookStatus | null>(null);
   const [loadingOutlook, setLoadingOutlook] = useState(true);
   const [connecting, setConnecting] = useState(false);
@@ -159,6 +162,24 @@ export default function SettingsPage() {
             <Badge variant="outline" className="ml-auto text-[10px] h-4 px-1.5 text-muted-foreground">
               Env-based
             </Badge>
+          </div>
+        </div>
+
+        {/* Appearance */}
+        <div className="rounded-xl border border-border/30 bg-card/60 p-5">
+          <div className="flex items-start gap-4">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10">
+              <Palette className="h-5 w-5 text-primary" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-foreground">Appearance</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                {theme === 'dark' ? 'Dark mode' : 'Light mode'} — switch to {theme === 'dark' ? 'reduce eye strain in bright environments' : 'reduce eye strain in dark environments'}
+              </p>
+            </div>
+            <div className="shrink-0">
+              <ThemeToggle />
+            </div>
           </div>
         </div>
 

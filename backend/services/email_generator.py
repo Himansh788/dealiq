@@ -73,15 +73,33 @@ class EmailGenerator:
             max_chars=6000,
         )
 
-        instruction = (
-            "Draft a follow-up email based on the transcript intelligence and deal context above."
-            if transcript
-            else (
-                "No call transcript is available. Draft a context-appropriate re-engagement email "
-                "based on the deal stage, health score, and email history. "
-                "If the deal appears stalled or at risk, write a recovery-style email with a specific next step."
+        has_emails = bool(emails)
+        has_quoted = bool(ctx.emails)  # emails with quoted-chain context
+
+        if transcript:
+            instruction = (
+                "Draft a follow-up email based on the transcript intelligence and deal context above."
             )
-        )
+        elif has_emails or has_quoted:
+            instruction = (
+                "No call transcript is available. Draft a follow-up email that continues the existing "
+                "conversation naturally. "
+                "CRITICAL: reference the EMAIL THREAD — acknowledge the last topic discussed, "
+                "address any unanswered buyer questions, and propose a concrete next step with a specific date. "
+                "Mirror the rep's detected writing style exactly (greeting, signoff, length). "
+                "If buyer replies are tagged [← BUYER], address their most recent message directly. "
+                "If the deal appears stalled, write a value-add re-engagement — reference something "
+                "specific from the thread, not a generic 'just checking in'."
+            )
+        else:
+            instruction = (
+                "No call transcript or email history is available. "
+                "Draft a personalised re-engagement email using ONLY the deal context above: "
+                "mention the deal stage, company name, and any deal-specific details. "
+                "Do NOT write a generic 'just checking in' email — reference the deal stage "
+                "and propose a specific next step with a concrete date. "
+                "Keep it under 120 words. Be direct and value-focused."
+            )
 
         try:
             result = await ai_router.generate_email_draft(
@@ -118,11 +136,18 @@ class EmailGenerator:
 
         # Context metadata for the frontend display panel
         contacts = deal.get("contacts") or deal.get("contact_roles") or []
+        # Count buyer replies recovered from quoted chains
+        from services.context_engine import ContextEngine as _CE
+        internal_domains = _CE._detect_internal_domains(emails)
+        quoted_replies = _CE._extract_quoted_replies(emails, internal_domains)
+        buyer_replies_in_chain = sum(1 for q in quoted_replies if q["direction"] == "← BUYER")
+
         result["context_meta"] = {
             "transcript_available": transcript is not None,
             "transcript_intel_extracted": bool(transcript_intel),
             "email_history_available": len(emails) > 0,
             "email_count": len(emails),
+            "buyer_replies_in_chain": buyer_replies_in_chain,
             "contacts_available": len(contacts),
             "rep_style_detected": ctx.rep_style.formality,
             "deal_health": deal.get("health_label", "unknown"),

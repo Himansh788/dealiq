@@ -82,7 +82,7 @@ function ActivityIcon({ type }: { type: string }) {
     case "email":   return <Mail className="h-3.5 w-3.5 text-blue-400" />;
     case "call":    return <Phone className="h-3.5 w-3.5 text-green-400" />;
     case "meeting": return <Users className="h-3.5 w-3.5 text-purple-400" />;
-    default:        return <FileText className="h-3.5 w-3.5 text-slate-400" />;
+    default:        return <FileText className="h-3.5 w-3.5 text-muted-foreground" />;
   }
 }
 
@@ -91,7 +91,7 @@ function activityDotClass(type: string): string {
     case "email":   return "bg-blue-500/20 border-blue-500/40";
     case "call":    return "bg-green-500/20 border-green-500/40";
     case "meeting": return "bg-purple-500/20 border-purple-500/40";
-    default:        return "bg-slate-500/20 border-slate-500/40";
+    default:        return "bg-muted/50 border-border/60";
   }
 }
 

@@ -5,6 +5,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { SessionProvider } from "@/contexts/SessionContext";
+import { ThemeProvider } from "@/contexts/ThemeContext";
 import AppLayout from "@/components/layout/AppLayout";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
@@ -32,6 +33,7 @@ const PageTransitionWrapper = ({ children }: { children: React.ReactNode }) => {
 };
 
 const App = () => (
+  <ThemeProvider>
   <QueryClientProvider client={queryClient}>
     <SessionProvider>
       <TooltipProvider>
@@ -63,6 +65,7 @@ const App = () => (
       </TooltipProvider>
     </SessionProvider>
   </QueryClientProvider>
+  </ThemeProvider>
 );
 
 export default App;

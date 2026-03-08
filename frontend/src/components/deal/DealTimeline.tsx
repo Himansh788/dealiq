@@ -110,13 +110,13 @@ function nodeCfg(event: TimelineEvent): { dot: string; ring: string; size: strin
     case "stage_change":   return { dot: "bg-yellow-400",  ring: "ring-yellow-400/30", size: "w-4 h-4" };
     case "closing_overdue":return { dot: "bg-red-500 animate-pulse", ring: "ring-red-500/30", size: "w-3 h-3" };
     case "created":        return { dot: "bg-green-500",   ring: "ring-green-500/30",  size: "w-3 h-3" };
-    case "last_activity":  return { dot: "bg-slate-500",   ring: "ring-slate-500/20",  size: "w-2.5 h-2.5" };
+    case "last_activity":  return { dot: "bg-muted-foreground/50",   ring: "ring-slate-500/20",  size: "w-2.5 h-2.5" };
     case "revenue_change": return {
       dot: event.revenue_direction === "up" ? "bg-green-500" : "bg-orange-500",
       ring: event.revenue_direction === "up" ? "ring-green-500/30" : "ring-orange-500/30",
       size: "w-3 h-3",
     };
-    default: return { dot: "bg-slate-600", ring: "ring-slate-500/20", size: "w-3 h-3" };
+    default: return { dot: "bg-muted-foreground/40", ring: "ring-slate-500/20", size: "w-3 h-3" };
   }
 }
 
@@ -124,10 +124,10 @@ function nodeCfg(event: TimelineEvent): { dot: string; ring: string; size: strin
 function StagePill({ label, colour }: { label: string; colour?: string }) {
   const style = colour
     ? { borderColor: `${colour}60`, backgroundColor: `${colour}22`, color: colour }
-    : { borderColor: "#4b556340", backgroundColor: "#1e293b", color: "#94a3b8" };
+    : undefined;
   return (
     <span
-      className="inline-flex items-center rounded-full border px-3.5 text-[10px] font-semibold whitespace-nowrap leading-[1.4]"
+      className="inline-flex items-center rounded-full border border-border/50 bg-muted/50 text-muted-foreground px-3.5 text-[10px] font-semibold whitespace-nowrap leading-[1.4]"
       style={{ ...style, padding: "5px 14px" }}
     >
       {label}
@@ -147,8 +147,8 @@ function SummaryBar({ intel, totalEvents }: { intel?: TimelineIntelligence; tota
   return (
     <div className="flex flex-wrap items-center gap-2">
       {/* Activities */}
-      <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-800 px-3 py-1 text-[11px] text-slate-300">
-        <Calendar className="h-3 w-3 text-slate-400" />
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-muted/50 px-3 py-1 text-[11px] text-foreground/80">
+        <Calendar className="h-3 w-3 text-muted-foreground" />
         {totalEvents} activities
       </span>
 
@@ -157,8 +157,8 @@ function SummaryBar({ intel, totalEvents }: { intel?: TimelineIntelligence; tota
         <span className={cn(
           "inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px]",
           emailLate
-            ? "bg-red-950 text-red-400 border border-red-800/50"
-            : "bg-slate-800 text-slate-300"
+            ? "bg-red-500/10 text-red-600 border border-red-500/30"
+            : "bg-muted/50 text-foreground/80"
         )}>
           <Mail className="h-3 w-3" />
           Last email: {days_since_last_email === 0 ? "today" : `${days_since_last_email}d ago`}
@@ -192,14 +192,14 @@ function EngagementBar({ intel }: { intel: TimelineIntelligence }) {
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between text-[11px]">
-        <span className="flex items-center gap-1 text-slate-400">
+        <span className="flex items-center gap-1 text-muted-foreground">
           <User className="h-3 w-3" />
           {ratio}% human activity
-          <span className="text-slate-600">({human_count} human / {automation_count} automated)</span>
+          <span className="text-muted-foreground/50">({human_count} human / {automation_count} automated)</span>
         </span>
-        <Bot className="h-3 w-3 text-slate-600" />
+        <Bot className="h-3 w-3 text-muted-foreground/50" />
       </div>
-      <div className="h-1.5 w-full rounded-full bg-slate-800 overflow-hidden">
+      <div className="h-1.5 w-full rounded-full bg-muted/50 overflow-hidden">
         <div
           className="h-full rounded-full bg-green-500 transition-all duration-500"
           style={{ width: `${ratio}%` }}
@@ -271,7 +271,7 @@ function NarrativeBox({ text }: { text: string }) {
         </span>
       </div>
       <div className="border-l-2 border-blue-500 pl-3">
-        <p className="text-xs text-slate-300 leading-relaxed">
+        <p className="text-xs text-foreground/80 leading-relaxed">
           {expanded ? text : preview}
         </p>
         {hasMore && (
@@ -318,7 +318,7 @@ function RevenueBanner({ changes }: { changes: TimelineIntelligence["revenue_cha
                 </span>
               </p>
               {rc.changed_by && (
-                <p className="text-[10px] text-slate-500 mt-0.5">
+                <p className="text-[10px] text-muted-foreground/70 mt-0.5">
                   by {rc.changed_by}{rc.days_ago != null ? ` · ${rc.days_ago}d ago` : ""}
                 </p>
               )}
@@ -349,9 +349,9 @@ function StageChangeRow({ event, isLast }: { event: TimelineEvent; isLast: boole
         {/* Pill row — all items share the same inline-flex baseline */}
         <div className="inline-flex items-center gap-2">
           <StagePill label={event.stage_from || ""} colour={event.stage_from_colour} />
-          <span className="text-slate-500 text-xs leading-none">→</span>
+          <span className="text-muted-foreground/70 text-xs leading-none">→</span>
           <StagePill label={event.stage_to || ""} colour={event.stage_to_colour} />
-          <span className="ml-auto text-[10px] text-slate-500 tabular-nums shrink-0">
+          <span className="ml-auto text-[10px] text-muted-foreground/70 tabular-nums shrink-0">
             {formatTs(event.days_ago ?? 0)}
           </span>
         </div>
@@ -367,7 +367,7 @@ function StageChangeRow({ event, isLast }: { event: TimelineEvent; isLast: boole
             {event.direction === "forward" ? "↑ Forward" : "↓ Backward"}
           </span>
           {event.detail && (
-            <span className="text-[10px] text-slate-500">{event.detail}</span>
+            <span className="text-[10px] text-muted-foreground/70">{event.detail}</span>
           )}
         </div>
       </div>
@@ -387,7 +387,7 @@ function ClosingOverdueBanner({ event }: { event: TimelineEvent }) {
           <p className="text-xs font-semibold text-red-400">
             Closing Date Passed — {daysOverdue} days overdue
           </p>
-          <p className="text-[10px] text-slate-500 mt-0.5">
+          <p className="text-[10px] text-muted-foreground/70 mt-0.5">
             {event.detail || `Original close date has passed`}
           </p>
         </div>
@@ -422,12 +422,12 @@ function TaskRow({ event, isLatest, isLast }: { event: TimelineEvent; isLatest: 
             </span>
           )}
         </p>
-        <span className="shrink-0 text-[11px] text-slate-500 tabular-nums">
+        <span className="shrink-0 text-[11px] text-muted-foreground/70 tabular-nums">
           {formatTs(event.days_ago ?? 0)}
         </span>
       </div>
       {event.detail && (
-        <p className="mt-0.5 text-[11px] text-slate-500">{event.detail}</p>
+        <p className="mt-0.5 text-[11px] text-muted-foreground/70">{event.detail}</p>
       )}
     </div>
   );
@@ -439,8 +439,8 @@ function LastActivityRow({ event, isLast }: { event: TimelineEvent; isLast: bool
   return (
     <div className={cn("flex-1 min-w-0 pb-3", isLast && "pb-0")}>
       <div className="flex items-center justify-between gap-2 pt-0.5">
-        <p className="text-[11px] text-slate-600 italic">{event.label}</p>
-        <span className="text-[11px] text-slate-700 tabular-nums shrink-0">
+        <p className="text-[11px] text-muted-foreground/50 italic">{event.label}</p>
+        <span className="text-[11px] text-muted-foreground/40 tabular-nums shrink-0">
           {formatTs(event.days_ago ?? 0)}
         </span>
       </div>
@@ -452,11 +452,11 @@ function LastActivityRow({ event, isLast }: { event: TimelineEvent; isLast: bool
 
 function NoReplyGhostRow({ days, onEmail }: { days: number; onEmail?: () => void }) {
   return (
-    <div className="flex items-center gap-3 rounded-lg border border-dashed border-slate-700 bg-slate-900/40 px-3 py-2.5">
-      <MailOpen className="h-4 w-4 text-slate-600 shrink-0" />
+    <div className="flex items-center gap-3 rounded-lg border border-dashed border-border/60 bg-muted/20 px-3 py-2.5">
+      <MailOpen className="h-4 w-4 text-muted-foreground/50 shrink-0" />
       <div className="flex-1 min-w-0">
-        <p className="text-xs text-slate-500">No reply received from buyer</p>
-        <p className="text-[10px] text-slate-600">Last email sent {days}d ago</p>
+        <p className="text-xs text-muted-foreground/70">No reply received from buyer</p>
+        <p className="text-[10px] text-muted-foreground/50">Last email sent {days}d ago</p>
       </div>
       <button
         className="shrink-0 text-[11px] text-primary hover:underline whitespace-nowrap"
@@ -527,7 +527,7 @@ export default function DealTimeline({ dealId, onFollowUp }: { dealId: string; o
         <div key={i} className="flex gap-3">
           <div className="flex flex-col items-center">
             <Skeleton className="h-3 w-3 rounded-full" />
-            {i < 4 && <div className="w-px h-8 bg-slate-800 mt-1" />}
+            {i < 4 && <div className="w-px h-8 bg-muted/50 mt-1" />}
           </div>
           <div className="flex-1 space-y-1.5 pb-4">
             <Skeleton className="h-3 w-1/2" />
@@ -539,19 +539,19 @@ export default function DealTimeline({ dealId, onFollowUp }: { dealId: string; o
   );
 
   if (error) return (
-    <div className="flex flex-col items-start gap-2 rounded-lg border border-slate-700/50 bg-slate-900/60 px-4 py-4">
-      <p className="text-xs font-medium text-slate-300">Could not load timeline</p>
-      <p className="text-[11px] text-slate-500">{error}</p>
+    <div className="flex flex-col items-start gap-2 rounded-lg border border-border/50 bg-muted/20 px-4 py-4">
+      <p className="text-xs font-medium text-foreground/80">Could not load timeline</p>
+      <p className="text-[11px] text-muted-foreground/70">{error}</p>
       <button
         onClick={() => setRetryKey(k => k + 1)}
-        className="mt-1 rounded-md border border-slate-700 bg-slate-800 px-3 py-1 text-[11px] text-slate-300 hover:bg-slate-700 transition-colors"
+        className="mt-1 rounded-md border border-border bg-muted/50 px-3 py-1 text-[11px] text-foreground/80 hover:bg-muted transition-colors"
       >
         Try again
       </button>
     </div>
   );
   if (!data || data.events.length === 0) return (
-    <p className="text-xs text-slate-500 py-3">No timeline events found for this deal.</p>
+    <p className="text-xs text-muted-foreground/70 py-3">No timeline events found for this deal.</p>
   );
 
   const intel = data.timeline_intelligence;
@@ -587,7 +587,7 @@ export default function DealTimeline({ dealId, onFollowUp }: { dealId: string; o
       {/* ── Timeline ── */}
       <div className="relative pl-4">
         {/* 1. Vertical connector line */}
-        <div className="absolute left-[7px] top-0 bottom-0 w-px bg-slate-700/60" />
+        <div className="absolute left-[7px] top-0 bottom-0 w-px bg-border/60" />
 
         <div className="space-y-0">
           {data.events.map((event, i) => {
@@ -603,7 +603,7 @@ export default function DealTimeline({ dealId, onFollowUp }: { dealId: string; o
                 key={i}
                 className={cn(
                   "relative flex gap-3 group transition-all duration-200",
-                  !isStage && !isOverdue && "hover:bg-slate-800/30 rounded-md -mx-1 px-1",
+                  !isStage && !isOverdue && "hover:bg-muted/50/30 rounded-md -mx-1 px-1",
                   event.is_future && "opacity-60"
                 )}
               >
@@ -632,11 +632,11 @@ export default function DealTimeline({ dealId, onFollowUp }: { dealId: string; o
                         <span className={cn("text-xs font-medium", event.revenue_direction === "up" ? "text-green-400" : "text-red-400")}>
                           {event.label}
                         </span>
-                        <span className="ml-auto text-[11px] text-slate-500 tabular-nums shrink-0">
+                        <span className="ml-auto text-[11px] text-muted-foreground/70 tabular-nums shrink-0">
                           {formatTs(event.days_ago ?? 0)}
                         </span>
                       </div>
-                      {event.detail && <p className="text-[10px] text-slate-500 mt-0.5">{event.detail}</p>}
+                      {event.detail && <p className="text-[10px] text-muted-foreground/70 mt-0.5">{event.detail}</p>}
                     </div>
                   ) : (
                     /* Default row — created, email, note, activity, etc. */
@@ -646,27 +646,27 @@ export default function DealTimeline({ dealId, onFollowUp }: { dealId: string; o
                           "text-xs font-medium leading-tight",
                           event.is_warning    ? "text-red-400" :
                           event.is_future     ? "text-primary" :
-                          event.is_automation ? "text-slate-500" :
-                          event.type === "email" ? "text-slate-200" :
-                          event.type === "created" ? "text-slate-200" :
-                          "text-slate-300"
+                          event.is_automation ? "text-muted-foreground/70" :
+                          event.type === "email" ? "text-foreground" :
+                          event.type === "created" ? "text-foreground" :
+                          "text-foreground/80"
                         )}>
                           {event.label}
                           {event.is_automation && (
-                            <span className="ml-1.5 text-[9px] font-normal text-slate-600 uppercase tracking-wider">auto</span>
+                            <span className="ml-1.5 text-[9px] font-normal text-muted-foreground/50 uppercase tracking-wider">auto</span>
                           )}
                         </p>
                         <span className={cn(
                           "shrink-0 text-[11px] tabular-nums",
                           event.is_warning ? "text-red-400 font-medium" :
                           event.is_future  ? "text-primary" :
-                          "text-slate-500"
+                          "text-muted-foreground/70"
                         )}>
                           {formatTs(event.days_ago ?? 0, event.is_future)}
                         </span>
                       </div>
                       {event.detail && (
-                        <p className="mt-0.5 text-[11px] text-slate-500 leading-relaxed line-clamp-2">
+                        <p className="mt-0.5 text-[11px] text-muted-foreground/70 leading-relaxed line-clamp-2">
                           {event.detail}
                         </p>
                       )}
@@ -688,7 +688,7 @@ export default function DealTimeline({ dealId, onFollowUp }: { dealId: string; o
       )}
 
       {/* Footer */}
-      <div className="flex items-center justify-between border-t border-slate-800 pt-3 text-[11px] text-slate-600">
+      <div className="flex items-center justify-between border-t border-border/40 pt-3 text-[11px] text-muted-foreground/50">
         <span>{data.total_events} recorded events</span>
         {data.closing_date && (
           <span className={data.days_to_close !== null && data.days_to_close < 0 ? "text-red-500 font-medium" : ""}>

@@ -6,7 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import { useCountUp } from "@/hooks/useCountUp";
-import { Mail, TrendingUp, TrendingDown, AlertTriangle, Sparkles, ArrowRight, Users, XCircle } from "lucide-react";
+import { Mail, TrendingUp, TrendingDown, AlertTriangle, Sparkles, ArrowRight, Users, XCircle, Copy, Check, ShieldAlert, Target, Flame } from "lucide-react";
 
 interface Signal {
   name: string;
@@ -14,6 +14,14 @@ interface Signal {
   max_score?: number;
   label: string;
   detail: string;
+}
+
+interface RecommendedAction {
+  priority: number;
+  action: string;
+  reasoning: string;
+  urgency: string;
+  template_hint?: string | null;
 }
 
 interface EmailAnalysis {
@@ -39,6 +47,14 @@ interface HealthData {
   recommendation: string;
   action_required: boolean;
   email_analysis?: EmailAnalysis;
+  // AI analysis fields
+  analysis_summary?: string;
+  key_risk?: string;
+  root_cause?: string;
+  deal_status_assessment?: string;   // saveable | at_risk | likely_dead
+  win_probability_estimate?: string; // low | medium | high
+  escalation_needed?: boolean;
+  recommended_actions?: RecommendedAction[];
 }
 
 const SIGNAL_SORT_ORDER: Record<string, number> = { critical: 0, warn: 1, insufficient_data: 2, good: 3 };
@@ -91,6 +107,51 @@ function sentimentConfig(sentiment: string) {
     case "no_response": return { cls: "text-health-red border-health-red/30 bg-health-red/10", label: "No Response" };
     default: return { cls: "text-muted-foreground border-border/40", label: "Unknown" };
   }
+}
+
+function statusAssessmentConfig(status: string) {
+  switch (status) {
+    case "saveable": return { cls: "text-health-green border-health-green/30 bg-health-green/10", label: "Saveable" };
+    case "at_risk": return { cls: "text-health-yellow border-health-yellow/30 bg-health-yellow/10", label: "At Risk" };
+    case "likely_dead": return { cls: "text-health-red border-health-red/30 bg-health-red/10", label: "Likely Dead" };
+    default: return null;
+  }
+}
+
+function winProbConfig(prob: string) {
+  switch (prob) {
+    case "high": return { cls: "text-health-green border-health-green/30 bg-health-green/10", label: "Win Prob: High" };
+    case "medium": return { cls: "text-health-yellow border-health-yellow/30 bg-health-yellow/10", label: "Win Prob: Medium" };
+    case "low": return { cls: "text-health-red border-health-red/30 bg-health-red/10", label: "Win Prob: Low" };
+    default: return null;
+  }
+}
+
+function urgencyColor(urgency: string) {
+  switch (urgency) {
+    case "today": return "text-health-red";
+    case "this_week": return "text-health-orange";
+    default: return "text-muted-foreground";
+  }
+}
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = () => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    });
+  };
+  return (
+    <button
+      onClick={handleCopy}
+      className="ml-auto flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+    >
+      {copied ? <Check className="h-3 w-3 text-health-green" /> : <Copy className="h-3 w-3" />}
+      {copied ? "Copied" : "Copy"}
+    </button>
+  );
 }
 
 export default function HealthBreakdown({ dealId }: { dealId: string }) {
@@ -152,6 +213,93 @@ export default function HealthBreakdown({ dealId }: { dealId: string }) {
           </div>
         </div>
       </div>
+
+      {/* AI Analysis Block */}
+      {(data.analysis_summary || data.key_risk) && (
+        <div className="space-y-3 rounded-xl border border-violet-500/20 bg-violet-500/5 p-4">
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-violet-500/20">
+              <Sparkles className="h-3.5 w-3.5 text-violet-400" />
+            </div>
+            <span className="text-xs font-semibold text-violet-400 uppercase tracking-wider">AI Deal Analysis</span>
+            {data.deal_status_assessment && (() => {
+              const cfg = statusAssessmentConfig(data.deal_status_assessment!);
+              return cfg ? (
+                <Badge variant="outline" className={`text-xs ml-auto ${cfg.cls}`}>{cfg.label}</Badge>
+              ) : null;
+            })()}
+            {data.win_probability_estimate && (() => {
+              const cfg = winProbConfig(data.win_probability_estimate!);
+              return cfg ? (
+                <Badge variant="outline" className={`text-xs ${cfg.cls}`}>{cfg.label}</Badge>
+              ) : null;
+            })()}
+            {data.escalation_needed && (
+              <Badge variant="outline" className="text-xs text-health-red border-health-red/30 bg-health-red/10">
+                <ShieldAlert className="h-3 w-3 mr-1" />Escalate
+              </Badge>
+            )}
+          </div>
+
+          {data.analysis_summary && (
+            <p className="text-xs text-foreground/90 leading-relaxed">{data.analysis_summary}</p>
+          )}
+
+          {data.key_risk && (
+            <div className="flex items-start gap-2 rounded-md border border-health-red/20 bg-health-red/5 px-3 py-2">
+              <Flame className="h-3.5 w-3.5 text-health-red mt-0.5 shrink-0" />
+              <div>
+                <p className="text-xs font-semibold text-health-red mb-0.5">Key Risk</p>
+                <p className="text-xs text-foreground/80">{data.key_risk}</p>
+              </div>
+            </div>
+          )}
+
+          {data.root_cause && (
+            <div className="flex items-start gap-2 rounded-md border border-health-orange/20 bg-health-orange/5 px-3 py-2">
+              <Target className="h-3.5 w-3.5 text-health-orange mt-0.5 shrink-0" />
+              <div>
+                <p className="text-xs font-semibold text-health-orange mb-0.5">Root Cause</p>
+                <p className="text-xs text-foreground/80">{data.root_cause}</p>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Recommended Actions */}
+      {data.recommended_actions && data.recommended_actions.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Recommended Actions</p>
+          <div className="space-y-3">
+            {data.recommended_actions.map((action) => (
+              <div key={action.priority} className="rounded-lg border border-border/50 bg-secondary/30 p-3 space-y-2">
+                <div className="flex items-start gap-2">
+                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/20 text-xs font-bold text-primary">
+                    {action.priority}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium text-foreground">{action.action}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">{action.reasoning}</p>
+                  </div>
+                  <span className={`shrink-0 text-xs font-semibold uppercase ${urgencyColor(action.urgency)}`}>
+                    {action.urgency.replace("_", " ")}
+                  </span>
+                </div>
+                {action.template_hint && (
+                  <div className="rounded-md border border-border/40 bg-background/60 px-3 py-2">
+                    <div className="flex items-center mb-1">
+                      <span className="text-xs text-muted-foreground">Suggested opener</span>
+                      <CopyButton text={action.template_hint} />
+                    </div>
+                    <p className="text-xs text-foreground/80 italic">{action.template_hint}</p>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Signals */}
       <div className="space-y-3">
@@ -263,13 +411,15 @@ export default function HealthBreakdown({ dealId }: { dealId: string }) {
         </div>
       )}
 
-      {/* Recommendation */}
-      <Card className={`border ${data.action_required ? "border-health-orange/40 bg-health-orange/5" : "border-border/50 bg-secondary/50"}`}>
-        <CardContent className="p-4">
-          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">Recommendation</p>
-          <p className="text-sm text-foreground">{data.recommendation}</p>
-        </CardContent>
-      </Card>
+      {/* Recommendation — only show if no AI recommended_actions */}
+      {!data.recommended_actions?.length && (
+        <Card className={`border ${data.action_required ? "border-health-orange/40 bg-health-orange/5" : "border-border/50 bg-secondary/50"}`}>
+          <CardContent className="p-4">
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">Recommendation</p>
+            <p className="text-sm text-foreground">{data.recommendation}</p>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Quick Actions */}
       <div className="space-y-2">

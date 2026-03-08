@@ -11,6 +11,8 @@ Architecture:
 5. Returns structured answer with source citations
 """
 
+import re
+import html
 import time
 import logging
 from typing import Dict, Any, List, Optional
@@ -25,6 +27,30 @@ from services.ask_dealiq_prompts import (
 import services.ai_router_ask as ai_router
 
 _log = logging.getLogger(__name__)
+
+
+def sanitize_for_prompt(text: str | None) -> str:
+    """
+    Clean text for safe inclusion in LLM prompts and JSON payloads.
+    Strips HTML, decodes entities, removes control characters that break JSON.
+    """
+    if not text:
+        return ""
+    # Strip HTML tags (email bodies are often HTML)
+    text = re.sub(r"<[^>]+>", " ", text)
+    # Decode HTML entities (&amp; → &, &nbsp; → space, etc.)
+    text = html.unescape(text)
+    # Normalize line endings
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    # Tab → space
+    text = text.replace("\t", " ")
+    # Strip control chars that break JSON (keep \n = 0x0a)
+    text = re.sub(r"[\x00-\x09\x0b-\x1f\x7f]", "", text)
+    # Collapse excessive whitespace
+    text = re.sub(r" {3,}", "  ", text)
+    text = re.sub(r"\n{4,}", "\n\n\n", text)
+    return text.strip()
+
 
 # ── Token budget constants (character-based approximation: ~4 chars per token) ──
 CHARS_PER_TOKEN = 4
@@ -58,13 +84,15 @@ def _fmt_emails(emails: list, limit: int = 10) -> str:
         direction_val = (e.get("direction") or e.get("type") or "").lower()
         is_buyer = direction_val in ("incoming", "received", "inbound")
         direction = "← BUYER" if is_buyer else "→ REP"
-        content = (
+        raw_content = (
             e.get("content") or e.get("body") or e.get("html_body") or e.get("text_body") or ""
         )
-        # Truncate to budget
-        content = content[:MAX_EMAIL_BODY_CHARS]
+        # Sanitize to remove control chars and HTML, then truncate
+        content = sanitize_for_prompt(raw_content)
+        if len(content) > MAX_EMAIL_BODY_CHARS:
+            content = content[:MAX_EMAIL_BODY_CHARS] + "... [truncated]"
         sent_at = e.get("sent_time") or e.get("date") or "Unknown date"
-        subject = e.get("subject") or "No subject"
+        subject = sanitize_for_prompt(e.get("subject") or "No subject")
         lines.append(f"[{direction}] {sent_at} | {subject}\n{content}")
     return "\n\n".join(lines)
 
@@ -115,6 +143,7 @@ def _assemble_deal_context(
 
     # 4. Transcript — standard: most recent (truncated), deep: full
     if transcript:
+        transcript = sanitize_for_prompt(transcript)
         max_chars = MAX_TRANSCRIPT_CHARS if depth == "standard" else MAX_TRANSCRIPT_CHARS * 3
         if len(transcript) > max_chars:
             transcript_section = transcript[:max_chars] + "\n... [transcript truncated for context window]"
@@ -164,7 +193,17 @@ async def ask_about_deal(
     context = _assemble_deal_context(deal, emails, transcript, depth="standard")
     context = _trim_to_budget(context, MAX_TOKENS_STANDARD)
 
-    user_prompt = f"DEAL CONTEXT:\n{context}\n\nQUESTION: {question}"
+    question_clean = sanitize_for_prompt(question)
+    user_prompt = f"DEAL CONTEXT:\n{context}\n\nQUESTION: {question_clean}"
+
+    # Safety check: ensure the assembled prompt is JSON-serializable before sending to LLM
+    import json as _json
+    try:
+        _json.dumps({"content": user_prompt})
+    except (ValueError, TypeError):
+        # Nuclear fallback: strip all non-printable chars
+        user_prompt = "".join(c for c in user_prompt if c.isprintable() or c == "\n")
+        _log.warning("Prompt had non-serializable chars after sanitization — applied nuclear strip")
 
     try:
         result = await ai_router.ask_deal_question(
@@ -173,9 +212,9 @@ async def ask_about_deal(
             max_tokens=2048,
         )
     except Exception as exc:
-        _log.error("Ask deal question failed: %s", exc)
+        _log.error("Ask deal question failed: %s", exc, exc_info=True)
         result = {
-            "answer": f"Unable to process your question: {str(exc)}",
+            "answer": "I wasn't able to process your question due to a data issue. Please try again — if the problem persists, try rephrasing your question.",
             "sources_used": [],
             "confidence": "low",
             "deal_risks_detected": [],
@@ -184,12 +223,14 @@ async def ask_about_deal(
 
     elapsed_ms = int((time.monotonic() - start) * 1000)
 
+    email_count = min(len(emails), 5)
+    health_signals = deal.get("signals") or []
     return {
         **result,
         "context_stats": {
-            "emails_included": min(len(emails), 5),
+            "emails_included": email_count,
             "transcripts_included": 1 if transcript else 0,
-            "health_scores_included": 1 if deal.get("health_score") else 0,
+            "health_scores_included": len(health_signals) if health_signals else (1 if deal.get("health_score") else 0),
         },
         "processing_time_ms": elapsed_ms,
     }

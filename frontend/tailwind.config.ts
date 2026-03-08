@@ -63,6 +63,21 @@ export default {
           orange: "hsl(var(--health-orange))",
           red: "hsl(var(--health-red))",
         },
+        brand: {
+          "50":  "#E8E9F7",
+          "100": "#D1D3EF",
+          "200": "#A3A7DF",
+          "300": "#757BCF",
+          "400": "#474FBF",
+          "500": "#020887",
+          "600": "#010665",
+          "700": "#010452",
+        },
+        surface: {
+          app:  "#F7F9FC",
+          card: "#FFFFFF",
+          alt:  "#F0F4F8",
+        },
       },
       borderRadius: {
         lg: "var(--radius)",

@@ -319,6 +319,28 @@ class PendingCrmUpdate(Base):
 
 
 # ---------------------------------------------------------------------------
+# api_cache  (generic external-API response cache — prevents Zoho 429 floods)
+# ---------------------------------------------------------------------------
+
+class ApiCache(Base):
+    __tablename__ = "api_cache"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    cache_key: Mapped[str] = mapped_column(String(512), unique=True, nullable=False, index=True)
+    response_data: Mapped[str] = mapped_column(Text, nullable=False)   # JSON string
+    source: Mapped[str] = mapped_column(String(64), nullable=False)    # "zoho"
+    endpoint: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime, onupdate=func.now())
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+    __table_args__ = (
+        Index("ix_api_cache_source_key", "source", "cache_key"),
+        Index("ix_api_cache_expires", "expires_at"),
+    )
+
+
+# ---------------------------------------------------------------------------
 # audit_log
 # ---------------------------------------------------------------------------
 

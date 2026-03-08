@@ -82,8 +82,16 @@ async def startup_event():
             except Exception as e:
                 logger.exception("Morning scan failed: %s", e)
 
+        async def _cache_cleanup_job():
+            try:
+                from services.email_cache import cleanup_expired_cache
+                await cleanup_expired_cache()
+            except Exception as e:
+                logger.warning("Cache cleanup job failed: %s", e)
+
         scheduler = AsyncIOScheduler()
         scheduler.add_job(_morning_scan_job, CronTrigger(hour=7, minute=0))
+        scheduler.add_job(_cache_cleanup_job, CronTrigger(hour="*/1"))  # hourly
         scheduler.start()
         logger.info("Scheduler started")
     except ModuleNotFoundError:

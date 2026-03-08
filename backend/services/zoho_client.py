@@ -9,6 +9,40 @@ from urllib.parse import quote
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Concurrency control — Zoho rejects >5 simultaneous requests with 429
+# ---------------------------------------------------------------------------
+_ZOHO_SEMAPHORE = asyncio.Semaphore(5)
+_MAX_RETRIES = 3
+_RETRY_BASE_DELAY = 1.0  # seconds; doubles each attempt
+
+
+async def _zoho_get(
+    client: httpx.AsyncClient,
+    url: str,
+    headers: dict,
+    params: dict | None = None,
+) -> httpx.Response:
+    """
+    Semaphore-limited GET with exponential backoff on Zoho 429 responses.
+    At most 5 concurrent Zoho requests; waits and retries up to 3 times on 429.
+    Non-429 errors are returned immediately (caller decides how to handle them).
+    """
+    async with _ZOHO_SEMAPHORE:
+        for attempt in range(_MAX_RETRIES):
+            resp = await client.get(url, headers=headers, params=params or {})
+            if resp.status_code != 429:
+                return resp
+            # 429 — wait with exponential backoff, then retry
+            wait = _RETRY_BASE_DELAY * (2 ** attempt)
+            logger.warning(
+                "Zoho 429 on %s attempt=%d/%d — waiting %.1fs",
+                url, attempt + 1, _MAX_RETRIES, wait,
+            )
+            await asyncio.sleep(wait)
+        # Final attempt after all retries
+        return await client.get(url, headers=headers, params=params or {})
+
 ZOHO_CLIENT_ID = os.getenv("ZOHO_CLIENT_ID")
 ZOHO_CLIENT_SECRET = os.getenv("ZOHO_CLIENT_SECRET")
 ZOHO_REDIRECT_URI = os.getenv("ZOHO_REDIRECT_URI", "http://localhost:8000/auth/callback")
@@ -39,7 +73,7 @@ def get_authorization_url(state: str = "") -> str:
 
 async def exchange_code_for_tokens(code: str) -> Dict[str, Any]:
     """Exchange authorization code for access and refresh tokens."""
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=15) as client:
         resp = await client.post(
             f"{ZOHO_ACCOUNTS_URL}/oauth/v2/token",
             data={
@@ -56,7 +90,7 @@ async def exchange_code_for_tokens(code: str) -> Dict[str, Any]:
 
 async def refresh_access_token(refresh_token: str) -> Dict[str, Any]:
     """Use refresh token to get a new access token."""
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=15) as client:
         resp = await client.post(
             f"{ZOHO_ACCOUNTS_URL}/oauth/v2/token",
             data={
@@ -72,7 +106,7 @@ async def refresh_access_token(refresh_token: str) -> Dict[str, Any]:
 
 async def get_current_user(access_token: str) -> Dict[str, Any]:
     """Fetch the authenticated Zoho user's profile."""
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=10) as client:
         resp = await client.get(
             f"{ZOHO_API_BASE}/users?type=CurrentUser",
             headers={"Authorization": f"Zoho-oauthtoken {access_token}"},
@@ -94,7 +128,7 @@ async def fetch_deals(access_token: str, page: int = 1, per_page: int = 50) -> L
         "Owner,Last_Activity_Time,Created_Time,Modified_Time,Probability,Description,Next_Step,"
         "Lead_Source,No_of_Employees"
     )
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=15) as client:
         resp = await client.get(
             f"{ZOHO_API_BASE}/Deals",
             headers={"Authorization": f"Zoho-oauthtoken {access_token}"},
@@ -142,7 +176,7 @@ async def search_deals(
     if not safe_term:
         return [], False
 
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=15) as client:
         resp = await client.get(
             f"{ZOHO_API_V6}/Deals/search",
             headers={"Authorization": f"Zoho-oauthtoken {access_token}"},
@@ -167,7 +201,7 @@ async def search_deals(
 
 async def fetch_deal_notes(access_token: str, deal_id: str) -> List[Dict[str, Any]]:
     """Fetch notes attached to a specific deal."""
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=10) as client:
         resp = await client.get(
             f"{ZOHO_API_BASE}/Deals/{deal_id}/Notes",
             headers={"Authorization": f"Zoho-oauthtoken {access_token}"},
@@ -180,7 +214,7 @@ async def fetch_deal_notes(access_token: str, deal_id: str) -> List[Dict[str, An
 
 async def fetch_deal_activities(access_token: str, deal_id: str) -> List[Dict[str, Any]]:
     """Fetch activities (calls, tasks) linked to a deal."""
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=10) as client:
         resp = await client.get(
             f"{ZOHO_API_BASE}/Deals/{deal_id}/Activities",
             headers={"Authorization": f"Zoho-oauthtoken {access_token}"},
@@ -294,8 +328,8 @@ async def _fetch_email_body(
     url = f"{ZOHO_API_BASE}/{module}/{record_id}/Emails/{mid}"
 
     async with httpx.AsyncClient(timeout=10) as client:
-        resp = await client.get(
-            url,
+        resp = await _zoho_get(
+            client, url,
             headers={"Authorization": f"Zoho-oauthtoken {access_token}"},
         )
 
@@ -400,8 +434,8 @@ async def _fetch_email_body_v8(
         params["user_id"] = user_id
 
     async with httpx.AsyncClient(timeout=10) as client:
-        resp = await client.get(
-            url,
+        resp = await _zoho_get(
+            client, url,
             headers={"Authorization": f"Zoho-oauthtoken {access_token}"},
             params=params,
         )
@@ -511,14 +545,56 @@ async def _fetch_emails_for_record(module: str, record_id: str, access_token: st
     # Sort newest-first so we fetch the most content-rich email first
     all_emails.sort(key=lambda e: e.get("sent_time") or e.get("date") or "", reverse=True)
 
-    # Step 2: fetch full body for each email, passing user_id from owner field
-    async def _enrich(email: dict) -> dict:
-        message_id = email.get("message_id") or email.get("id")
-        if not message_id:
-            logger.warning("email_enrich: no message_id on email subject=%s", email.get("subject", "?"))
-            return email
+    # ── Phase 1: batch cache read — one session, one SELECT, before any gather ─
+    keys_meta = [
+        (module, record_id, str(e.get("message_id") or e.get("id", "")))
+        for e in all_emails
+        if e.get("message_id") or e.get("id")
+    ]
+    try:
+        from services.email_cache import get_cached_email_bodies_batch
+        cache_hits: dict[str, str | None] = await get_cached_email_bodies_batch(keys_meta)
+    except Exception as _ce:
+        logger.warning("email_cache batch read failed: %s", _ce)
+        cache_hits = {}
 
-        # Extract owner's Zoho user_id — required by v8 to return content field
+    cache_hit_count = sum(1 for v in cache_hits.values() if v is not None)
+    logger.info(
+        "email_cache: %s/%s total=%d hits=%d misses=%d",
+        module, record_id, len(all_emails), cache_hit_count, len(all_emails) - cache_hit_count,
+    )
+
+    # Serve cache hits immediately; collect emails that need a Zoho fetch
+    result: list[dict] = []
+    needs_fetch: list[dict] = []
+
+    for email in all_emails:
+        message_id = str(email.get("message_id") or email.get("id", ""))
+        if not message_id:
+            result.append(email)
+            continue
+        cached = cache_hits.get(message_id)
+        if cached is not None:
+            if cached:
+                result.append({
+                    **email,
+                    "content": cached,
+                    "body_preview": cached[:200],
+                    "body_full": cached,
+                    "snippet": cached[:200],
+                    "date": email.get("sent_time") or email.get("date") or "",
+                    "sent_at": email.get("sent_time") or email.get("date") or "",
+                    "_from_cache": True,
+                })
+            else:
+                result.append(email)  # known-empty; skip Zoho
+        else:
+            needs_fetch.append(email)
+
+    # ── Phase 2: fetch missing bodies from Zoho — semaphore-limited, NO DB ops ─
+    async def _fetch_body_only(email: dict) -> tuple[dict, str]:
+        """Fetch body via Zoho only. Returns (enriched_email, body_text)."""
+        message_id = email.get("message_id") or email.get("id")
         owner = email.get("owner") or {}
         user_id: str | None = None
         if isinstance(owner, dict):
@@ -529,18 +605,14 @@ async def _fetch_emails_for_record(module: str, record_id: str, access_token: st
             module, record_id, str(message_id)[:30], user_id, email.get("subject", "?"),
         )
 
-        # Try v8 first (with user_id), then v8 without user_id, then v2
         html, plain = await _fetch_email_body_v8(module, record_id, message_id, access_token, user_id)
 
-        # If v8 with user_id failed, retry without it (some orgs don't use user_id)
         if not html and not plain and user_id:
             logger.info("email_enrich: retrying v8 without user_id for mid=%s", str(message_id)[:30])
             html, plain = await _fetch_email_body_v8(module, record_id, message_id, access_token, None)
 
         if html or plain:
-            # plain is already stripped; don't call _strip_html again
             body_full = plain if plain else _strip_html(html)
-            snippet = body_full[:200]
             logger.info(
                 "email_enrich: got body via v8 mid=%s body_full_len=%d",
                 str(message_id)[:30], len(body_full),
@@ -549,14 +621,13 @@ async def _fetch_emails_for_record(module: str, record_id: str, access_token: st
                 **email,
                 "html_content": html,
                 "content": body_full,
-                "body_preview": snippet,
+                "body_preview": body_full[:200],
                 "body_full": body_full,
-                "snippet": snippet,
+                "snippet": body_full[:200],
                 "date": email.get("sent_time") or email.get("date") or "",
                 "sent_at": email.get("sent_time") or email.get("date") or "",
-            }
+            }, body_full
 
-        # v2 fallback
         plain_v2 = await _fetch_email_body(module, record_id, message_id, access_token)
         if plain_v2:
             logger.info(
@@ -571,16 +642,33 @@ async def _fetch_emails_for_record(module: str, record_id: str, access_token: st
                 "snippet": plain_v2[:200],
                 "date": email.get("sent_time") or email.get("date") or "",
                 "sent_at": email.get("sent_time") or email.get("date") or "",
-            }
+            }, plain_v2
 
         logger.warning(
-            "email_enrich: NO body found for mid=%s subject=%s — both v8 and v2 returned empty",
+            "email_enrich: NO body found for mid=%s subject=%s",
             str(message_id)[:30], email.get("subject", "?"),
         )
-        return email
+        return email, ""  # empty — will cache as known-empty
 
-    enriched = await asyncio.gather(*[_enrich(e) for e in all_emails])
-    result = list(enriched)
+    fetched_pairs: list[tuple[dict, str]] = []
+    if needs_fetch:
+        fetched_pairs = list(await asyncio.gather(*[_fetch_body_only(e) for e in needs_fetch]))
+        for enriched, _ in fetched_pairs:
+            result.append(enriched)
+
+    # ── Phase 3: batch cache write — one session after gather completes ───────
+    if fetched_pairs:
+        to_cache = [
+            (module, record_id, str(enriched.get("message_id") or enriched.get("id", "")), body)
+            for enriched, body in fetched_pairs
+            if enriched.get("message_id") or enriched.get("id")
+        ]
+        if to_cache:
+            try:
+                from services.email_cache import set_cached_email_bodies_batch
+                await set_cached_email_bodies_batch(to_cache)
+            except Exception as _ce:
+                logger.warning("email_cache batch write failed: %s", _ce)
 
     bodies_found = sum(1 for e in result if e.get("content") or e.get("body_full"))
     logger.info(
@@ -667,7 +755,7 @@ async def fetch_deal_contact_roles(access_token: str, deal_id: str) -> list:
 
 async def _fetch_deal_contacts(access_token: str, deal_id: str) -> list:
     """Fetch contacts linked to a deal — needed for BCC Dropbox email fallback."""
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=10) as client:
         resp = await client.get(
             f"{ZOHO_API_BASE}/Deals/{deal_id}/Contacts",
             headers={"Authorization": f"Zoho-oauthtoken {access_token}"},
@@ -969,7 +1057,7 @@ async def fetch_deal_timeline(access_token: str, deal_id: str) -> dict:
 async def get_deal_contacts(deal_id: str, access_token: str) -> List[Dict[str, Any]]:
     """Fetch contacts associated with a deal via Contact_Roles sub-module."""
     try:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.get(
                 f"{ZOHO_API_BASE}/Deals/{deal_id}/Contact_Roles",
                 headers={"Authorization": f"Zoho-oauthtoken {access_token}"},
@@ -984,7 +1072,7 @@ async def get_deal_contacts(deal_id: str, access_token: str) -> List[Dict[str, A
 
 async def update_deal_field(deal_id: str, field: str, value: Any, access_token: str) -> bool:
     """Update a single field on a Zoho Deal. Returns True on SUCCESS."""
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=10) as client:
         resp = await client.put(
             f"{ZOHO_API_BASE}/Deals/{deal_id}",
             headers={"Authorization": f"Zoho-oauthtoken {access_token}"},

@@ -79,22 +79,53 @@ def _addr_list(val) -> list[str]:
     return []
 
 
+_INTERNAL_DOMAINS = ("vervotech.com",)
+
+
+def _classify_direction(raw: dict, from_addr: str) -> str:
+    """
+    Determine email direction ('sent' | 'delivered').
+
+    Priority order:
+    1. Zoho's 'direction' field when it says 'incoming'/'received'/'inbound' — reliable for inbound.
+    2. 'from' email domain check — most reliable signal overall.
+       Zoho often returns direction='sent' for ALL emails on a Deal record (even buyer replies),
+       so we trust the from-address over Zoho's 'sent'/'outgoing' direction claim.
+    3. Zoho's boolean 'sent' flag — secondary fallback.
+    4. Default to 'delivered' (inbound) to avoid over-counting sent.
+    """
+    direction_raw = (raw.get("direction") or "").lower()
+    sent_flag = raw.get("sent")
+
+    # If Zoho explicitly flags it as inbound, trust that.
+    if direction_raw in ("incoming", "received", "inbound"):
+        return "delivered"
+
+    # Check the from address — most accurate signal.
+    if from_addr:
+        from_lower = from_addr.lower()
+        if any(f"@{d}" in from_lower for d in _INTERNAL_DOMAINS):
+            return "sent"
+        # Has a from address that's NOT internal → inbound.
+        return "delivered"
+
+    # No from address: fall back to Zoho flags.
+    if direction_raw in ("outgoing", "sent", "outbound"):
+        return "sent"
+    if isinstance(sent_flag, bool):
+        return "sent" if sent_flag else "delivered"
+
+    return "delivered"
+
+
 def _normalise_zoho_email(raw: dict) -> dict:
     """
     Map a raw Zoho email (v2 or v8) to the unified frontend shape.
     Zoho fields: subject, from, to, sent_time, direction, sent (bool),
                  content (plain), html_content, message_id, thread_id
     """
-    direction_raw = (raw.get("direction") or "").lower()
-    sent_flag = raw.get("sent")
-    if direction_raw in ("outgoing", "sent", "outbound"):
-        status = "sent"
-    elif direction_raw in ("incoming", "received", "inbound"):
-        status = "delivered"
-    elif isinstance(sent_flag, bool):
-        status = "sent" if sent_flag else "delivered"
-    else:
-        status = "delivered"
+    from_addr = _addr(raw.get("from") or raw.get("From") or raw.get("sender"))
+    status = _classify_direction(raw, from_addr)
 
     # Prefer the enriched full-body fields set by _fetch_emails_for_record
     html_content = raw.get("html_content") or ""  # raw HTML — frontend renders via DOMPurify
@@ -104,7 +135,7 @@ def _normalise_zoho_email(raw: dict) -> dict:
 
     return {
         "subject":      raw.get("subject") or raw.get("Subject") or "(no subject)",
-        "from":         _addr(raw.get("from") or raw.get("From") or raw.get("sender")),
+        "from":         from_addr,
         "to":           _addr_list(raw.get("to") or raw.get("To") or []),
         "date":         raw.get("sent_time") or raw.get("time") or raw.get("date") or raw.get("Created_Time") or "",
         "snippet":      snippet,

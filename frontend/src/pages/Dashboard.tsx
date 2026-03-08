@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   AlertTriangle, AlertCircle, CheckCircle2, Activity, DollarSign, Users, Search, X, Filter,
-  ChevronRight, Users2, TrendingUp, TrendingDown, Minus, RefreshCw,
+  ChevronRight, ChevronDown, Users2, TrendingUp, TrendingDown, Minus, RefreshCw,
   ArrowUpDown, BarChart2, Inbox, ClipboardCheck, Map, Loader2, Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -141,8 +141,8 @@ function getDealWhyLine(deal: Deal): { text: string; colorClass: string } | null
     return { text: `No contact in ${daysSince} days ⚠`, colorClass: "text-health-red" };
   if (daysSince !== null && daysSince > 30)
     return { text: `No contact in ${daysSince} days`, colorClass: "text-health-yellow" };
-  if (!deal.next_step) return { text: "No next step defined", colorClass: "text-muted-foreground/45" };
-  if (daysSince !== null && daysSince > 14) return { text: `${daysSince} days since last touch`, colorClass: "text-muted-foreground/45" };
+  if (!deal.next_step) return { text: "No next step defined", colorClass: "text-muted-foreground/70" };
+  if (daysSince !== null && daysSince > 14) return { text: `${daysSince} days since last touch`, colorClass: "text-muted-foreground/70" };
   if ((deal.discount_mention_count ?? 0) >= 3) return { text: "Discount pressure — multiple requests", colorClass: "text-health-orange" };
   return null;
 }
@@ -341,6 +341,8 @@ export default function Dashboard() {
   const [signalPanelOpen, setSignalPanelOpen] = useState(false);
   const [teamSummary, setTeamSummary] = useState<TeamActivitySummary | null>(null);
   const [loadingTeam, setLoadingTeam] = useState(false);
+  const [teamSummaryExpanded, setTeamSummaryExpanded] = useState(false);
+  const [teamSummaryFetched, setTeamSummaryFetched] = useState(false);
   const [tourActive, setTourActive] = useState(false);
   const [dealWarnings, setDealWarnings] = useState<Record<string, DealWarningInfo>>({});
   const [pipelineIntel, setPipelineIntel] = useState<{ coverage_ratio: number; commit_total: number; commit_count: number; ai_risk_count: number; critical_count: number; at_risk_count: number } | null>(null);
@@ -481,13 +483,15 @@ export default function Dashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [allDeals]);
 
-  // Load team activity summary (lazy, low priority)
-  // Also exposed as fetchTeamSummary for the manual refresh button.
+  // Fetch team summary — only called when user expands the section or hits Refresh.
   function fetchTeamSummary() {
     if (!session) return;
     setLoadingTeam(true);
     api.getTeamActivitySummary()
-      .then(setTeamSummary)
+      .then((data: TeamActivitySummary) => {
+        setTeamSummary(data);
+        setTeamSummaryFetched(true);
+      })
       .catch((err: unknown) => {
         if (err instanceof DOMException && err.name === "AbortError") return;
         if (err instanceof Error && err.name === "AbortError") return;
@@ -496,11 +500,14 @@ export default function Dashboard() {
       .finally(() => setLoadingTeam(false));
   }
 
-  useEffect(() => {
-    if (!session) return;
-    fetchTeamSummary();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session]);
+  function handleTeamSummaryToggle() {
+    const willExpand = !teamSummaryExpanded;
+    setTeamSummaryExpanded(willExpand);
+    // Only fetch on first expand
+    if (willExpand && !teamSummaryFetched && !loadingTeam) {
+      fetchTeamSummary();
+    }
+  }
 
   // Load pipeline intelligence from forecast board (lazy, non-critical)
   useEffect(() => {
@@ -747,12 +754,12 @@ export default function Dashboard() {
           transform: scaleY(1);
         }
         .deal-row:hover {
-          background-color: rgba(255, 255, 255, 0.03) !important;
+          background-color: hsl(var(--muted) / 0.4) !important;
         }
       `}</style>
 
       {/* ── Header ── */}
-      <div className="sticky top-0 z-40 bg-[rgba(6,10,19,0.75)] backdrop-blur-[16px]">
+      <div className="sticky top-0 z-40 bg-background/90 backdrop-blur-[16px] border-b border-border/40">
         <NavBar
           onOpenDigest={() => setDigestOpen(true)}
           onOpenSignal={() => setSignalPanelOpen(true)}
@@ -775,86 +782,116 @@ export default function Dashboard() {
               onClick={() => setTourActive(true)}
               className="flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-semibold text-primary transition-colors hover:bg-primary/20"
             >
-              🗺 Take a Tour
+              <Map className="h-3 w-3" />
+              Take a Tour
             </button>
           </div>
         )}
 
-        {/* ── Summary Cards ── */}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4" data-tour="metric-cards">
-          {loadingMetrics
-            ? [...Array(4)].map((_, i) => <MetricCardSkeleton key={i} />)
-            : summaryCards.map((card, idx) => (
+        {/* ── Summary Cards — hero layout ── */}
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3" data-tour="metric-cards">
+          {loadingMetrics ? (
+            <>
+              <div className="lg:col-span-2"><MetricCardSkeleton /></div>
+              <div className="space-y-3">
+                <MetricCardSkeleton />
+                <MetricCardSkeleton />
+                <MetricCardSkeleton />
+              </div>
+            </>
+          ) : (
+            <>
+              {/* Hero: Pipeline Health — 2/3 width */}
               <Card
-                key={card.label}
-                className={cn(
-                  "group relative overflow-hidden bg-card/60 transition-all duration-200 hover:shadow-xl hover:shadow-black/25 animate-slide-up",
-                  card.isAlert ? "pulse-border-red border-health-red/30 shadow-[0_0_15px_rgba(239,68,68,0.15)]" : "border-border/40 hover:border-border/70"
-                )}
-                style={{ animationDelay: `${idx * 55}ms` }}
+                className="lg:col-span-2 relative overflow-hidden bg-card/60 border-border/40 hover:border-border/70 transition-all duration-200 hover:shadow-xl hover:shadow-black/25 animate-slide-up"
+                style={{ animationDelay: "0ms" }}
               >
-                {/* Top accent line */}
-                <div className={cn(
-                  "absolute inset-x-0 top-0 h-px",
-                  card.isAlert
-                    ? "bg-gradient-to-r from-transparent via-health-red/70 to-transparent"
-                    : "bg-gradient-to-r from-transparent via-primary/50 to-transparent"
-                )} />
-                <CardContent className="flex items-center gap-4 p-5">
-                  <div className={cn(
-                    "flex h-11 w-11 shrink-0 items-center justify-center rounded-xl",
-                    card.isAlert ? "bg-health-red/10" : "bg-primary/10"
-                  )}>
-                    <card.icon className={cn("h-5 w-5", card.isAlert ? "text-health-red" : "text-primary")} />
-                  </div>
+                <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/50 to-transparent" />
+                <CardContent className="flex items-center justify-between gap-6 p-6 sm:p-8">
                   <div className="min-w-0">
-                    <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/60 mb-0.5">
-                      {card.label}
+                    <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/60 mb-1">
+                      Pipeline Health
                     </p>
-                    {card.label === "Avg Health" ? (
-                      <div className="flex items-center gap-2">
-                        <p className={cn(
-                          "font-black tracking-tight tabular-nums leading-tight font-numeric text-2xl",
-                          card.colorFn ? card.colorFn(card.value ?? 0) : "text-foreground"
-                        )}>
-                          {card.value != null ? <MetricValue value={card.value} format={card.format} /> : "—"}
-                        </p>
-                        <HealthGauge value={card.value ?? 0} />
-                      </div>
-                    ) : (
-                      <p className={cn(
-                        "font-black tracking-tight tabular-nums leading-tight font-numeric",
-                        card.colorFn ? card.colorFn(card.value ?? 0) : card.isAlert ? "text-health-red text-2xl" : "text-foreground text-2xl"
-                      )}>
-                        {card.value != null ? <MetricValue value={card.value} format={card.format} /> : "—"}
+                    <div className="flex items-baseline gap-2 mt-2">
+                      <span className={cn("text-5xl font-black tabular-nums leading-none font-numeric", scoreColor(avgScore))}>
+                        <MetricValue value={avgScore} format={(v) => String(Math.round(v))} />
+                      </span>
+                      <span className="text-2xl text-muted-foreground/50 font-semibold">/ 100</span>
+                    </div>
+                    <p className={cn("mt-2 text-sm font-medium", scoreColor(avgScore))}>
+                      {healthStatusLabel(avgScore)}
+                    </p>
+                    {metrics && (
+                      <p className="mt-3 text-xs text-muted-foreground/60">
+                        {metrics.deals_needing_action} of {metrics.total_deals} deals need attention
+                        {metrics.healthy_count > 0 && ` · ${metrics.healthy_count} healthy`}
                       </p>
                     )}
-                    {/* Subtext with colored dot for Avg Health */}
-                    {card.subtext && (
-                      <p className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground/60 leading-tight">
-                        {card.dot && <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", card.dot)} />}
-                        {card.subtext}
-                      </p>
-                    )}
+                  </div>
+                  <div className="shrink-0">
+                    <HealthGauge value={avgScore} />
                   </div>
                 </CardContent>
               </Card>
-            ))}
+
+              {/* Supporting metrics — stacked 1/3 */}
+              <div className="flex flex-col gap-3 animate-slide-up" style={{ animationDelay: "55ms" }}>
+                {[summaryCards[1], summaryCards[0], summaryCards[3]].map((card, idx) => (
+                  <Card
+                    key={card.label}
+                    className={cn(
+                      "relative overflow-hidden bg-card/60 transition-all duration-200",
+                      card.isAlert
+                        ? "pulse-border-red border-health-red/30 shadow-[0_0_15px_rgba(239,68,68,0.1)]"
+                        : "border-border/40 hover:border-border/60"
+                    )}
+                  >
+                    <div className={cn(
+                      "absolute inset-x-0 top-0 h-px",
+                      card.isAlert
+                        ? "bg-gradient-to-r from-transparent via-health-red/60 to-transparent"
+                        : "bg-gradient-to-r from-transparent via-primary/40 to-transparent"
+                    )} />
+                    <CardContent className="flex items-center gap-3 px-4 py-3">
+                      <div className={cn(
+                        "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg",
+                        card.isAlert ? "bg-health-red/10" : "bg-primary/10"
+                      )}>
+                        <card.icon className={cn("h-4 w-4", card.isAlert ? "text-health-red" : "text-primary")} />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50">
+                          {card.label}
+                        </p>
+                        <p className={cn(
+                          "font-black tabular-nums leading-tight font-numeric text-xl",
+                          card.colorFn ? card.colorFn(card.value ?? 0)
+                            : card.isAlert ? "text-health-red" : "text-foreground"
+                        )}>
+                          {card.value != null ? <MetricValue value={card.value} format={card.format} /> : "—"}
+                        </p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </>
+          )}
         </div>
 
         {/* ── Pipeline Intelligence ── */}
         {pipelineIntel && (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 animate-slide-up" style={{ animationDelay: "230ms" }}>
             {/* Coverage */}
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl px-5 py-4">
-              <div className="text-[11px] text-slate-500 uppercase tracking-wider mb-1">Pipeline Coverage</div>
-              <div className={cn("text-3xl font-bold", pipelineIntel.coverage_ratio >= 3 ? "text-emerald-400" : pipelineIntel.coverage_ratio >= 2 ? "text-amber-400" : "text-rose-400")}>
+            <div className="bg-card border border-border rounded-2xl px-5 py-4">
+              <div className="text-[11px] text-muted-foreground/60 uppercase tracking-wider mb-1">Pipeline Coverage</div>
+              <div className={cn("text-3xl font-bold", pipelineIntel.coverage_ratio >= 3 ? "text-emerald-500" : pipelineIntel.coverage_ratio >= 2 ? "text-amber-500" : "text-rose-500")}>
                 {pipelineIntel.coverage_ratio > 0 ? `${pipelineIntel.coverage_ratio.toFixed(1)}x` : "—"}
               </div>
-              <div className="text-xs text-slate-600 mt-1">
+              <div className="text-xs text-muted-foreground/50 mt-1">
                 target: 3x · {pipelineIntel.coverage_ratio >= 3 ? "healthy" : pipelineIntel.coverage_ratio >= 2 ? "below target" : pipelineIntel.coverage_ratio > 0 ? "critical" : "set quota to track"}
               </div>
-              <div className="mt-3 h-1.5 bg-slate-700 rounded-full overflow-hidden">
+              <div className="mt-3 h-1.5 bg-border/60 rounded-full overflow-hidden">
                 <div
                   className={cn("h-full rounded-full transition-all", pipelineIntel.coverage_ratio >= 3 ? "bg-emerald-500" : pipelineIntel.coverage_ratio >= 2 ? "bg-amber-500" : "bg-rose-500")}
                   style={{ width: `${Math.min((pipelineIntel.coverage_ratio / 3) * 100, 100)}%`, transformOrigin: 'left', animation: 'scaleXIn 800ms ease-out forwards' }}
@@ -863,14 +900,14 @@ export default function Dashboard() {
             </div>
 
             {/* Committed */}
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl px-5 py-4">
-              <div className="text-[11px] text-slate-500 uppercase tracking-wider mb-1">Committed</div>
-              <div className="text-3xl font-bold text-emerald-400">
+            <div className="bg-card border border-border rounded-2xl px-5 py-4">
+              <div className="text-[11px] text-muted-foreground/60 uppercase tracking-wider mb-1">Committed</div>
+              <div className="text-3xl font-bold text-emerald-500">
                 {pipelineIntel.commit_total >= 1000 ? `$${Math.round(pipelineIntel.commit_total / 1000)}K` : pipelineIntel.commit_total > 0 ? `$${pipelineIntel.commit_total}` : "—"}
               </div>
-              <div className="text-xs text-slate-600 mt-1">{pipelineIntel.commit_count} deal{pipelineIntel.commit_count !== 1 ? "s" : ""} in Commit</div>
+              <div className="text-xs text-muted-foreground/50 mt-1">{pipelineIntel.commit_count} deal{pipelineIntel.commit_count !== 1 ? "s" : ""} in Commit</div>
               {pipelineIntel.ai_risk_count > 0 && (
-                <div className="mt-2 text-xs text-rose-400 flex items-center gap-1.5">
+                <div className="mt-2 text-xs text-rose-500 flex items-center gap-1.5">
                   <AlertTriangle size={11} strokeWidth={2.5} />
                   {pipelineIntel.ai_risk_count} commit deal{pipelineIntel.ai_risk_count > 1 ? "s" : ""} at risk
                 </div>
@@ -878,16 +915,16 @@ export default function Dashboard() {
             </div>
 
             {/* Risk count */}
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl px-5 py-4">
-              <div className="text-[11px] text-slate-500 uppercase tracking-wider mb-1">Deals Needing Action</div>
+            <div className="bg-card border border-border rounded-2xl px-5 py-4">
+              <div className="text-[11px] text-muted-foreground/60 uppercase tracking-wider mb-1">Deals Needing Action</div>
               <div className={cn("text-3xl font-bold",
-                pipelineIntel.critical_count > 0 ? "text-rose-400"
-                  : pipelineIntel.at_risk_count > 0 ? "text-amber-400"
-                    : "text-emerald-400"
+                pipelineIntel.critical_count > 0 ? "text-rose-500"
+                  : pipelineIntel.at_risk_count > 0 ? "text-amber-500"
+                    : "text-emerald-500"
               )}>
                 {pipelineIntel.critical_count + pipelineIntel.at_risk_count}
               </div>
-              <div className="text-xs text-slate-600 mt-1">
+              <div className="text-xs text-muted-foreground/50 mt-1">
                 {pipelineIntel.critical_count > 0
                   ? `${pipelineIntel.critical_count} critical · ${pipelineIntel.at_risk_count} at risk`
                   : pipelineIntel.at_risk_count > 0
@@ -895,7 +932,7 @@ export default function Dashboard() {
                     : "pipeline looks healthy"
                 }
               </div>
-              <a href="/forecast" className="mt-2 text-xs text-sky-400 hover:text-sky-300 flex items-center gap-1 transition-colors">
+              <a href="/forecast" className="mt-2 text-xs text-primary hover:text-primary/80 flex items-center gap-1 transition-colors">
                 View Forecast Board →
               </a>
             </div>
@@ -1390,14 +1427,16 @@ export default function Dashboard() {
         </Card>
 
         {/* ── Team Activity Card ── */}
-        {(loadingTeam || teamSummary) && (
-          <Card className="overflow-hidden border-border/40 bg-card/60 animate-slide-up" style={{ animationDelay: "240ms" }}>
-            <div className="flex items-center justify-between px-5 pt-5 pb-3">
-              <div className="flex items-center gap-2.5">
-                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
+        <Card className="overflow-hidden border-border/40 bg-card/60 animate-slide-up" style={{ animationDelay: "240ms" }}>
+          <div className="flex items-center justify-between px-5 pt-5 pb-3">
+              <button
+                onClick={handleTeamSummaryToggle}
+                className="flex items-center gap-2.5 text-left flex-1 min-w-0"
+              >
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 shrink-0">
                   <Users2 className="h-4 w-4 text-primary" />
                 </div>
-                <div>
+                <div className="min-w-0">
                   <h2 className="text-sm font-semibold text-foreground">Team Activity — Last 7 Days</h2>
                   {teamSummary && (
                     <p className="text-xs text-muted-foreground/60">
@@ -1407,19 +1446,25 @@ export default function Dashboard() {
                         : " · Health avg: calculating…"}
                     </p>
                   )}
+                  {!teamSummaryFetched && !loadingTeam && (
+                    <p className="text-xs text-muted-foreground/40">Click to load</p>
+                  )}
                 </div>
-              </div>
-              <button
-                onClick={fetchTeamSummary}
-                disabled={loadingTeam}
-                className="flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
-              >
-                <RefreshCw className={cn("h-3.5 w-3.5", loadingTeam && "animate-spin")} />
-                Refresh
+                <ChevronDown className={cn("h-4 w-4 text-muted-foreground/50 shrink-0 transition-transform ml-1", teamSummaryExpanded && "rotate-180")} />
               </button>
+              {teamSummaryFetched && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); fetchTeamSummary(); }}
+                  disabled={loadingTeam}
+                  className="flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50 ml-3"
+                >
+                  <RefreshCw className={cn("h-3.5 w-3.5", loadingTeam && "animate-spin")} />
+                  Refresh
+                </button>
+              )}
             </div>
 
-            <CardContent className="p-0 pb-4">
+            {teamSummaryExpanded && <CardContent className="p-0 pb-4">
               {loadingTeam ? (
                 <div className="space-y-2 px-5">
                   {[...Array(3)].map((_, i) => (
@@ -1495,9 +1540,8 @@ export default function Dashboard() {
               ) : (
                 <p className="px-5 py-4 text-xs text-muted-foreground">Could not load team data.</p>
               )}
-            </CardContent>
+            </CardContent>}
           </Card>
-        )}
 
       </main>
 
@@ -1537,6 +1581,8 @@ export default function Dashboard() {
             if (d.id !== selectedDealId) return d;
             if (field === "Stage") return { ...d, stage: String(value) };
             if (field === "Amount") return { ...d, amount: Number(value) };
+            if (field === "health_score") return { ...d, health_score: Number(value) };
+            if (field === "health_label") return { ...d, health_label: String(value) };
             return d;
           }));
         }}

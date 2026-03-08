@@ -64,6 +64,14 @@ class HealthSignal(BaseModel):
     detail: str
 
 
+class RecommendedAction(BaseModel):
+    priority: int
+    action: str
+    reasoning: str
+    urgency: str                    # today | this_week | this_month
+    template_hint: Optional[str] = None
+
+
 class DealHealthResult(BaseModel):
     deal_id: str
     deal_name: str
@@ -72,6 +80,14 @@ class DealHealthResult(BaseModel):
     signals: List[HealthSignal]
     recommendation: str
     action_required: bool
+    # AI-generated analysis (populated by deal_health_ai service)
+    analysis_summary: Optional[str] = None
+    key_risk: Optional[str] = None
+    root_cause: Optional[str] = None
+    deal_status_assessment: Optional[str] = None    # saveable | at_risk | likely_dead
+    win_probability_estimate: Optional[str] = None  # low | medium | high
+    escalation_needed: Optional[bool] = None
+    recommended_actions: Optional[List[RecommendedAction]] = None
 
 
 # ── Narrative Mismatch ────────────────────────────────────────────────────────
