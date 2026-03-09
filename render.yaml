@@ -39,29 +39,3 @@ services:
         sync: false
       - key: USE_ALEMBIC
         value: "false"
-      - key: PYTHON_VERSION
-        value: "3.11"
-
-  # ── Celery Worker ─────────────────────────────────────────────────────────────
-  - type: worker
-    name: dealiq-worker
-    runtime: docker
-    dockerfilePath: ./backend/Dockerfile.worker
-    dockerContext: ./backend
-    plan: free
-    region: oregon
-    envVars:
-      - key: GROQ_API_KEY
-        sync: false
-      - key: DATABASE_URL
-        sync: false
-      - key: REDIS_URL
-        sync: false
-      - key: ZOHO_CLIENT_ID
-        sync: false
-      - key: ZOHO_CLIENT_SECRET
-        sync: false
-      - key: SECRET_KEY
-        sync: false
-      - key: CRM_TOKEN_ENCRYPTION_KEY
-        sync: false
