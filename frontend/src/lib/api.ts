@@ -140,13 +140,19 @@ export const api = {
   getDeals: (signal?: AbortSignal) =>
     fetchWithTimeout(`${API_URL}/deals/?per_page=20&page=1`, { headers: authHeaders(), signal }).then(handleResponse),
 
-  getDealsPage: (page: number, perPage: number = 15, search?: string, signal?: AbortSignal) => {
+  getDealsPage: (page: number, perPage: number = 15, search?: string, signal?: AbortSignal, filters?: { health_label?: string; owner?: string; stage?: string }) => {
     const url = new URL(`${API_URL}/deals/`);
     url.searchParams.set("page", String(page));
     url.searchParams.set("per_page", String(perPage));
     if (search) url.searchParams.set("search", search);
+    if (filters?.health_label && filters.health_label !== "all") url.searchParams.set("health_label", filters.health_label);
+    if (filters?.owner && filters.owner !== "all") url.searchParams.set("owner", filters.owner);
+    if (filters?.stage && filters.stage !== "all") url.searchParams.set("stage", filters.stage);
     return fetchWithTimeout(url.toString(), { headers: authHeaders(), signal }).then(handleResponse);
   },
+
+  getDealFilterOptions: (): Promise<{ owners: string[]; stages: string[] }> =>
+    fetchWithTimeout(`${API_URL}/deals/filter-options`, { headers: authHeaders() }).then(handleResponse),
 
   // Fetches a capped first page of deals for deal-selector dropdowns.
   // Uses dedup so concurrent callers (e.g. EmailTimelinePage + AskDealIQPage

@@ -366,6 +366,8 @@ export default function Dashboard() {
   const [dealWarnings, setDealWarnings] = useState<Record<string, DealWarningInfo>>({});
   const [pipelineSummary, setPipelineSummary] = useState<string | null>(null);
   const [loadingSummary, setLoadingSummary] = useState(false);
+  const [ownerOptions, setOwnerOptions] = useState<string[]>([]);
+  const [stageOptions, setStageOptions] = useState<string[]>([]);
 
   // Inline stage edit
   const [editingStage, setEditingStage] = useState<{ dealId: string; value: string } | null>(null);
@@ -431,6 +433,17 @@ export default function Dashboard() {
     return () => { cancelled = true; controller.abort(); };
   }, [session, navigate]);
 
+  // Fetch filter options (all owners + stages across all deals) once on mount
+  useEffect(() => {
+    if (!session) return;
+    api.getDealFilterOptions()
+      .then(({ owners, stages }) => {
+        setOwnerOptions(owners);
+        setStageOptions(stages);
+      })
+      .catch(() => {}); // non-critical — dropdowns fall back to empty
+  }, [session]);
+
   // Debounce search input — 300ms after typing stops, update debouncedSearch and reset to page 1
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
@@ -444,6 +457,11 @@ export default function Dashboard() {
     };
   }, [searchName]);
 
+  // Reset to page 1 when server-side filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filterHealth, filterOwner, filterStage]);
+
   // Load deals — re-fetches on page change or search change
   useEffect(() => {
     if (!session) return;
@@ -451,7 +469,11 @@ export default function Dashboard() {
     let cancelled = false;
     setLoadingDeals(true);
 
-    api.getDealsPage(currentPage, PER_PAGE, debouncedSearch || undefined, controller.signal)
+    api.getDealsPage(currentPage, PER_PAGE, debouncedSearch || undefined, controller.signal, {
+      health_label: filterHealth,
+      owner: filterOwner,
+      stage: filterStage,
+    })
       .then((data: any) => {
         if (cancelled) return;
         const list: any[] = data.deals ?? data ?? [];
@@ -488,7 +510,7 @@ export default function Dashboard() {
 
     return () => { cancelled = true; controller.abort(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session, currentPage, debouncedSearch]);
+  }, [session, currentPage, debouncedSearch, filterHealth, filterOwner, filterStage]);
 
   // Batch-fetch warnings for the current page of deals
   useEffect(() => {
@@ -553,45 +575,26 @@ export default function Dashboard() {
     }
   }
 
-  // Derived filter options
-  const ownerOptions = useMemo(() => {
-    const names = [...new Set(allDeals.map(d => d.owner).filter(Boolean))] as string[];
-    return names.sort();
-  }, [allDeals]);
 
-  const stageOptions = useMemo(() => {
-    const stages = [...new Set(allDeals.map(d => d.stage).filter(Boolean))] as string[];
-    return stages.sort();
-  }, [allDeals]);
-
-  // Client-side filtering (owner/stage/health) + sorting.
-  // Search is server-side — never filter by searchName here.
+  // Filtering is server-side. Client-side: sort only.
   const filteredAndSortedDeals = useMemo(() => {
-    const filtered = allDeals.filter(deal => {
-      if (filterOwner !== "all" && deal.owner !== filterOwner) return false;
-      if (filterStage !== "all" && deal.stage !== filterStage) return false;
-      if (filterHealth !== "all" && deal.health_label !== filterHealth) return false;
-      return true;
-    });
     if (sortAsc) {
-      // Best first: sort by health score descending
-      return [...filtered].sort((a, b) => b.health_score - a.health_score);
+      return [...allDeals].sort((a, b) => b.health_score - a.health_score);
     }
     // Default: warnings-first sort
-    // critical → high warnings → no warnings, then health score ascending within each tier
     const warnTier = (id: string): number => {
       const w = dealWarnings[id];
-      if (!w) return 1; // treat unknown as "high" until loaded
+      if (!w) return 1;
       if (w.has_critical) return 0;
       if (w.warning_count > 0) return 1;
       return 2;
     };
-    return [...filtered].sort((a, b) => {
+    return [...allDeals].sort((a, b) => {
       const tierDiff = warnTier(a.id) - warnTier(b.id);
       if (tierDiff !== 0) return tierDiff;
       return a.health_score - b.health_score;
     });
-  }, [allDeals, filterOwner, filterStage, filterHealth, sortAsc, dealWarnings]);
+  }, [allDeals, sortAsc, dealWarnings]);
 
   // hasActiveFilters excludes searchName — search is server-side so pagination still shows
   const hasActiveFilters = filterOwner !== "all" || filterStage !== "all" || filterHealth !== "all";
@@ -1376,7 +1379,7 @@ export default function Dashboard() {
                 </Table>
 
                 {/* Pagination */}
-                {!hasActiveFilters && totalPages > 1 && (
+                {totalPages > 1 && (
                   <div className="flex items-center justify-between border-t border-border/20 px-6 py-4">
                     {/* Left: range label */}
                     <p className="text-sm text-muted-foreground/50 tabular-nums">

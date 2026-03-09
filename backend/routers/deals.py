@@ -275,6 +275,41 @@ async def _fetch_all_zoho_deals(access_token: str) -> list:
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 
+@router.get("/filter-options")
+async def get_filter_options(
+    authorization: str = Header(...),
+    db=Depends(get_db),
+):
+    """
+    Returns all unique owners and stages across all active current-quarter deals.
+    Used to populate filter dropdowns on the dashboard.
+    """
+    session = _decode_session(authorization)
+    simulated = _is_demo(session)
+    quarter_start, quarter_end = get_current_quarter_range()
+
+    if simulated:
+        raw_deals = SIMULATED_DEALS
+    else:
+        from services.deal_db import get_cached_deals
+        user_email = session.get("email", "")
+        cached, _ = await get_cached_deals(db, user_email)
+        if cached is not None:
+            raw_deals = cached
+        else:
+            try:
+                raw_deals = await _fetch_all_zoho_deals(session["access_token"])
+            except Exception:
+                raw_deals = SIMULATED_DEALS
+
+    active_raw = [r for r in raw_deals if is_active_deal(r, quarter_start, quarter_end)]
+
+    owners = sorted({str(r.get("owner") or "") for r in active_raw if r.get("owner")})
+    stages = sorted({str(r.get("stage") or "") for r in active_raw if r.get("stage")})
+
+    return {"owners": owners, "stages": stages}
+
+
 @router.get("/debug/zoho-test")
 async def debug_zoho_test(
     authorization: str = Header(default=""),
@@ -321,6 +356,9 @@ async def list_deals(
     page: int = Query(default=1, ge=1),
     per_page: int = Query(default=15, le=200),
     search: Optional[str] = Query(default=None, max_length=200),
+    health_label: Optional[str] = Query(default=None),
+    owner: Optional[str] = Query(default=None, max_length=200),
+    stage: Optional[str] = Query(default=None, max_length=200),
     db=Depends(get_db),
 ):
     """
@@ -519,6 +557,14 @@ async def list_deals(
         trends = {}
 
     scored_all.sort(key=lambda d: d.health_score or 0)
+
+    # Server-side filtering by health_label, owner, stage
+    if health_label and health_label != "all":
+        scored_all = [d for d in scored_all if d.health_label == health_label]
+    if owner and owner != "all":
+        scored_all = [d for d in scored_all if (d.owner or "") == owner]
+    if stage and stage != "all":
+        scored_all = [d for d in scored_all if (d.stage or "") == stage]
 
     real_total = len(scored_all)
     total_pages = max(1, -(-real_total // per_page))  # ceiling div
