@@ -46,11 +46,10 @@ services:
   - type: worker
     name: dealiq-worker
     runtime: docker
-    dockerfilePath: ./backend/Dockerfile
+    dockerfilePath: ./backend/Dockerfile.worker
     dockerContext: ./backend
     plan: free
     region: oregon
-    startCommand: celery -A worker worker --loglevel=info --queues=ai,sync,health --concurrency=1
     envVars:
       - key: GROQ_API_KEY
         sync: false
