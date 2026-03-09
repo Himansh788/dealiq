@@ -555,7 +555,94 @@ def score_from_timeline(timeline_analysis: dict) -> Dict[str, Any]:
     }
 
 
-def score_deal_with_activities(deal_data: Dict[str, Any], activity_data: dict) -> DealHealthResult:
+def _enrich_summary_with_outlook(
+    summary: Dict[str, Any],
+    outlook_emails: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """
+    Patch the activity summary dict with real signals from Outlook emails.
+
+    Called when Zoho's activity data is absent/stale because the rep didn't BCC.
+    Only upgrades (improves data quality) — never overwrites a better existing value.
+
+    Patches:
+      emails_outbound       — count of emails rep sent via Outlook
+      emails_inbound        — count of buyer replies found in Outlook
+      days_since_last_inbound — most recent buyer reply date
+      days_since_any_activity — most recent email in either direction
+    """
+    if not outlook_emails:
+        return summary
+
+    summary = dict(summary)   # shallow copy — don't mutate caller's dict
+
+    now = datetime.now(timezone.utc)
+    outlook_out = 0
+    outlook_in = 0
+    latest_inbound_days: Optional[int] = None
+    latest_any_days: Optional[int] = None
+
+    for e in outlook_emails:
+        # Skip internal-only threads — not buyer communication
+        match_meta = e.get("_outlook_match") or {}
+        if match_meta.get("is_internal"):
+            continue
+        # Skip post-close emails for live health signals
+        if match_meta.get("post_close"):
+            continue
+
+        direction = e.get("direction") or e.get("status") or ""
+        sent_at_str = e.get("sent_at") or e.get("date") or ""
+        days: Optional[int] = _days_since(sent_at_str)
+
+        if direction in ("sent", "outbound"):
+            outlook_out += 1
+        elif direction in ("delivered", "received", "inbound"):
+            outlook_in += 1
+            if days is not None:
+                if latest_inbound_days is None or days < latest_inbound_days:
+                    latest_inbound_days = days
+
+        if days is not None:
+            if latest_any_days is None or days < latest_any_days:
+                latest_any_days = days
+
+    # Only patch if Outlook gives us more/better data than what Zoho provided
+    if outlook_out > 0:
+        existing_out = summary.get("emails_outbound", 0) or 0
+        summary["emails_outbound"] = max(existing_out, outlook_out)
+
+    if outlook_in > 0:
+        existing_in = summary.get("emails_inbound", 0) or 0
+        summary["emails_inbound"] = max(existing_in, outlook_in)
+
+    if latest_inbound_days is not None:
+        existing_inbound = summary.get("days_since_last_inbound")
+        # Use Outlook date if Zoho has none, or if Outlook is more recent
+        if (
+            existing_inbound is None
+            or (isinstance(existing_inbound, int) and existing_inbound >= 999)
+            or (isinstance(existing_inbound, int) and latest_inbound_days < existing_inbound)
+        ):
+            summary["days_since_last_inbound"] = latest_inbound_days
+
+    if latest_any_days is not None:
+        existing_any = summary.get("days_since_any_activity")
+        if (
+            existing_any is None
+            or (isinstance(existing_any, int) and existing_any >= 999)
+            or (isinstance(existing_any, int) and latest_any_days < existing_any)
+        ):
+            summary["days_since_any_activity"] = latest_any_days
+
+    return summary
+
+
+def score_deal_with_activities(
+    deal_data: Dict[str, Any],
+    activity_data: dict,
+    outlook_emails: Optional[List[Dict[str, Any]]] = None,
+) -> DealHealthResult:
     """
     Score a deal using Zoho CRM fields + real activity bundle (9 signals, total=100).
 
@@ -574,6 +661,10 @@ def score_deal_with_activities(deal_data: Dict[str, Any], activity_data: dict) -
     deal_name = deal_data.get("name", "Unknown Deal")
     stage = deal_data.get("stage", "Unknown")
     summary = activity_data.get("summary", {})
+
+    # Patch summary with Outlook signals when rep didn't BCC Zoho
+    if outlook_emails:
+        summary = _enrich_summary_with_outlook(summary, outlook_emails)
 
     days_in_stage = (
         deal_data.get("days_in_stage")
@@ -694,6 +785,7 @@ def score_deal_with_timeline(
     deal_data: Dict[str, Any],
     activity_data: dict,
     timeline_analysis: dict,
+    outlook_emails: Optional[List[Dict[str, Any]]] = None,
 ) -> DealHealthResult:
     """
     Score a deal using Zoho CRM fields + activity bundle + v9 Timeline signals.
@@ -707,12 +799,16 @@ def score_deal_with_timeline(
     When timeline_analysis is empty, falls back to score_deal_with_activities.
     """
     if not timeline_analysis or not timeline_analysis.get("total_entries"):
-        return score_deal_with_activities(deal_data, activity_data)
+        return score_deal_with_activities(deal_data, activity_data, outlook_emails)
 
     deal_id = deal_data.get("id", "unknown")
     deal_name = deal_data.get("name", "Unknown Deal")
     stage = deal_data.get("stage", "Unknown")
     summary = activity_data.get("summary", {})
+
+    # Patch summary with Outlook signals when rep didn't BCC Zoho
+    if outlook_emails:
+        summary = _enrich_summary_with_outlook(summary, outlook_emails)
 
     days_in_stage = (
         deal_data.get("days_in_stage")

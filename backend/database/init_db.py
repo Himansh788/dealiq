@@ -28,6 +28,11 @@ _COLUMN_MIGRATIONS = [
     ("emails", "zoho_email_id",     "VARCHAR(100) NULL",                None),
     # email_analyses — model versioning
     ("email_analyses", "model_version", "VARCHAR(50) NULL DEFAULT 'claude-haiku'", None),
+    # microsoft_tokens — new columns (table is created via create_all; these are safety guards)
+    ("microsoft_tokens", "ms_email",      "VARCHAR(255) NULL",         None),
+    ("microsoft_tokens", "refresh_token", "TEXT NULL",                 None),
+    ("microsoft_tokens", "expires_at",    "DATETIME NULL",             "TIMESTAMPTZ NULL"),
+    ("microsoft_tokens", "scopes",        "TEXT NULL",                 None),
 ]
 
 

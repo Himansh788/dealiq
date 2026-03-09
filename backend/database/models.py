@@ -405,3 +405,23 @@ class CRMConnection(Base):
     last_sync_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     sync_status: Mapped[str] = mapped_column(String(20), default="idle")
     sync_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+# ---------------------------------------------------------------------------
+# microsoft_tokens  (persisted MS OAuth tokens — survives server restarts)
+# ---------------------------------------------------------------------------
+
+class MicrosoftToken(Base):
+    __tablename__ = "microsoft_tokens"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_new_uuid)
+    # Keyed by Zoho user email or user_id from the session
+    user_key: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
+    access_token: Mapped[str] = mapped_column(Text, nullable=False)
+    refresh_token: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ms_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # UTC datetime when access_token expires
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    scopes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime, onupdate=func.now())

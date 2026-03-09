@@ -50,13 +50,23 @@ def _user_key(session: dict) -> str:
     return session.get("email") or session.get("user_id") or "default"
 
 
-def _get_ms_token(user_key: str) -> str | None:
+async def _get_ms_token(user_key: str) -> str | None:
     try:
         from routers.ms_auth import get_user_token
-        tokens = get_user_token(user_key)
+        tokens = await get_user_token(user_key)
         return tokens.get("access_token") if tokens else None
     except Exception:
         return None
+
+
+def _get_internal_domain(ms_tokens: dict | None) -> str:
+    """Derive the rep's internal email domain from their MS account email."""
+    if not ms_tokens:
+        return ""
+    ms_email = ms_tokens.get("ms_email") or ""
+    if "@" in ms_email:
+        return ms_email.split("@")[-1].lower()
+    return ""
 
 
 # ── Normalisation ──────────────────────────────────────────────────────────────
@@ -292,30 +302,123 @@ async def _fetch_zoho_emails(zoho_token: str, deal_id: str) -> list[dict]:
     return [_normalise_zoho_email(e) for e in raw]
 
 
-async def _fetch_outlook_emails(
-    ms_token: str, zoho_token: str, deal_id: str, existing: list[dict]
+async def _fetch_and_match_outlook_emails(
+    ms_token: str,
+    deal_context: dict,
+    internal_domain: str,
+    zoho_message_ids: set[str],
 ) -> list[dict]:
-    contact_emails: list[str] = []
-    if zoho_token:
-        try:
-            from services.zoho_client import get_contacts_for_deal
-            contacts = await get_contacts_for_deal(zoho_token, deal_id)
-            contact_emails = [c["email"] for c in contacts if c.get("email")]
-        except Exception:
-            pass
+    """
+    Fetch Outlook emails for the deal's contact email addresses, run them through
+    the attribution engine, normalise, and de-duplicate against what Zoho already has.
 
-    from services.outlook_client import get_messages_for_deal
-    raw_outlook = await get_messages_for_deal(ms_token, contact_emails)
+    Returns a list of normalised email dicts (same shape as Zoho emails) that are
+    NOT already in Zoho, each tagged with _outlook_match attribution metadata.
+    """
+    from services.outlook_client import sync_emails_for_deal
+    from services.email_matcher import match_outlook_emails
 
-    existing_keys = {(e["subject"], (e.get("date") or "")[:10]) for e in existing}
-    added = []
-    for msg in raw_outlook:
-        n = _normalise_outlook_email(msg)
-        key = (n["subject"], n["date"][:10])
-        if key not in existing_keys:
-            added.append(n)
-            existing_keys.add(key)
-    return added
+    contacts = deal_context.get("contacts") or []
+    contact_emails = [c["email"] for c in contacts if c.get("email")]
+
+    if not contact_emails and not deal_context.get("account_name"):
+        logger.info(
+            "email_intel: deal=%s no contacts or account — skipping Outlook fetch",
+            deal_context.get("deal_id"),
+        )
+        return []
+
+    # Fetch from Graph API scoped to deal's contact emails
+    raw_outlook = await sync_emails_for_deal(
+        ms_token,
+        deal_context.get("deal_id", ""),
+        contact_emails,
+    )
+    logger.info(
+        "email_intel: deal=%s outlook_raw=%d",
+        deal_context.get("deal_id"), len(raw_outlook),
+    )
+
+    if not raw_outlook:
+        return []
+
+    # Run attribution engine — filters + scores each email
+    matched = match_outlook_emails(raw_outlook, deal_context, internal_domain)
+
+    # Normalise and de-duplicate against Zoho emails (by message_id first, then subject+date)
+    results: list[dict] = []
+    seen_subjects_dates: set[tuple] = set()
+
+    for raw in matched:
+        n = _normalise_outlook_email(raw)
+        # Carry attribution metadata forward
+        n["_outlook_match"] = raw.get("_outlook_match", {})
+        n["source"] = "outlook"
+
+        msg_id = n.get("message_id", "")
+        # Skip if Zoho already has this message
+        if msg_id and msg_id in zoho_message_ids:
+            continue
+
+        # Fallback de-dup by subject + date (first 10 chars)
+        key = (n.get("subject", ""), (n.get("date") or "")[:10])
+        if key in seen_subjects_dates:
+            continue
+
+        seen_subjects_dates.add(key)
+        results.append(n)
+
+    logger.info(
+        "email_intel: deal=%s outlook_matched=%d after_dedup=%d",
+        deal_context.get("deal_id"), len(matched), len(results),
+    )
+    return results
+
+
+async def _write_outlook_gap_note(zoho_token: str, deal_id: str, emails: list[dict]) -> None:
+    """
+    Write a single CRM note summarising Outlook emails that weren't BCC'd to Zoho.
+    Uses the existing zoho_writer if available; silently no-ops if it fails.
+    """
+    try:
+        from services.zoho_client import ZOHO_API_BASE
+        import httpx
+
+        # Build a concise note body
+        lines = ["[DealIQ Auto-Enriched] The following emails were found in Outlook but are not in Zoho CRM:"]
+        lines.append(f"Total emails not in CRM: {len(emails)}")
+        lines.append("")
+        for e in emails[:5]:   # cap at 5 to keep note readable
+            date_str = (e.get("sent_at") or e.get("date") or "")[:10]
+            subject = e.get("subject") or "(no subject)"
+            from_addr = e.get("from") or ""
+            conf = (e.get("_outlook_match") or {}).get("confidence", "?")
+            lines.append(f"• [{date_str}] From: {from_addr} | Subject: {subject} | Confidence: {conf}%")
+        if len(emails) > 5:
+            lines.append(f"  … and {len(emails) - 5} more.")
+        lines.append("")
+        lines.append("Action: Ask rep to enable BCC to Zoho or forward these threads to the CRM dropbox.")
+        note_content = "\n".join(lines)
+
+        async with httpx.AsyncClient(timeout=10) as client:
+            await client.post(
+                f"{ZOHO_API_BASE}/Notes",
+                headers={
+                    "Authorization": f"Zoho-oauthtoken {zoho_token}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "data": [{
+                        "Note_Title": f"[DealIQ] {len(emails)} email(s) found in Outlook not in CRM",
+                        "Note_Content": note_content,
+                        "Parent_Id": deal_id,
+                        "$se_module": "Deals",
+                    }]
+                },
+            )
+        logger.info("email_intel: CRM gap note written for deal=%s emails=%d", deal_id, len(emails))
+    except Exception as e:
+        logger.warning("email_intel: CRM gap note failed deal=%s: %s", deal_id, e)
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
@@ -356,25 +459,69 @@ async def get_email_thread(
 
     # ── Real session ──────────────────────────────────────────────────────────
     zoho_token = session.get("access_token", "")
+    user_key = _user_key(session)
     emails: list[dict] = []
 
-    # 1. Zoho CRM (primary — v8 with full bodies)
+    # ── Step 1: Build deal context (needed for Outlook attribution) ────────
+    deal_context: dict = {}
     if zoho_token:
         try:
-            emails = await _fetch_zoho_emails(zoho_token, deal_id)
-            logger.info("email_intel: deal=%s zoho_emails=%d (with bodies)", deal_id, len(emails))
+            from services.deal_context_builder import build_deal_context
+            deal_context = await build_deal_context(zoho_token, deal_id)
+        except Exception as e:
+            logger.warning("email_intel: deal_context fetch failed deal=%s: %s", deal_id, e)
+
+    # ── Step 2: Outlook (PRIMARY source for email communication) ──────────
+    # Outlook has the real conversation even when reps don't BCC Zoho.
+    # We fetch first and use the attribution engine to ensure only deal-relevant
+    # emails are included. Zoho then fills gaps (BCC'd emails).
+    ms_tokens_dict: dict | None = None
+    ms_token: str | None = None
+    internal_domain = ""
+
+    try:
+        from routers.ms_auth import get_user_token as _get_ms_tokens
+        ms_tokens_dict = await _get_ms_tokens(user_key)
+        if ms_tokens_dict:
+            ms_token = ms_tokens_dict.get("access_token")
+            internal_domain = _get_internal_domain(ms_tokens_dict)
+    except Exception as e:
+        logger.warning("email_intel: MS token lookup failed: %s", e)
+
+    outlook_emails: list[dict] = []
+    if ms_token and deal_context:
+        try:
+            outlook_emails = await _fetch_and_match_outlook_emails(
+                ms_token, deal_context, internal_domain, set()
+            )
+            emails.extend(outlook_emails)
+            logger.info(
+                "email_intel: deal=%s outlook_emails_after_match=%d",
+                deal_id, len(outlook_emails),
+            )
+        except Exception as e:
+            logger.warning("email_intel: Outlook fetch failed deal=%s: %s", deal_id, e)
+
+    # ── Step 3: Zoho (SUPPLEMENTARY — BCC'd emails + emails that predate Outlook sync) ──
+    # Build a set of Outlook message IDs so we can skip exact duplicates.
+    outlook_message_ids = {e.get("message_id", "") for e in outlook_emails if e.get("message_id")}
+
+    if zoho_token:
+        try:
+            zoho_emails = await _fetch_zoho_emails(zoho_token, deal_id)
+            for e in zoho_emails:
+                mid = e.get("message_id", "")
+                # Skip if Outlook already has this (prefer Outlook version — has full body)
+                if mid and mid in outlook_message_ids:
+                    continue
+                e["source"] = "zoho"
+                emails.append(e)
+            logger.info(
+                "email_intel: deal=%s zoho_emails=%d merged_total=%d",
+                deal_id, len(zoho_emails), len(emails),
+            )
         except Exception as e:
             logger.warning("email_intel: Zoho fetch failed deal=%s: %s", deal_id, e)
-
-    # 2. Outlook supplementary
-    ms_token = _get_ms_token(_user_key(session))
-    if ms_token:
-        try:
-            outlook_emails = await _fetch_outlook_emails(ms_token, zoho_token, deal_id, emails)
-            emails.extend(outlook_emails)
-            logger.info("email_intel: deal=%s after outlook merge=%d", deal_id, len(emails))
-        except Exception as e:
-            logger.warning("email_intel: Outlook merge failed deal=%s: %s", deal_id, e)
 
     # Sort flat list newest first
     emails.sort(key=lambda e: e.get("date") or e.get("sent_at") or "", reverse=True)
@@ -382,22 +529,55 @@ async def get_email_thread(
     # Group into threads
     threads = _group_into_threads(emails)
 
-    # 3. AI analysis — run on the most active thread (most messages)
+    # ── 4. Zoho write-back: log high-confidence Outlook-only emails as CRM notes ──
+    # This closes the BCC gap — even Zoho-only tools will see the conversation.
+    # Fire-and-forget: we don't block the response on this.
+    crm_gap_emails = [
+        e for e in outlook_emails
+        if (e.get("_outlook_match") or {}).get("confidence", 0) >= 80
+    ]
+    if crm_gap_emails and zoho_token:
+        try:
+            import asyncio as _asyncio
+            _asyncio.ensure_future(
+                _write_outlook_gap_note(zoho_token, deal_id, crm_gap_emails)
+            )
+        except Exception:
+            pass
+
+    # ── 5. AI analysis — run on the most active thread (most messages) ────
     extracted = await _get_db_extraction(deal_id, db)
     if not extracted and threads:
         biggest = max(threads, key=lambda t: t["message_count"])
         thread_text = _build_thread_text(biggest["messages"])
         if thread_text.strip():
-            deal_name = biggest["subject"]
+            deal_name = deal_context.get("deal_name") or biggest["subject"]
             extracted = await _analyse_thread(thread_text, deal_name)
 
+    # Build source breakdown for the frontend to display
+    n_outlook = sum(1 for e in emails if e.get("source") == "outlook")
+    n_zoho = sum(1 for e in emails if e.get("source") == "zoho")
+    n_crm_gap = sum(
+        1 for e in emails
+        if e.get("source") == "outlook"
+        and (e.get("_outlook_match") or {}).get("in_zoho") is False
+    )
+
+    source_summary = {
+        "outlook": n_outlook,
+        "zoho": n_zoho,
+        "crm_gap": n_crm_gap,   # emails the rep sent but never BCC'd to CRM
+        "outlook_connected": ms_token is not None,
+    }
+
     return {
-        "deal_id":      deal_id,
-        "thread_count": len(emails),
-        "emails":       emails,
-        "threads":      threads,
-        "extracted":    extracted,
-        "source":       "zoho" if emails else "empty",
+        "deal_id":        deal_id,
+        "thread_count":   len(emails),
+        "emails":         emails,
+        "threads":        threads,
+        "extracted":      extracted,
+        "source":         "outlook+zoho" if (n_outlook and n_zoho) else ("outlook" if n_outlook else ("zoho" if n_zoho else "empty")),
+        "source_summary": source_summary,
     }
 
 
@@ -468,21 +648,42 @@ async def sync_emails(
         return {"deal_id": payload.deal_id, "threads_found": 0, "message": "Demo mode — sync not available"}
 
     zoho_token = session.get("access_token", "")
+    user_key = _user_key(session)
     emails: list[dict] = []
 
+    # Build deal context for proper attribution
+    deal_context: dict = {}
     if zoho_token:
         try:
-            emails = await _fetch_zoho_emails(zoho_token, payload.deal_id)
-        except Exception as e:
-            logger.warning("sync: Zoho failed deal=%s: %s", payload.deal_id, e)
+            from services.deal_context_builder import build_deal_context
+            deal_context = await build_deal_context(zoho_token, payload.deal_id)
+        except Exception:
+            pass
 
-    ms_token = _get_ms_token(_user_key(session))
-    if ms_token:
+    # Outlook first (primary)
+    ms_token = await _get_ms_token(user_key)
+    if ms_token and deal_context:
         try:
-            outlook_emails = await _fetch_outlook_emails(ms_token, zoho_token, payload.deal_id, emails)
+            internal_domain = _get_internal_domain(
+                await __import__("routers.ms_auth", fromlist=["get_user_token"]).get_user_token(user_key)
+            )
+            outlook_emails = await _fetch_and_match_outlook_emails(
+                ms_token, deal_context, internal_domain, set()
+            )
             emails.extend(outlook_emails)
         except Exception as e:
             logger.warning("sync: Outlook failed deal=%s: %s", payload.deal_id, e)
+
+    # Zoho supplementary
+    outlook_ids = {e.get("message_id", "") for e in emails if e.get("message_id")}
+    if zoho_token:
+        try:
+            for e in await _fetch_zoho_emails(zoho_token, payload.deal_id):
+                if not (e.get("message_id") and e["message_id"] in outlook_ids):
+                    e["source"] = "zoho"
+                    emails.append(e)
+        except Exception as e:
+            logger.warning("sync: Zoho failed deal=%s: %s", payload.deal_id, e)
 
     emails.sort(key=lambda e: e.get("date") or "", reverse=True)
 

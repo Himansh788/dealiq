@@ -348,6 +348,50 @@ def _map_zoho_activity_to_item(raw: dict, act_type: str) -> ActivityItem:
     )
 
 
+def _outlook_email_to_activity_item(email: dict) -> ActivityItem:
+    """
+    Convert a normalised + attributed Outlook email into an ActivityItem.
+    Direction is read from the normalised 'direction'/'status' field set by
+    email_intel._normalise_outlook_email (sent | delivered).
+    """
+    import re as _re
+
+    direction_raw = (email.get("direction") or email.get("status") or "delivered").lower()
+    direction = "outbound" if direction_raw == "sent" else "inbound"
+
+    # Participants: from + to list
+    participants: list[str] = []
+    from_str = email.get("from") or ""
+    if from_str:
+        m = _re.search(r"<([^>]+)>", from_str)
+        participants.append((m.group(1) if m else from_str).lower())
+    for to_entry in (email.get("to") or []):
+        if isinstance(to_entry, str) and to_entry:
+            m = _re.search(r"<([^>]+)>", to_entry)
+            addr = (m.group(1) if m else to_entry).lower()
+            if addr not in participants:
+                participants.append(addr)
+
+    subject = email.get("subject") or "(no subject)"
+    body = email.get("body_preview") or email.get("snippet") or ""
+    if body and len(body) > 200:
+        body = body[:200] + "…"
+
+    match_meta = email.get("_outlook_match") or {}
+    confidence = match_meta.get("confidence", 100)
+
+    return ActivityItem(
+        id=f"outlook_{email.get('message_id', '')}",
+        type="email",
+        direction=direction,
+        date=email.get("sent_at") or email.get("date") or "",
+        subject=subject,
+        participants=participants,
+        summary=f"[Outlook, confidence={confidence}%] {body}",
+        duration_minutes=None,
+    )
+
+
 async def get_deal_activity_feed(
     deal_id: str,
     access_token: str,    # FIXED: was zoho_headers: dict — wrong type and wrong arg order
@@ -355,6 +399,7 @@ async def get_deal_activity_feed(
     deal_age_days: int,
     is_demo: bool = False,
     demo_activities: Optional[dict] = None,
+    outlook_emails: Optional[list] = None,   # pre-matched Outlook emails from email_intel
 ) -> ActivityFeedResponse:
     """
     Fetch and score activity data for a single deal.
@@ -401,6 +446,27 @@ async def get_deal_activity_feed(
 
         # contacts already normalised by get_contacts_for_deal: {id, email, name, role, title}
         contacts = bundle.get("contacts", [])
+
+    # ── Inject Outlook emails as ActivityItems ─────────────────────────────
+    # These are emails the rep sent/received but never BCC'd to Zoho.
+    # We add them here so ghost detection and engagement velocity see the
+    # real communication cadence, not just what landed in the CRM.
+    if outlook_emails:
+        zoho_item_ids = {item.id for item in items}
+        for oe in outlook_emails:
+            match_meta = oe.get("_outlook_match") or {}
+            # Skip internal-only threads — not buyer communication
+            if match_meta.get("is_internal"):
+                continue
+            activity_item = _outlook_email_to_activity_item(oe)
+            # Avoid duplicates: skip if a Zoho item has the same message_id suffix
+            if activity_item.id not in zoho_item_ids:
+                items.append(activity_item)
+                zoho_item_ids.add(activity_item.id)
+        logger.info(
+            "activity_intelligence: deal=%s injected %d outlook emails into activity feed",
+            deal_id, len(outlook_emails),
+        )
 
     # Sort descending by date
     items.sort(key=lambda a: a.date or "", reverse=True)
