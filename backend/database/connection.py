@@ -6,12 +6,25 @@ logger = logging.getLogger(__name__)
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-# Normalise the driver token so the async engine always gets aiomysql,
-# regardless of whether the .env says pymysql or aiomysql.
-# pymysql is sync-only; create_async_engine requires aiomysql.
+# Normalise driver tokens for async engine compatibility.
+# MySQL: pymysql (sync-only) → aiomysql (async)
+# PostgreSQL: psycopg2 (sync-only) → asyncpg (async)
 if DATABASE_URL and "mysql+pymysql://" in DATABASE_URL:
     DATABASE_URL = DATABASE_URL.replace("mysql+pymysql://", "mysql+aiomysql://")
     logger.debug("Normalised DATABASE_URL driver: pymysql -> aiomysql")
+elif DATABASE_URL and "postgresql+psycopg2://" in DATABASE_URL:
+    DATABASE_URL = DATABASE_URL.replace("postgresql+psycopg2://", "postgresql+asyncpg://")
+    logger.debug("Normalised DATABASE_URL driver: psycopg2 -> asyncpg")
+elif DATABASE_URL and DATABASE_URL.startswith("postgres://"):
+    # Heroku-style shorthand
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+asyncpg://", 1)
+    logger.debug("Normalised DATABASE_URL driver: postgres:// -> postgresql+asyncpg://")
+
+# Detect which database engine is in use for dialect-specific code paths.
+IS_POSTGRES = DATABASE_URL is not None and (
+    "postgresql" in DATABASE_URL or "asyncpg" in DATABASE_URL
+)
+IS_MYSQL = DATABASE_URL is not None and "mysql" in DATABASE_URL
 
 # ---------------------------------------------------------------------------
 # Engine + session factory — only created when DATABASE_URL is present.
@@ -41,7 +54,8 @@ if DATABASE_URL:
             class_=AsyncSession,
         )
 
-        logger.info("MySQL async engine created — pool_size=10, max_overflow=20")
+        db_type = "PostgreSQL" if IS_POSTGRES else "MySQL"
+        logger.info("%s async engine created — pool_size=10, max_overflow=20", db_type)
     except Exception as exc:
         logger.warning("Failed to create DB engine: %s — running without database", exc)
         async_engine = None

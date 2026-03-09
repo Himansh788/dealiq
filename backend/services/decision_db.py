@@ -41,7 +41,7 @@ async def persist_decision(
             "user_email": user_email[:255],
             "action":     action[:20],
             "reasoning":  (reasoning or "")[:5000] or None,
-            "now":        datetime.now(timezone.utc),
+            "now":        datetime.utcnow(),  # naive UTC — TIMESTAMP WITHOUT TIME ZONE
         })
         await db.commit()
     except Exception as exc:

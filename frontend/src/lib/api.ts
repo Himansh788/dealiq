@@ -115,6 +115,9 @@ export const api = {
   getLoginUrl: () =>
     fetchWithTimeout(`${API_URL}/auth/login`).then(handleResponse),
 
+  getCrmLoginUrl: (provider: "zoho" | "salesforce" | "hubspot") =>
+    fetchWithTimeout(`${API_URL}/auth/${provider}/login`).then(handleResponse),
+
   getDemoSession: () =>
     fetchWithTimeout(`${API_URL}/auth/demo-session`).then(handleResponse),
 

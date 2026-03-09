@@ -4,6 +4,8 @@ export interface Session {
   access_token: string;
   display_name?: string;
   email?: string;
+  crm_provider?: "zoho" | "salesforce" | "hubspot" | "demo";
+  instance_url?: string;  // Salesforce only
 }
 
 interface SessionContextType {
@@ -28,6 +30,8 @@ function getStoredSession(): Session | null {
         access_token: parsed.access_token,
         display_name: parsed.display_name,
         email: parsed.email,
+        crm_provider: parsed.crm_provider,
+        instance_url: parsed.instance_url,
       };
     } catch {
       // Fall back to plain JSON
@@ -51,6 +55,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         email: s.email || "",
         access_token: s.access_token,
         refresh_token: "",
+        crm_provider: s.crm_provider,
+        instance_url: s.instance_url,
       }));
       localStorage.setItem(STORAGE_KEY, raw);
     } else {

@@ -18,6 +18,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from database.connection import IS_POSTGRES
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +61,7 @@ async def get_cached_email_bodies_batch(
 
     from database.models import ApiCache
 
-    now = datetime.now(timezone.utc)
+    now = datetime.utcnow()  # naive UTC — TIMESTAMP WITHOUT TIME ZONE
     key_to_mid: dict[str, str] = {_make_key(m, r, mid): mid for m, r, mid in keys_meta}
     result: dict[str, str | None] = {mid: None for _, _, mid in keys_meta}
 
@@ -104,9 +105,8 @@ async def set_cached_email_bodies_batch(
         return
 
     from database.models import ApiCache
-    from sqlalchemy.dialects.mysql import insert as mysql_insert
 
-    now = datetime.now(timezone.utc)
+    now = datetime.utcnow()  # naive UTC — TIMESTAMP WITHOUT TIME ZONE
     expires = now + timedelta(hours=EMAIL_BODY_TTL_HOURS)
 
     rows = []
@@ -122,12 +122,25 @@ async def set_cached_email_bodies_batch(
 
     try:
         async with factory() as session:
-            stmt = mysql_insert(ApiCache).values(rows)
-            stmt = stmt.on_duplicate_key_update(
-                response_data=stmt.inserted.response_data,
-                expires_at=stmt.inserted.expires_at,
-                updated_at=now,
-            )
+            if IS_POSTGRES:
+                from sqlalchemy.dialects.postgresql import insert as pg_insert
+                stmt = pg_insert(ApiCache).values(rows)
+                stmt = stmt.on_conflict_do_update(
+                    index_elements=["cache_key"],
+                    set_={
+                        "response_data": stmt.excluded.response_data,
+                        "expires_at": stmt.excluded.expires_at,
+                        "updated_at": now,
+                    },
+                )
+            else:
+                from sqlalchemy.dialects.mysql import insert as mysql_insert
+                stmt = mysql_insert(ApiCache).values(rows)
+                stmt = stmt.on_duplicate_key_update(
+                    response_data=stmt.inserted.response_data,
+                    expires_at=stmt.inserted.expires_at,
+                    updated_at=now,
+                )
             await session.execute(stmt)
             await session.commit()
         logger.debug("email_cache batch write: stored %d entries", len(rows))
@@ -143,7 +156,7 @@ async def cleanup_expired_cache() -> int:
 
     from database.models import ApiCache
 
-    now = datetime.now(timezone.utc)
+    now = datetime.utcnow()  # naive UTC
     try:
         async with factory() as session:
             result = await session.execute(

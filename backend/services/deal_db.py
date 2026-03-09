@@ -55,7 +55,7 @@ async def get_cached_deals(
                 FROM   deals
                 WHERE  owner_email = :uid
                   AND  raw_data    IS NOT NULL
-                  AND  is_demo     = 0
+                  AND  is_demo     = false
                 ORDER  BY synced_at DESC
             """),
             {"uid": user_id},
@@ -144,7 +144,8 @@ async def upsert_deals(
     if db is None or not deals:
         return
     from sqlalchemy import text
-    now = datetime.now(timezone.utc)
+    from database.connection import IS_POSTGRES
+    now = datetime.utcnow()  # naive UTC — works with TIMESTAMP WITHOUT TIME ZONE
     health_results = health_results or {}
     try:
         for deal in deals:
@@ -155,32 +156,7 @@ async def upsert_deals(
 
             hr = health_results.get(zoho_id)
 
-            await db.execute(text("""
-                INSERT INTO deals
-                    (id, zoho_id, name, company, stage, amount, owner_email,
-                     closing_date, last_activity_time, next_step,
-                     health_score, health_label, sync_source, is_demo,
-                     synced_at, raw_data, created_at)
-                VALUES
-                    (:id, :zoho_id, :name, :company, :stage, :amount, :owner_email,
-                     :closing_date, :lat, :next_step,
-                     :health_score, :health_label, :sync_source, 0,
-                     :synced_at, :raw_data, :now)
-                ON DUPLICATE KEY UPDATE
-                    name               = VALUES(name),
-                    company            = VALUES(company),
-                    stage              = VALUES(stage),
-                    amount             = VALUES(amount),
-                    owner_email        = VALUES(owner_email),
-                    closing_date       = VALUES(closing_date),
-                    last_activity_time = VALUES(last_activity_time),
-                    next_step          = VALUES(next_step),
-                    health_score       = VALUES(health_score),
-                    health_label       = VALUES(health_label),
-                    sync_source        = VALUES(sync_source),
-                    synced_at          = VALUES(synced_at),
-                    raw_data           = VALUES(raw_data)
-            """), {
+            params = {
                 "id":           internal_id,
                 "zoho_id":      zoho_id,
                 "name":         (deal.get("name") or deal.get("deal_name") or "")[:255],
@@ -197,7 +173,62 @@ async def upsert_deals(
                 "synced_at":    now,
                 "raw_data":     json.dumps(deal),
                 "now":          now,
-            })
+            }
+
+            if IS_POSTGRES:
+                await db.execute(text("""
+                    INSERT INTO deals
+                        (id, zoho_id, name, company, stage, amount, owner_email,
+                         closing_date, last_activity_time, next_step,
+                         health_score, health_label, sync_source, is_demo,
+                         synced_at, raw_data, created_at)
+                    VALUES
+                        (:id, :zoho_id, :name, :company, :stage, :amount, :owner_email,
+                         :closing_date, :lat, :next_step,
+                         :health_score, :health_label, :sync_source, false,
+                         :synced_at, cast(:raw_data AS jsonb), :now)
+                    ON CONFLICT (zoho_id) DO UPDATE SET
+                        name               = EXCLUDED.name,
+                        company            = EXCLUDED.company,
+                        stage              = EXCLUDED.stage,
+                        amount             = EXCLUDED.amount,
+                        owner_email        = EXCLUDED.owner_email,
+                        closing_date       = EXCLUDED.closing_date,
+                        last_activity_time = EXCLUDED.last_activity_time,
+                        next_step          = EXCLUDED.next_step,
+                        health_score       = EXCLUDED.health_score,
+                        health_label       = EXCLUDED.health_label,
+                        sync_source        = EXCLUDED.sync_source,
+                        synced_at          = EXCLUDED.synced_at,
+                        raw_data           = EXCLUDED.raw_data
+                """), params)
+            else:
+                await db.execute(text("""
+                    INSERT INTO deals
+                        (id, zoho_id, name, company, stage, amount, owner_email,
+                         closing_date, last_activity_time, next_step,
+                         health_score, health_label, sync_source, is_demo,
+                         synced_at, raw_data, created_at)
+                    VALUES
+                        (:id, :zoho_id, :name, :company, :stage, :amount, :owner_email,
+                         :closing_date, :lat, :next_step,
+                         :health_score, :health_label, :sync_source, 0,
+                         :synced_at, :raw_data, :now)
+                    ON DUPLICATE KEY UPDATE
+                        name               = VALUES(name),
+                        company            = VALUES(company),
+                        stage              = VALUES(stage),
+                        amount             = VALUES(amount),
+                        owner_email        = VALUES(owner_email),
+                        closing_date       = VALUES(closing_date),
+                        last_activity_time = VALUES(last_activity_time),
+                        next_step          = VALUES(next_step),
+                        health_score       = VALUES(health_score),
+                        health_label       = VALUES(health_label),
+                        sync_source        = VALUES(sync_source),
+                        synced_at          = VALUES(synced_at),
+                        raw_data           = VALUES(raw_data)
+                """), params)
         await db.commit()
         logger.debug("Upserted %d deals to cache (source=%s)", len(deals), sync_source)
     except Exception as exc:

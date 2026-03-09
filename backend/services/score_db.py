@@ -24,6 +24,18 @@ async def persist_health_score(db, deal_zoho_id: str, result) -> None:
     from sqlalchemy import text
     from services.deal_db import deal_internal_id
     try:
+        internal_id = deal_internal_id(deal_zoho_id)
+
+        # Guard: skip if the parent deal row doesn't exist yet (FK constraint).
+        # Deals are lazily synced to the DB; the health score can be retried later.
+        exists = await db.execute(
+            text("SELECT 1 FROM deals WHERE id = :id LIMIT 1"),
+            {"id": internal_id},
+        )
+        if not exists.scalar():
+            logger.debug("Score persist skipped deal=%s — not in deals table yet", deal_zoho_id)
+            return
+
         signals_json = json.dumps([
             {"name": s.name, "score": s.score, "max_score": s.max_score,
              "label": s.label, "detail": s.detail}
@@ -37,12 +49,12 @@ async def persist_health_score(db, deal_zoho_id: str, result) -> None:
                 (:id, :deal_id, :score, :signals, :label, :rec, :now, :ver)
         """), {
             "id":      str(uuid.uuid4()),
-            "deal_id": deal_internal_id(deal_zoho_id),
+            "deal_id": internal_id,
             "score":   result.total_score,
             "signals": signals_json,
             "label":   result.health_label,
             "rec":     (result.recommendation or "")[:1000],
-            "now":     datetime.now(timezone.utc),
+            "now":     datetime.utcnow(),  # naive UTC — PostgreSQL TIMESTAMP WITHOUT TIME ZONE
             "ver":     1,
         })
         await db.commit()
@@ -61,7 +73,7 @@ async def get_score_history(db, deal_zoho_id: str, days: int = 30) -> list[dict]
     from sqlalchemy import text
     from services.deal_db import deal_internal_id
     try:
-        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        cutoff = datetime.utcnow() - timedelta(days=days)
         result = await db.execute(text("""
             SELECT total_score, health_label, scored_at
             FROM   health_scores
@@ -98,32 +110,55 @@ async def batch_get_trends(db, zoho_ids: list[str]) -> dict[str, str]:
     internal_ids = [deal_internal_id(zid) for zid in zoho_ids]
     id_to_zoho = {deal_internal_id(zid): zid for zid in zoho_ids}
 
+    from database.connection import IS_POSTGRES
+
     try:
-        cutoff_now  = datetime.now(timezone.utc)
+        cutoff_now  = datetime.utcnow()  # naive UTC for TIMESTAMP WITHOUT TIME ZONE columns
         cutoff_7d   = cutoff_now - timedelta(days=7)
         cutoff_old  = cutoff_now - timedelta(days=8)
 
-        # Latest score per deal
-        latest_res = await db.execute(text("""
-            SELECT deal_id, total_score
-            FROM   health_scores h1
-            WHERE  deal_id IN :ids
-              AND  scored_at = (
-                  SELECT MAX(scored_at) FROM health_scores h2
-                  WHERE h2.deal_id = h1.deal_id
-              )
-        """), {"ids": tuple(internal_ids)})
+        # PostgreSQL uses = ANY(:ids) with a list; MySQL uses IN :ids with a tuple.
+        if IS_POSTGRES:
+            latest_res = await db.execute(text("""
+                SELECT deal_id, total_score
+                FROM   health_scores h1
+                WHERE  deal_id = ANY(:ids)
+                  AND  scored_at = (
+                      SELECT MAX(scored_at) FROM health_scores h2
+                      WHERE h2.deal_id = h1.deal_id
+                  )
+            """), {"ids": internal_ids})
+        else:
+            latest_res = await db.execute(text("""
+                SELECT deal_id, total_score
+                FROM   health_scores h1
+                WHERE  deal_id IN :ids
+                  AND  scored_at = (
+                      SELECT MAX(scored_at) FROM health_scores h2
+                      WHERE h2.deal_id = h1.deal_id
+                  )
+            """), {"ids": tuple(internal_ids)})
         latest = {r[0]: r[1] for r in latest_res.fetchall()}
 
         # Oldest score in the window 7-8 days ago per deal
-        old_res = await db.execute(text("""
-            SELECT deal_id, total_score
-            FROM   health_scores h1
-            WHERE  deal_id IN :ids
-              AND  scored_at < :cutoff_7d
-              AND  scored_at > :cutoff_old
-            ORDER  BY scored_at DESC
-        """), {"ids": tuple(internal_ids), "cutoff_7d": cutoff_7d, "cutoff_old": cutoff_old})
+        if IS_POSTGRES:
+            old_res = await db.execute(text("""
+                SELECT deal_id, total_score
+                FROM   health_scores h1
+                WHERE  deal_id = ANY(:ids)
+                  AND  scored_at < :cutoff_7d
+                  AND  scored_at > :cutoff_old
+                ORDER  BY scored_at DESC
+            """), {"ids": internal_ids, "cutoff_7d": cutoff_7d, "cutoff_old": cutoff_old})
+        else:
+            old_res = await db.execute(text("""
+                SELECT deal_id, total_score
+                FROM   health_scores h1
+                WHERE  deal_id IN :ids
+                  AND  scored_at < :cutoff_7d
+                  AND  scored_at > :cutoff_old
+                ORDER  BY scored_at DESC
+            """), {"ids": tuple(internal_ids), "cutoff_7d": cutoff_7d, "cutoff_old": cutoff_old})
         # Keep only the most recent per deal in that window
         old: dict[str, int] = {}
         for r in old_res.fetchall():

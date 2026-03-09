@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
-import { Settings, Mail, Calendar, Loader2, CheckCircle, XCircle, Palette } from "lucide-react";
+import { Settings, Mail, Calendar, Loader2, CheckCircle, XCircle, Palette, PlugZap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { useTheme } from "@/contexts/ThemeContext";
+import { useSession } from "@/contexts/SessionContext";
 
 interface OutlookStatus {
   connected: boolean;
@@ -13,9 +14,20 @@ interface OutlookStatus {
   email?: string;
 }
 
+const CRM_META: Record<string, { label: string; badge: string; color: string; bg: string }> = {
+  zoho:        { label: "Zoho CRM",   badge: "Z",  color: "text-[#E42527]", bg: "bg-[#E42527]/10" },
+  salesforce:  { label: "Salesforce", badge: "SF", color: "text-[#00A1E0]", bg: "bg-[#00A1E0]/10" },
+  hubspot:     { label: "HubSpot",    badge: "HS", color: "text-[#FF7A59]", bg: "bg-[#FF7A59]/10" },
+  demo:        { label: "Demo Mode",  badge: "D",  color: "text-slate-400",  bg: "bg-slate-500/10" },
+};
+
 export default function SettingsPage() {
   const { toast } = useToast();
   const { theme } = useTheme();
+  const { session } = useSession();
+
+  const connectedCRM = session?.crm_provider ?? "zoho";
+  const crmMeta = CRM_META[connectedCRM] ?? CRM_META["zoho"];
   const [outlookStatus, setOutlookStatus] = useState<OutlookStatus | null>(null);
   const [loadingOutlook, setLoadingOutlook] = useState(true);
   const [connecting, setConnecting] = useState(false);
@@ -149,19 +161,37 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        {/* Zoho CRM — read-only info */}
-        <div className="rounded-xl border border-border/30 bg-card/60 p-5 opacity-70">
+        {/* Active CRM connection */}
+        <div className="rounded-xl border border-border/30 bg-card/60 p-5">
           <div className="flex items-center gap-4">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-orange-500/15">
-              <Settings className="h-5 w-5 text-orange-400" />
+            <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${crmMeta.bg}`}>
+              <span className={`text-sm font-black ${crmMeta.color}`}>{crmMeta.badge}</span>
             </div>
-            <div>
-              <p className="text-sm font-semibold text-foreground">Zoho CRM</p>
-              <p className="text-xs text-muted-foreground">Configured via environment variables (ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET). Contact your admin to update.</p>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <p className="text-sm font-semibold text-foreground">{crmMeta.label}</p>
+                <Badge variant="outline" className="text-[10px] h-4 px-1.5 text-health-green border-health-green/30 bg-health-green/10">
+                  <CheckCircle className="h-2.5 w-2.5 mr-1" />
+                  Connected{session?.email ? ` — ${session.email}` : ""}
+                </Badge>
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                {connectedCRM === "demo"
+                  ? "Running in demo mode with sample data. Connect a real CRM to use live pipeline data."
+                  : `Your ${crmMeta.label} pipeline is syncing with DealIQ. Re-authenticate from the login page to switch CRMs.`}
+              </p>
             </div>
-            <Badge variant="outline" className="ml-auto text-[10px] h-4 px-1.5 text-muted-foreground">
-              Env-based
-            </Badge>
+            <div className="shrink-0">
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8 text-xs hover:border-primary/40 hover:text-primary"
+                onClick={() => window.location.href = "/login"}
+              >
+                <PlugZap className="h-3 w-3 mr-1.5" />
+                Switch CRM
+              </Button>
+            </div>
           </div>
         </div>
 
@@ -187,19 +217,6 @@ export default function SettingsPage() {
         <div className="pt-4 space-y-4">
           <p className="text-xs font-semibold text-foreground px-1">Coming Soon</p>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            {/* Salesforce */}
-            <div className="rounded-xl border border-border/20 bg-card/20 p-5 opacity-60 grayscale transition-all hover:grayscale-0 hover:opacity-100">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500/10 mb-3">
-                <svg className="h-5 w-5 text-blue-400" viewBox="0 0 24 24" fill="currentColor">
-                  {/* Simple cloud shape for demo */}
-                  <path d="M17.5 19c2.48 0 4.5-2.02 4.5-4.5S19.98 10 17.5 10c-.3 0-.58.05-.85.11C15.65 7.14 13.06 5 10 5 6.13 5 3 8.13 3 12c0 3.87 3.13 7 7 7h7.5z" />
-                </svg>
-              </div>
-              <p className="text-sm font-semibold text-foreground mb-1">Salesforce</p>
-              <p className="text-[11px] text-muted-foreground mb-3">Two-way sync with Salesforce CRM</p>
-              <Badge variant="outline" className="text-[9px] border-border/30">Q3 2026</Badge>
-            </div>
-
             {/* Slack */}
             <div className="rounded-xl border border-border/20 bg-card/20 p-5 opacity-60 grayscale transition-all hover:grayscale-0 hover:opacity-100">
               <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-purple-500/10 mb-3">

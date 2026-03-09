@@ -1,3 +1,4 @@
+import os
 import uuid
 from datetime import datetime
 from typing import Any
@@ -8,13 +9,20 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
-    JSON,          # works with MySQL 5.7+ natively
+    JSON,          # works with MySQL 5.7+ natively; falls back for PostgreSQL
     Numeric,
     String,
     Text,
     func,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+# Use PostgreSQL JSONB (binary, indexable) when available; fall back to JSON for MySQL.
+_DB_URL = os.getenv("DATABASE_URL", "")
+if "postgresql" in _DB_URL or "asyncpg" in _DB_URL:
+    from sqlalchemy.dialects.postgresql import JSONB as _FlexJSON  # type: ignore[assignment]
+else:
+    _FlexJSON = JSON  # type: ignore[misc,assignment]
 
 
 def _new_uuid() -> str:
@@ -55,6 +63,17 @@ class Deal(Base):
     sync_source: Mapped[str | None] = mapped_column(String(50), nullable=True, default="zoho")  # zoho | manual | demo
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime | None] = mapped_column(DateTime, onupdate=func.now())
+
+    # JSONB columns for flexible metadata & cached AI results (PostgreSQL: JSONB with GIN index; MySQL: JSON)
+    health_signals: Mapped[dict | None] = mapped_column(_FlexJSON, nullable=True, default=dict)
+    ai_analysis: Mapped[dict | None] = mapped_column(_FlexJSON, nullable=True, default=dict)
+    deal_metadata: Mapped[dict | None] = mapped_column(_FlexJSON, nullable=True, default=dict)
+    activity_summary: Mapped[dict | None] = mapped_column(_FlexJSON, nullable=True, default=dict)
+
+    __table_args__ = (
+        # GIN index on health_signals for fast JSONB queries (PostgreSQL only; ignored on MySQL)
+        Index("ix_deals_health_signals", "health_signals", postgresql_using="gin"),
+    )
 
     # relationships
     health_scores: Mapped[list["HealthScore"]] = relationship(back_populates="deal", cascade="all, delete-orphan")
@@ -358,3 +377,31 @@ class AuditLog(Base):
     detail: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
     timestamp: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+# ---------------------------------------------------------------------------
+# crm_connections  (multi-CRM adapter — stores OAuth tokens per user/org/provider)
+# ---------------------------------------------------------------------------
+
+class CRMConnection(Base):
+    __tablename__ = "crm_connections"
+
+    id: Mapped[str] = mapped_column(
+        String(36),
+        primary_key=True,
+        default=_new_uuid,
+    )
+    org_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    user_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    provider: Mapped[str] = mapped_column(String(20), nullable=False)  # zoho | salesforce | hubspot
+    access_token_encrypted: Mapped[str] = mapped_column(Text, nullable=False)
+    refresh_token_encrypted: Mapped[str] = mapped_column(Text, nullable=False)
+    token_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    instance_url: Mapped[str | None] = mapped_column(String(500), nullable=True)  # Salesforce instance URL / extra JSON
+    crm_org_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    scopes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    connected_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    last_sync_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    sync_status: Mapped[str] = mapped_column(String(20), default="idle")
+    sync_error: Mapped[str | None] = mapped_column(Text, nullable=True)

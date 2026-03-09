@@ -5,12 +5,27 @@ import asyncio
 import base64
 import json
 import logging
+import os
+import time
 from datetime import datetime, timezone
+from groq import AsyncGroq
 import httpx
 
-# ── Simple in-memory cache for health scores ──────────────────────────────────
+# ── Redis cache layer (falls back to in-memory if Redis unavailable) ──────────
+from services.cache import (
+    cache_get, cache_set, cache_delete_pattern, cache_key as _rkey,
+    TTL_HEALTH_SCORES, TTL_PIPELINE_METRICS,
+)
+
+# ── In-memory fallback cache for health scores (used when Redis is unavailable)
 _health_cache: dict = {}  # deal_id -> (result, expires_at)
-_HEALTH_CACHE_TTL = 60    # seconds
+_HEALTH_CACHE_TTL = TTL_HEALTH_SCORES
+
+# ── Pipeline metrics + AI summary shared cache ────────────────────────────────
+# Per key: {"metrics": PipelineMetrics, "summary": str, "expires_at": float}
+_pipeline_cache: dict[str, dict] = {}
+_PIPELINE_CACHE_TTL = TTL_PIPELINE_METRICS
+_PIPELINE_REFRESHING: set[str] = set()  # guard against duplicate concurrent refreshes
 
 logger = logging.getLogger(__name__)
 from database import get_db
@@ -521,28 +536,26 @@ async def list_deals(
     )
 
 
-@router.get("/metrics", response_model=PipelineMetrics)
-async def get_pipeline_metrics(authorization: str = Header(...)):
+async def _compute_pipeline_data(access_token: str, is_demo: bool) -> dict:
     """
-    Summary cards use the SAME active-deal filter so numbers always match the table.
+    Core computation: score all active deals + call Groq for AI summary.
+    Returns a dict ready to be stored in _pipeline_cache.
+    Never raises — falls back gracefully so the cache always gets a value.
     """
-    session = _decode_session(authorization)
-    simulated = _is_demo(session)
     quarter_start, quarter_end = get_current_quarter_range()
 
-    if simulated:
+    if is_demo:
         raw_deals = SIMULATED_DEALS
     else:
         try:
-            raw_deals = await _fetch_all_zoho_deals(session["access_token"])
+            raw_deals = await _fetch_all_zoho_deals(access_token)
         except Exception:
             raw_deals = SIMULATED_DEALS
 
     active_raw = [r for r in raw_deals if is_active_deal(r, quarter_start, quarter_end)]
-
-    counts = {"healthy": 0, "at_risk": 0, "critical": 0, "zombie": 0}
+    counts: dict[str, int] = {"healthy": 0, "at_risk": 0, "critical": 0, "zombie": 0}
     total_value = 0.0
-    scores = []
+    scores: list[float] = []
     action_needed = 0
 
     for raw in active_raw:
@@ -556,9 +569,10 @@ async def get_pipeline_metrics(authorization: str = Header(...)):
             action_needed += 1
 
     avg = sum(scores) / len(scores) if scores else 0
+    total = len(active_raw)
 
-    return PipelineMetrics(
-        total_deals=len(active_raw),
+    metrics = PipelineMetrics(
+        total_deals=total,
         total_value=total_value,
         average_health_score=round(avg, 1),
         healthy_count=counts["healthy"],
@@ -567,6 +581,105 @@ async def get_pipeline_metrics(authorization: str = Header(...)):
         zombie_count=counts["zombie"],
         deals_needing_action=action_needed,
     )
+
+    # AI summary — single Groq call, stored alongside metrics so /pipeline-summary
+    # never re-fetches or re-scores deals.
+    prompt = (
+        f"Pipeline snapshot: {total} active deals, avg health {avg:.1f}/100, "
+        f"{counts['healthy']} healthy, {counts['at_risk']} at risk, "
+        f"{counts['critical'] + counts['zombie']} critical, "
+        f"${total_value:,.0f} total value, {action_needed} need immediate action.\n\n"
+        "Write exactly 2 concise sentences (no bullet points, no markdown) summarising "
+        "the pipeline health for a sales leader. Be direct and actionable. "
+        "First sentence: overall state. Second sentence: top priority action."
+    )
+    try:
+        groq_client = AsyncGroq(api_key=os.environ.get("GROQ_API_KEY", ""))
+        resp = await groq_client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=120,
+            temperature=0.4,
+        )
+        summary = resp.choices[0].message.content.strip()
+    except Exception as exc:
+        logger.warning("Pipeline summary AI call failed: %s", exc)
+        summary = (
+            f"Your pipeline of {total} deals averages {avg:.0f}/100 health with "
+            f"{counts['critical'] + counts['zombie']} deals in critical state. "
+            f"Prioritise the {action_needed} deals needing immediate action to protect revenue."
+        )
+
+    return {
+        "metrics": metrics,
+        "summary": summary,
+        "expires_at": time.monotonic() + _PIPELINE_CACHE_TTL,
+    }
+
+
+async def _get_pipeline_cached(cache_key: str, access_token: str, is_demo: bool) -> dict:
+    """
+    Stale-while-revalidate:
+    1. Cache miss → compute synchronously, store, return.
+    2. Cache hit + fresh → return immediately.
+    3. Cache hit + stale → return stale immediately, kick off background refresh.
+    """
+    entry = _pipeline_cache.get(cache_key)
+    now = time.monotonic()
+
+    if entry is None:
+        # Cold start — must compute before we can respond
+        data = await _compute_pipeline_data(access_token, is_demo)
+        _pipeline_cache[cache_key] = data
+        return data
+
+    if now < entry["expires_at"]:
+        # Fresh — serve immediately
+        return entry
+
+    # Stale — serve immediately and refresh in background
+    if cache_key not in _PIPELINE_REFRESHING:
+        _PIPELINE_REFRESHING.add(cache_key)
+
+        async def _refresh():
+            try:
+                data = await _compute_pipeline_data(access_token, is_demo)
+                _pipeline_cache[cache_key] = data
+            except Exception as exc:
+                logger.warning("Background pipeline cache refresh failed for %s: %s", cache_key, exc)
+            finally:
+                _PIPELINE_REFRESHING.discard(cache_key)
+
+        asyncio.create_task(_refresh())
+
+    return entry
+
+
+@router.get("/metrics", response_model=PipelineMetrics)
+async def get_pipeline_metrics(authorization: str = Header(...)):
+    """
+    Summary cards — cached 5 min with stale-while-revalidate background refresh.
+    Numbers always match the pipeline table (same active-deal filter).
+    """
+    session = _decode_session(authorization)
+    is_demo = _is_demo(session)
+    cache_key = "demo" if is_demo else f"metrics:{session.get('user_id', 'zoho')}"
+    entry = await _get_pipeline_cached(cache_key, session.get("access_token", ""), is_demo)
+    return entry["metrics"]
+
+
+@router.get("/pipeline-summary")
+async def get_pipeline_summary(authorization: str = Header(...)):
+    """
+    2-sentence AI pipeline summary for the CEO/sales-rep card.
+    Reads from the same cache entry as /metrics — no extra deal fetch or Groq call.
+    """
+    session = _decode_session(authorization)
+    is_demo = _is_demo(session)
+    cache_key = "demo" if is_demo else f"metrics:{session.get('user_id', 'zoho')}"
+    entry = await _get_pipeline_cached(cache_key, session.get("access_token", ""), is_demo)
+    m: PipelineMetrics = entry["metrics"]
+    return {"summary": entry["summary"], "avg_score": m.average_health_score, "total": m.total_deals}
 
 
 @router.get("/{deal_id}/health", response_model=DealHealthResult)
@@ -577,11 +690,23 @@ async def get_deal_health(deal_id: str, authorization: str = Header(...)):
 
     # Cache check — skip cache for demo (fast anyway)
     if not demo:
-        cached = _health_cache.get(deal_id)
-        if cached:
-            result, expires_at = cached
+        # Try Redis first
+        redis_key = _rkey("health", deal_id)
+        redis_cached = await cache_get(redis_key)
+        if redis_cached:
+            logger.debug("health redis cache hit deal=%s", deal_id)
+            from models.schemas import DealHealthResult
+            try:
+                return DealHealthResult(**redis_cached)
+            except Exception:
+                pass  # fall through to recompute if deserialization fails
+
+        # Fallback: in-memory cache
+        mem_cached = _health_cache.get(deal_id)
+        if mem_cached:
+            result, expires_at = mem_cached
             if datetime.now(timezone.utc).timestamp() < expires_at:
-                logger.debug("health cache hit deal=%s", deal_id)
+                logger.debug("health mem cache hit deal=%s", deal_id)
                 return result
 
     if demo:
@@ -716,8 +841,10 @@ async def get_deal_health(deal_id: str, authorization: str = Header(...)):
         "recommended_actions": recommended_actions,
     })
 
-    # Store in cache
+    # Store in cache (Redis + in-memory fallback)
     if not demo:
+        redis_key = _rkey("health", deal_id)
+        await cache_set(redis_key, result.model_dump(), ttl=_HEALTH_CACHE_TTL)
         _health_cache[deal_id] = (result, datetime.now(timezone.utc).timestamp() + _HEALTH_CACHE_TTL)
 
     return result
@@ -992,6 +1119,11 @@ async def update_deal_field(
             deal_id, body.field, body.value, session.get("access_token", "")
         )
         if success:
+            # Invalidate health + metrics caches for this deal so next load is fresh
+            await cache_delete_pattern(_rkey("health", deal_id))
+            await cache_delete_pattern("dealiq:metrics:*")
+            # Also evict in-memory fallback
+            _health_cache.pop(deal_id, None)
             return {"success": True, "updated_field": body.field, "new_value": body.value}
         return {"success": False, "error": "Zoho returned a non-SUCCESS code"}
     except Exception as e:

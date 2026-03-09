@@ -8,7 +8,11 @@ sqlalchemy[asyncio]>=2.0
 aiomysql          # async MySQL driver for SQLAlchemy async engine
 pymysql           # sync MySQL driver — used by create_db.py setup script
 cryptography      # required by pymysql for caching_sha2_password auth
+asyncpg>=0.29     # async PostgreSQL driver for SQLAlchemy async engine
+psycopg2-binary>=2.9  # sync PostgreSQL driver — used by Alembic
 alembic
 tiktoken  # token counting for Ask DealIQ context assembly
 apscheduler>=3.10.0  # daily morning scan scheduler
 beautifulsoup4>=4.12.0  # HTML parsing for Zoho email bodies
+redis>=5.0        # async Redis client for caching layer
+celery[redis]>=5.3  # background task queue (Celery + Redis broker)
