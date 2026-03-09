@@ -807,13 +807,27 @@ async def get_deal_health(deal_id: str, authorization: str = Header(...)):
         except (asyncio.TimeoutError, Exception) as e:
             logger.warning("Timeline fetch failed deal=%s: %s", deal_id, e)
 
-    # Score with best available signals
+    # Fetch Outlook emails to enrich health signals when rep didn't BCC Zoho
+    outlook_emails: list = []
+    if not demo:
+        try:
+            from services.outlook_enrichment import get_enriched_emails
+            user_key = session.get("email") or session.get("user_id") or "default"
+            outlook_emails = await asyncio.wait_for(
+                get_enriched_emails(deal_id, session["access_token"], user_key, limit=20),
+                timeout=8,
+            )
+            logger.info("health: deal=%s outlook_emails=%d", deal_id, len(outlook_emails))
+        except Exception as e:
+            logger.warning("health: Outlook enrichment failed deal=%s: %s", deal_id, e)
+
+    # Score with best available signals (Outlook emails patch the activity summary)
     if activity_data and activity_data.get("summary") and timeline_analysis.get("total_entries"):
         from services.health_scorer import score_deal_with_timeline, enrich_signal_details
-        result = score_deal_with_timeline(raw, activity_data, timeline_analysis)
+        result = score_deal_with_timeline(raw, activity_data, timeline_analysis, outlook_emails=outlook_emails or None)
     elif activity_data and activity_data.get("summary"):
         from services.health_scorer import score_deal_with_activities, enrich_signal_details
-        result = score_deal_with_activities(raw, activity_data)
+        result = score_deal_with_activities(raw, activity_data, outlook_emails=outlook_emails or None)
     else:
         from services.health_scorer import enrich_signal_details
         result = score_deal_from_zoho(raw)

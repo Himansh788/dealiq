@@ -106,7 +106,7 @@ def _normalise_deal(raw: dict) -> dict:
     }
 
 
-def _build_deal_context(deal: dict, warnings: list, health_result, meeting_context: str) -> str:
+def _build_deal_context(deal: dict, warnings: list, health_result, meeting_context: str, email_context: str = "") -> str:
     def _days_since_str(dt_str) -> str:
         if not dt_str:
             return "unknown"
@@ -130,6 +130,11 @@ def _build_deal_context(deal: dict, warnings: list, health_result, meeting_conte
     contact = deal.get("contact_name") or "Not specified"
     days_inactive = _days_since_str(deal.get("last_activity_time"))
 
+    email_section = f"""
+EMAIL THREAD (most recent first — use this to understand the actual conversation, buyer tone, and open commitments):
+{email_context if email_context.strip() else "  No email history available — rep may not have BCC'd Zoho. Check Outlook."}
+""" if email_context else "\nEMAIL THREAD: Not available — Outlook not connected or no emails found.\n"
+
     return f"""Deal Intelligence Report for Pre-Meeting Battle Card
 
 DEAL OVERVIEW:
@@ -147,8 +152,8 @@ HEALTH SCORE: {health_result.total_score if health_result else 50}/100 ({health_
 HEALTH SIGNALS:
 {signals_text if signals_text else "  No signal data available"}
 
-LAST ACTIVITY: {days_inactive} days ago
-NEXT STEP DEFINED: {deal.get('next_step') or 'None — no next step set'}
+LAST CRM ACTIVITY: {days_inactive} days ago (NOTE: rep may have emailed via Outlook without updating CRM — see email thread below)
+NEXT STEP DEFINED: {deal.get('next_step') or 'None — no next step set in CRM'}
 DESCRIPTION / NOTES: {deal.get('description') or 'None'}
 
 ACTIVE WARNINGS:
@@ -157,49 +162,61 @@ ACTIVE WARNINGS:
 MEETING CONTEXT: {meeting_context if meeting_context.strip() else "General check-in / follow-up call"}
 
 RECOMMENDATION FROM HEALTH SCORER: {health_result.recommendation if health_result else 'Review deal status'}
-"""
+{email_section}"""
 
 
 async def _call_groq(deal_context: str) -> dict:
     client = AsyncGroq(api_key=os.getenv("GROQ_API_KEY"))
 
-    system_prompt = """You are a brutally honest sales coach preparing a rep for a call in 90 seconds.
+    system_prompt = """You are a brutally honest sales coach preparing a rep for a live call. You have 90 seconds to brief them.
 
-You have real deal data. Use it. Do NOT give generic advice. Every sentence must reference something specific from the deal — the company name, the contact name, the stage, the amount, the days inactive, the next step (or lack of one).
+You have real deal data INCLUDING the actual email thread. This is the ground truth — it overrides CRM fields when they conflict.
 
-RULES:
-- If the deal has been silent for 30+ days, say exactly that and give a specific re-engagement angle
-- If there's no next step, your talk track must start with getting one — name a specific ask
-- If the deal is stalled, explain WHY based on the signals, not just "it's stalled"
-- If the health score is below 50, your one_liner must be about saving or killing the deal
-- talk_track items must be specific questions or actions for THIS deal, not generic sales advice
-- open_loops must reference actual missing information from this specific deal
-- watch_out must name the specific risk pattern visible in this deal's data
-- Never write "Ask about current project status" — that's useless. Instead: "Ask [contact name] what changed since [last interaction timeframe] and why responses stopped"
-- Never write "Address any concerns or objections" — name the actual concern based on the data
+CRITICAL RULES:
+- Read the EMAIL THREAD carefully. If it shows recent buyer engagement that the CRM doesn't reflect, lead with that.
+- If emails marked "[Outlook — not in CRM]" exist, the rep is communicating but not logging — flag this.
+- Every sentence must reference something specific: company name, contact name, email subject, stage, amount, or a specific date.
+- If the deal has CRM silence but recent Outlook emails, say: "CRM shows X days inactive but email thread shows [actual last contact]"
+- If there's no next step in CRM AND no commitment in the email thread, your talk track must start with getting one.
+- open_loops must come from the actual email thread — unresolved questions, unkept commitments, unanswered asks.
+- watch_out must name specific risk signals visible in the email tone or CRM data — not generic patterns.
+- Never write "Ask about current project status" — instead: "Ask [contact] to confirm the [specific thing from email thread]"
+- If health score is below 50 AND email thread shows buyer disengagement, one_liner must be about saving or qualifying out.
 
-Respond ONLY with a valid JSON object. No markdown, no explanation, no code blocks.
+Respond ONLY with valid JSON. No markdown, no explanation:
 
 {
-  "situation": "3 sentences. Name the company, the exact stage, exact days stalled, health score, and what the data suggests is actually happening — not just restating numbers.",
-  "last_interaction": "What do we know about the last touchpoint? If unknown, say what the silence pattern suggests about buyer intent.",
-  "open_loops": ["Specific unresolved item 1 referencing actual deal data", "item 2"],
-  "key_contacts": [{"name": "Contact Name", "role": "their role", "last_contact_days": 0}],
-  "talk_track": [
-    "Specific opening line or question referencing this deal's context",
-    "Specific item 2",
-    "Specific item 3",
-    "Specific close — what commitment to get on this call"
+  "situation": "3 sentences. Name company, exact stage, days in stage, health score, and — critically — what the EMAIL THREAD reveals about where this deal actually stands vs what CRM shows.",
+  "last_interaction": "Reference the actual last email: who sent it, when, what they said. If no email data: state what the CRM silence pattern implies.",
+  "open_loops": [
+    "Specific unresolved commitment or question from the email thread — quote or paraphrase actual language",
+    "item 2 — from email or CRM data"
   ],
-  "watch_out": ["Specific risk 1 visible in this deal's signals", "risk 2"],
-  "one_liner": "The single most important thing for THIS deal. Name the contact or company. Be direct about whether to save or kill."
+  "key_contacts": [{"name": "Contact Name", "role": "their role in this deal", "last_contact_days": 0, "engagement": "hot|warm|cold|silent"}],
+  "talk_track": [
+    "Opening: reference something specific from the last email or last known touchpoint",
+    "Middle: address the biggest open loop or risk from the email thread",
+    "Specific ask: what commitment to extract on this call — name it exactly",
+    "Close: what happens if they don't commit — escalate or disqualify?"
+  ],
+  "watch_out": [
+    "Specific risk 1 — reference the actual email pattern or CRM signal that indicates this",
+    "risk 2"
+  ],
+  "one_liner": "One sentence. Name the company or contact. Reference the email thread state. Tell the rep what this call must achieve.",
+  "email_intelligence": {
+    "last_buyer_reply": "Date and summary of last buyer email, or 'none found'",
+    "buyer_tone": "positive|neutral|cool|disengaged|urgent",
+    "crm_gap": "Yes — X emails found in Outlook not in CRM | No gap detected",
+    "key_commitment": "Most important open commitment from the email thread, or 'none'"
+  }
 }
 
 Rules:
-- open_loops: max 4. If none, return []
-- talk_track: exactly 3-4 items. Each must be specific to this deal.
-- watch_out: max 3. Each must name the actual risk pattern in this deal.
-- one_liner: mention the company or contact by name. No generic advice."""
+- open_loops: 1-4 items. Must come from actual email thread data or CRM gaps. If none, return [].
+- talk_track: exactly 4 items. Each must be specific to THIS deal.
+- watch_out: 2-3 items. Each must name the actual pattern, not a generic risk category.
+- email_intelligence: always populate — even if email_context says "no emails", state that explicitly."""
 
     response = await client.chat.completions.create(
         model="llama-3.3-70b-versatile",
@@ -269,8 +286,24 @@ async def generate_battlecard(
     warnings_result = _compute_warnings(deal)
     warnings = warnings_result.get("warnings", [])
 
-    # Build context and call Claude
-    context_str = _build_deal_context(deal, warnings, health_result, body.meeting_context)
+    # Fetch enriched emails (Outlook primary + Zoho supplementary)
+    email_context = ""
+    if not is_demo:
+        try:
+            from services.outlook_enrichment import get_enriched_emails, fmt_emails_for_ai
+            user_key = session.get("email") or session.get("user_id") or "default"
+            emails = await get_enriched_emails(
+                deal_id=deal_id,
+                zoho_token=session.get("access_token", ""),
+                user_key=user_key,
+                limit=10,
+            )
+            email_context = fmt_emails_for_ai(emails, limit=10)
+        except Exception as e:
+            logger.warning("battlecard: email enrichment failed deal=%s: %s", deal_id, e)
+
+    # Build context and call Groq
+    context_str = _build_deal_context(deal, warnings, health_result, body.meeting_context, email_context)
     sections = await _call_groq(context_str)
 
     response_data = {

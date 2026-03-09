@@ -140,25 +140,40 @@ def _fmt_emails(emails: List[Dict], limit: int = 5) -> str:
     return "\n\n".join(lines)
 
 
-async def _fetch_email_context(deal_id: str, session: dict, limit: int = 5) -> str:
-    """Fetch and format the last N emails for a deal. Returns empty-safe string."""
+async def _fetch_email_context(deal_id: str, session: dict, limit: int = 8) -> str:
+    """
+    Fetch and format emails for a deal — Outlook primary, Zoho supplementary.
+    Returns a structured string ready for AI prompts.
+    """
     import logging
     _log = logging.getLogger(__name__)
 
     if _is_demo(session):
         emails = SIMULATED_EMAILS.get(deal_id, [])
-    else:
-        try:
-            from services.zoho_client import fetch_deal_emails
-            emails = await fetch_deal_emails(session["access_token"], deal_id)
-        except Exception as exc:
-            _log.warning("Email fetch error for deal=%s: %s", deal_id, exc)
-            emails = []
+        return _fmt_emails(emails, limit)
 
-    if not emails:
-        _log.info("No emails found for deal=%s — AI will proceed without email context", deal_id)
+    try:
+        from services.outlook_enrichment import get_enriched_emails, fmt_emails_for_ai
+        user_key = session.get("email") or session.get("user_id") or "default"
+        emails = await get_enriched_emails(
+            deal_id=deal_id,
+            zoho_token=session["access_token"],
+            user_key=user_key,
+            limit=limit,
+        )
+        if emails:
+            return fmt_emails_for_ai(emails, limit=limit)
+    except Exception as exc:
+        _log.warning("Enriched email fetch failed deal=%s: %s — falling back to Zoho", deal_id, exc)
 
-    return _fmt_emails(emails, limit)
+    # Fallback: Zoho only
+    try:
+        from services.zoho_client import fetch_deal_emails
+        emails = await fetch_deal_emails(session["access_token"], deal_id)
+        return _fmt_emails(emails, limit)
+    except Exception as exc:
+        _log.warning("Zoho email fetch failed deal=%s: %s", deal_id, exc)
+        return "No email history available."
 
 
 def _build_activity_context(deal: dict) -> str:

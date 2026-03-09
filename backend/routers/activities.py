@@ -135,10 +135,22 @@ async def get_activity_feed(
     stage = deal_meta.get("stage", "Unknown")
     deal_age_days = _deal_age_days(deal_meta)
 
+    # Fetch Outlook emails to inject into the activity feed (ghost detection +
+    # engagement velocity will see real cadence, not just what's in Zoho)
+    outlook_emails: list = []
+    try:
+        from services.outlook_enrichment import get_enriched_emails
+        user_key = session.get("email") or session.get("user_id") or "default"
+        outlook_emails = await get_enriched_emails(deal_id, access_token, user_key, limit=30)
+    except Exception as e:
+        import logging as _log
+        _log.getLogger(__name__).warning("activities: Outlook enrichment failed deal=%s: %s", deal_id, e)
+
     return await get_deal_activity_feed(
         deal_id=deal_id,
         access_token=access_token,
         stage=stage,
         deal_age_days=deal_age_days,
         is_demo=False,
+        outlook_emails=outlook_emails or None,
     )

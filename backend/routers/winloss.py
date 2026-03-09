@@ -80,8 +80,8 @@ def _strip_json_fences(text: str) -> str:
     return text.strip()
 
 
-def _build_deal_summary(deal: dict) -> str:
-    """Build a rich text summary of the deal for the AI prompt."""
+def _build_deal_summary(deal: dict, email_context: str = "") -> str:
+    """Build a rich text summary of the deal for the AI prompt, including email thread."""
     name = deal.get("name") or deal.get("Deal_Name") or "Unknown"
     amount = deal.get("amount") or deal.get("Amount") or 0
     stage = deal.get("stage") or deal.get("Stage") or "Unknown"
@@ -101,38 +101,53 @@ def _build_deal_summary(deal: dict) -> str:
         notes.append(f"Next step: {next_step}")
     notes_str = " | ".join(notes) if notes else "No notes recorded"
 
+    email_section = ""
+    if email_context and email_context.strip() and "No email" not in email_context:
+        email_section = f"""
+EMAIL THREAD (actual buyer communication — use this to identify what really happened):
+{email_context}"""
+    else:
+        email_section = "\nEMAIL THREAD: Not available — rep did not BCC Zoho and Outlook is not connected."
+
     return f"""Company: {account}
 Deal name: {name}
 Amount: ${amount}
 Stage when closed: {stage}
 Days in stage: {days_in_stage}
-Last activity: {last_activity} days ago
+Last CRM activity: {last_activity} days ago
 Close probability: {probability}%
 Closing date: {closing_date}
 Primary contact: {contact}
-Notes: {notes_str}"""
+Notes: {notes_str}
+{email_section}"""
 
 
-async def _call_groq_full(deal_json: dict, outcome: str, deal_name: str) -> dict:
+async def _call_groq_full(deal_json: dict, outcome: str, deal_name: str, email_context: str = "") -> dict:
     """Full analysis for manually submitted deals."""
     client = _get_groq_client()
     signals_key = "success_signals" if outcome == "won" else "warning_signs_missed"
     outcome_label = "WON" if outcome == "won" else "LOST"
-    deal_summary = _build_deal_summary(deal_json)
+    deal_summary = _build_deal_summary(deal_json, email_context)
 
     won_instructions = """This deal WAS WON. Your job:
+- If an EMAIL THREAD is provided, find the specific email or buyer signal that indicated this would close — quote it
 - Identify the specific behavior or event that caused the close
-- Name the earliest signal that indicated this would close
+- Name the earliest signal that indicated this would close — from the email thread if available
 - Identify what the rep did right that should be repeated on every similar deal
-- Be specific — reference the stage, contact name, timeline, or notes"""
+- Be specific — reference the stage, contact name, email subject, timeline, or notes"""
 
     lost_instructions = """This deal WAS LOST. Your job:
+- If an EMAIL THREAD is provided, find the specific moment the buyer's tone changed — quote it
 - Identify the specific moment or behavior that caused the loss
-- Name the earliest warning sign that was visible but missed
+- Name the earliest warning sign that was visible but missed — check the email thread for early signals
 - Identify one concrete action at a specific point in the deal that would have changed the outcome
-- Be specific — reference the stage, days inactive, contact name, or notes"""
+- Be specific — reference the stage, days inactive, contact name, email content, or notes"""
 
     prompt = f"""You are a senior sales coach analyzing a real B2B deal outcome.
+
+IMPORTANT: If an EMAIL THREAD is included below, it is the ground truth of what actually happened in this deal.
+Use it to identify real buyer signals, tone shifts, and the exact moment the deal was won or lost.
+Email marked "[Outlook — not in CRM]" means the rep communicated but didn't log it — this is important context.
 
 DEAL DATA:
 {deal_summary}
@@ -140,28 +155,29 @@ DEAL DATA:
 {won_instructions if outcome == "won" else lost_instructions}
 
 RULES:
-- Every field must reference specific data from above — company name, contact, amount, days, or notes
+- Every field must reference specific data from above — company name, contact, amount, days, email content, or notes
+- If the email thread shows a specific buyer objection or signal, name it explicitly
 - Never write generic sales advice like "follow up more" or "build relationships"
-- If notes say something specific happened (e.g. "reference from X", "went with in-house"), use that
 - contributing_factors must name what actually happened in this deal, not general patterns
-- {signals_key} must describe observable signals specific to this deal
+- {signals_key} must describe observable signals specific to this deal — prefer email evidence over CRM fields
 
 Return ONLY valid JSON — no markdown, no explanation:
 {{
-  "primary_reason": "One sentence naming what decided the {outcome_label} outcome for {deal_name} — must reference specific deal data",
+  "primary_reason": "One sentence naming what decided the {outcome_label} outcome for {deal_name} — must reference specific deal data or email evidence",
   "contributing_factors": [
-    "Factor 1 — specific to this deal (e.g. '{deal_name} was in [stage] for [X] days with no defined next step')",
+    "Factor 1 — specific to this deal (reference email content, stage, days, or contact if available)",
     "Factor 2 — specific event or behavior observed in this deal",
     "Factor 3"
   ],
   "{signals_key}": [
-    "Signal 1 — specific observable event in this deal that {'indicated success' if outcome == 'won' else 'should have triggered action'}",
+    "Signal 1 — specific observable event in this deal that {'indicated success' if outcome == 'won' else 'should have triggered action'} — cite email date/subject if available",
     "Signal 2",
     "Signal 3"
   ],
   "deal_pattern": "exactly one of: pricing_issue, champion_lost, no_urgency, competitor_win, single_threaded, budget_cut, good_execution, multi_threaded, strong_champion, urgency_created",
-  "what_to_replicate_or_avoid": "{'Specific action that won this deal — what was done, when, and with whom' if outcome == 'won' else 'Specific action that should have been taken — name the moment (e.g. after X days silence, after demo, when POC changed) and the exact better move'}",
-  "lesson": "One sentence a rep can act on in their next similar deal — name the trigger condition (e.g. when a deal hits X days in stage, when POC changes, when probability drops below Y%)"
+  "what_to_replicate_or_avoid": "{'Specific action that won this deal — what was done, when, and with whom' if outcome == 'won' else 'Specific action that should have been taken — name the moment and the exact better move based on the email evidence'}",
+  "lesson": "One sentence a rep can act on — name the trigger (e.g. when buyer tone shifts to X in email, when deal hits Y days silent, when Z signal appears)",
+  "email_evidence": "Key email finding that best explains this outcome, or 'No email data available'"
 }}"""
 
     response = await client.chat.completions.create(
@@ -172,17 +188,17 @@ Return ONLY valid JSON — no markdown, no explanation:
     return json.loads(_strip_json_fences(response.choices[0].message.content))
 
 
-async def _call_groq_lightweight(deal: dict, outcome: str) -> dict:
+async def _call_groq_lightweight(deal: dict, outcome: str, email_context: str = "") -> dict:
     """Analysis for auto-detected Zoho closed deals — same quality, slightly shorter output."""
     client = _get_groq_client()
     outcome_label = "WON" if outcome == "won" else "LOST"
-    deal_summary = _build_deal_summary(deal)
+    deal_summary = _build_deal_summary(deal, email_context)
     deal_name = deal.get("name") or deal.get("Deal_Name") or "this deal"
 
-    won_instructions = "This deal WAS WON. What specific behavior or event caused the close? What should the rep repeat next time?"
-    lost_instructions = "This deal WAS LOST. What specifically went wrong? What was the earliest warning sign? What one action at what specific point would have changed the outcome?"
+    won_instructions = "This deal WAS WON. What specific behavior or event caused the close? Reference email evidence if available. What should the rep repeat next time?"
+    lost_instructions = "This deal WAS LOST. What specifically went wrong? Find the earliest warning sign in the email thread. What one action at what specific point would have changed the outcome?"
 
-    prompt = f"""You are a sales coach analyzing a real B2B deal outcome. Be specific — use the actual data below.
+    prompt = f"""You are a sales coach analyzing a real B2B deal outcome. Use the EMAIL THREAD as primary evidence — it shows what actually happened, not just what was logged in CRM.
 
 DEAL DATA:
 {deal_summary}
@@ -190,21 +206,23 @@ DEAL DATA:
 {won_instructions if outcome == "won" else lost_instructions}
 
 RULES:
-- Reference the actual company name, contact, amount, stage, days, or notes in every field
-- If notes mention a specific reason (competitor, reference, pricing), use it
-- Never write generic advice — name the specific moment, person, or action
+- Reference the actual company name, contact, email content, stage, days, or notes in every field
+- If the email thread shows buyer disengagement, a tone shift, or a specific objection — name it
+- Email marked "[Outlook — not in CRM]" means the rep communicated outside CRM — factor this into your analysis
+- Never write generic advice — name the specific moment, email exchange, or action
 - contributing_factors must describe what actually happened, not abstract patterns
 
 Return ONLY valid JSON — no markdown:
 {{
-  "primary_reason": "One sentence specific to {deal_name} — reference the actual stage, contact, notes, or timeline",
+  "primary_reason": "One sentence specific to {deal_name} — reference actual email evidence, stage, contact, or timeline",
   "contributing_factors": [
-    "Specific factor from this deal's data — not a generic label",
+    "Specific factor from this deal's data or email thread — not a generic label",
     "Specific factor 2"
   ],
   "deal_pattern": "exactly one of: pricing_issue, champion_lost, no_urgency, competitor_win, single_threaded, budget_cut, good_execution, multi_threaded, strong_champion, urgency_created",
-  "what_to_replicate_or_avoid": "{'What specific action drove the win — name it concretely' if outcome == 'won' else 'What should have been done differently — name the specific moment and the better action'}",
-  "lesson": "One actionable sentence — name the trigger (e.g. when deal hits X days silent, when POC changes, when notes say Y)"
+  "what_to_replicate_or_avoid": "{'What specific action drove the win — name it and cite email evidence if available' if outcome == 'won' else 'What should have been done differently — name the specific moment in the email timeline and the better action'}",
+  "lesson": "One actionable sentence — name the trigger (e.g. when buyer tone shifts to X in email, when deal hits Y days silent, when Z appears in thread)",
+  "email_evidence": "Key email finding that best explains this outcome, or 'No email data available'"
 }}"""
 
     response = await client.chat.completions.create(
@@ -286,8 +304,24 @@ async def analyze_outcome(
 
     deal_name = deal.get("name", body.deal_id)
 
+    # Fetch enriched emails for richer analysis
+    email_context = ""
+    if not is_demo:
+        try:
+            from services.outlook_enrichment import get_enriched_emails, fmt_emails_for_ai
+            user_key = session.get("email") or session.get("user_id") or "default"
+            emails = await get_enriched_emails(
+                deal_id=body.deal_id,
+                zoho_token=session.get("access_token", ""),
+                user_key=user_key,
+                limit=10,
+            )
+            email_context = fmt_emails_for_ai(emails, limit=10)
+        except Exception as e:
+            logger.warning("winloss: email enrichment failed deal=%s: %s", body.deal_id, e)
+
     try:
-        analysis = await _call_groq_full(deal, body.outcome, deal_name)
+        analysis = await _call_groq_full(deal, body.outcome, deal_name, email_context)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"AI analysis failed: {str(e)}")
 
