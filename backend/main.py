@@ -1,6 +1,7 @@
 from dotenv import load_dotenv
 load_dotenv(override=True)  # override=True ensures .env wins over any OS-level env vars
 
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from routers import auth, deals, analysis, ai_rep, forecast, alerts, signals, trackers, coaching, activities, health
@@ -22,9 +23,12 @@ app = FastAPI(
     version="1.0.0"
 )
 
+_frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
+_allowed_origins = [_frontend_url, "http://localhost:5173", "http://localhost:3000", "http://localhost:8080"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
