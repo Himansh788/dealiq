@@ -230,12 +230,12 @@ export default function Login() {
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500/20 border border-blue-400/20">
               <BarChart3 className="h-6 w-6 text-blue-400" />
             </div>
-            <span className="text-2xl font-black tracking-tight text-slate-900 dark:text-white">DealIQ</span>
+            <span className="text-2xl font-black tracking-tight text-white">DealIQ</span>
           </div>
         </div>
 
         <div className="relative z-10">
-          <h2 className="text-4xl font-bold text-slate-900 dark:text-white leading-tight mb-3 tracking-tight">
+          <h2 className="text-4xl font-bold text-white leading-tight mb-3 tracking-tight">
             Revenue without guesswork.
           </h2>
           <p className="text-slate-400 text-base leading-relaxed mb-8 max-w-sm">
@@ -250,7 +250,7 @@ export default function Login() {
                 className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2"
               >
                 <Icon className="h-3.5 w-3.5 text-blue-400 flex-shrink-0" />
-                <span className="text-xs font-medium text-slate-600 dark:text-slate-300">{label}</span>
+                <span className="text-xs font-medium text-slate-300">{label}</span>
               </div>
             ))}
           </div>
@@ -258,7 +258,7 @@ export default function Login() {
           <DashboardPreview />
         </div>
 
-        <p className="relative z-10 text-slate-600 text-xs">
+        <p className="relative z-10 text-white/50 text-xs">
           © 2026 DealIQ · Revenue without guesswork.
         </p>
       </div>
@@ -272,7 +272,7 @@ export default function Login() {
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-500/15 border border-blue-500/20">
               <BarChart3 className="h-4 w-4 text-blue-400" />
             </div>
-            <span className="text-lg font-black tracking-tight text-white">DealIQ</span>
+            <span className="text-lg font-black tracking-tight text-slate-900 dark:text-white">DealIQ</span>
           </div>
 
           <div className="lg:hidden flex items-center gap-2.5 mb-10">
