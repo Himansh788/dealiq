@@ -106,7 +106,7 @@ def _normalise_deal(raw: dict) -> dict:
     }
 
 
-def _build_deal_context(deal: dict, warnings: list, health_result, meeting_context: str, email_context: str = "") -> str:
+def _build_deal_context(deal: dict, warnings: list, health_result, meeting_context: str, email_context: str = "", contacts_block: str = "") -> str:
     def _days_since_str(dt_str) -> str:
         if not dt_str:
             return "unknown"
@@ -127,7 +127,6 @@ def _build_deal_context(deal: dict, warnings: list, health_result, meeting_conte
         msg = w.get("message", "")
         warnings_text += f"  - [{sev}] {title}: {msg}\n"
 
-    contact = deal.get("contact_name") or "Not specified"
     days_inactive = _days_since_str(deal.get("last_activity_time"))
 
     email_section = f"""
@@ -145,7 +144,7 @@ DEAL OVERVIEW:
 - Close Date: {deal.get('closing_date') or 'Not set'}
 - Probability: {deal.get('probability', 0)}%
 - Owner: {deal.get('owner') or 'Unknown'}
-- Primary Contact: {contact}
+- Primary Contact: {deal.get('contact_name') or 'Not specified'}
 - Days in Current Stage: {deal.get('days_in_stage') or 'unknown'}
 
 HEALTH SCORE: {health_result.total_score if health_result else 50}/100 ({health_result.health_label if health_result else 'unknown'})
@@ -162,6 +161,10 @@ ACTIVE WARNINGS:
 MEETING CONTEXT: {meeting_context if meeting_context.strip() else "General check-in / follow-up call"}
 
 RECOMMENDATION FROM HEALTH SCORER: {health_result.recommendation if health_result else 'Review deal status'}
+
+CONTACTS & STAKEHOLDERS:
+{contacts_block if contacts_block else "  No contact data available — connect Outlook to discover personas."}
+
 {email_section}"""
 
 
@@ -261,7 +264,8 @@ async def generate_battlecard(
     cached_entry = _battlecard_cache.get(deal_id)
     if cached_entry:
         age_minutes = (datetime.utcnow() - cached_entry["generated_at"]).total_seconds() / 60
-        if age_minutes < CACHE_TTL_MINUTES:
+        ttl = cached_entry.get("ttl_minutes", CACHE_TTL_MINUTES)
+        if age_minutes < ttl:
             return {**cached_entry["data"], "cached": True}
 
     # Fetch deal
@@ -302,8 +306,37 @@ async def generate_battlecard(
         except Exception as e:
             logger.warning("battlecard: email enrichment failed deal=%s: %s", deal_id, e)
 
+    # Fetch contacts + personas
+    contacts_block = ""
+    if not is_demo:
+        try:
+            from services.contact_intelligence import get_deal_contacts, format_contacts_for_ai
+            user_key = session.get("email") or session.get("user_id") or "default"
+            contacts_data = await get_deal_contacts(
+                deal_id=deal_id,
+                zoho_token=session.get("access_token", ""),
+                user_key=user_key,
+                db=None,
+            )
+            contacts_block = format_contacts_for_ai(
+                contacts_data.get("zoho_contacts", []),
+                contacts_data.get("confirmed_personas", []),
+                contacts_data.get("potential_personas", []),
+            )
+        except Exception as e:
+            logger.warning("battlecard: contacts fetch failed deal=%s: %s", deal_id, e)
+    else:
+        # Demo contacts block
+        contacts_block = (
+            "CONFIRMED CONTACTS:\n"
+            "  • Sarah Chen <sarah.chen@techcorp.com> | Role: Economic Buyer | Source: CRM (Zoho)\n"
+            "  • James Liu <james.liu@techcorp.com> | Role: Champion | Source: CRM (Zoho)\n"
+            "POTENTIAL PERSONAS (seen in Outlook emails, not yet confirmed by rep):\n"
+            "  • Mike Torres <mike.torres@techcorp.com> | 3 email(s) | Last seen: 2026-03-08"
+        )
+
     # Build context and call Groq
-    context_str = _build_deal_context(deal, warnings, health_result, body.meeting_context, email_context)
+    context_str = _build_deal_context(deal, warnings, health_result, body.meeting_context, email_context, contacts_block)
     sections = await _call_groq(context_str)
 
     response_data = {
@@ -319,9 +352,13 @@ async def generate_battlecard(
         "cached": False,
     }
 
+    # Only cache if we have email context — without it the card is lower quality
+    # and should be regenerated sooner (10 min) to pick up Outlook data once connected.
+    cache_ttl_override = None if email_context else 10  # noqa: stored in entry for future use
     _battlecard_cache[deal_id] = {
         "data": response_data,
         "generated_at": datetime.utcnow(),
+        "ttl_minutes": cache_ttl_override if cache_ttl_override else CACHE_TTL_MINUTES,
     }
     return response_data
 

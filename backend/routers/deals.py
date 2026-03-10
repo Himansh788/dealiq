@@ -141,7 +141,6 @@ def _enrich_deal(raw: dict, activities: dict = None, contact_roles: list = None)
         raw.get("modified_time") or raw.get("last_activity_time") or raw.get("created_time")
     )
     raw["last_activity_days"] = _days_since(raw.get("last_activity_time"))
-    raw["days_since_buyer_response"] = raw["last_activity_days"]
 
     # ── Activity data ──────────────────────────────────────────────────────────
     if activities is not None:
@@ -172,10 +171,9 @@ def _enrich_deal(raw: dict, activities: dict = None, contact_roles: list = None)
             for c in contact_roles
         )
     else:
-        prob = raw.get("probability", 0) or 0
-        raw["contact_count"] = 2 if prob >= 30 else 1
+        raw["contact_count"] = 1
         raw["contact_roles"] = []
-        raw["economic_buyer_engaged"] = prob >= 70
+        raw["economic_buyer_engaged"] = False
 
     raw["discount_mention_count"] = 0
     return raw
@@ -830,7 +828,7 @@ async def get_deal_health(deal_id: str, authorization: str = Header(...)):
         result = score_deal_with_activities(raw, activity_data, outlook_emails=outlook_emails or None)
     else:
         from services.health_scorer import enrich_signal_details
-        result = score_deal_from_zoho(raw)
+        result = score_deal_from_zoho(raw, outlook_emails=outlook_emails or None)
 
     # Enrich signal details with cross-signal context
     activity_summary = (activity_data or {}).get("summary", {})

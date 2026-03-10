@@ -15,6 +15,7 @@ from routers.winloss import router as winloss_router
 from routers.warnings import router as warnings_router
 from routers.battlecard import router as battlecard_router
 from routers.auth_crm import router as auth_crm_router
+from routers.contacts import router as contacts_router
 import uvicorn
 
 app = FastAPI(
@@ -55,6 +56,7 @@ app.include_router(winloss_router, prefix="/winloss", tags=["Win/Loss Intelligen
 app.include_router(warnings_router, prefix="/warnings", tags=["Warnings"])
 app.include_router(battlecard_router, tags=["Battle Card"])
 app.include_router(auth_crm_router)  # /auth/{provider}/login + /auth/{provider}/callback
+app.include_router(contacts_router, prefix="", tags=["Contact Intelligence"])
 
 
 @app.on_event("startup")

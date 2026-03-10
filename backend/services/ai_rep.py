@@ -71,8 +71,11 @@ Value: {amount}
 Closing date: {closing_date}
 Days since last buyer response: {days_since_buyer_response}
 Next step in CRM: {next_step}
-Contact count: {contact_count}
-Economic buyer engaged: {economic_buyer_engaged}
+Contact count: {contact_count} | Economic buyer engaged: {economic_buyer_engaged}
+
+STAKEHOLDERS:
+{contacts_block}
+
 Discount mentions: {discount_mention_count}
 Activity last 30 days: {activity_count_30d}
 Health score: {health_score}/100 ({health_label})
@@ -131,6 +134,9 @@ Days since last buyer response: {days_since_buyer_response}
 CRM next step: {next_step}
 Email objective: {email_objective}
 Action context: {action_context}
+
+RECIPIENT CONTEXT:
+{contacts_block}
 
 ═══ DEAL CONTEXT ═══
 {deal_context}
@@ -201,6 +207,9 @@ Days since last activity: {days_since_buyer_response}
 Contact count: {contact_count} | Economic buyer engaged: {economic_buyer_engaged}
 CRM next step: {next_step}
 
+STAKEHOLDERS:
+{contacts_block}
+
 ═══ DEAL CONTEXT ═══
 {deal_context}
 
@@ -256,6 +265,7 @@ async def generate_next_best_action(
     rep_name: str,
     email_thread: Optional[List[Dict[str, Any]]] = None,
     deal_context: str = "",
+    contacts_block: str = "",
 ) -> Dict[str, Any]:
     signals_text = "\n".join([
         f"  [{s.get('label', '?').upper()}] {s.get('name', '')}: {s.get('detail', '')} ({s.get('score', 0)}/{s.get('max_score', 20)})"
@@ -287,6 +297,7 @@ async def generate_next_best_action(
         next_step=deal.get("next_step") or "None set",
         contact_count=deal.get("contact_count", 1),
         economic_buyer_engaged=deal.get("economic_buyer_engaged", False),
+        contacts_block=contacts_block or "No contact data available.",
         discount_mention_count=deal.get("discount_mention_count", 0),
         activity_count_30d=deal.get("activity_count_30d", 0),
         health_score=deal.get("health_score", 0),
@@ -329,6 +340,7 @@ async def generate_email_draft(
     action_context: str,
     email_context: str = "",
     deal_context: str = "",
+    contacts_block: str = "",
 ) -> Dict[str, Any]:
     tone_guidance = {
         "zombie": "a bold pattern interrupt — short, direct, unexpected",
@@ -350,6 +362,7 @@ async def generate_email_draft(
         next_step=deal.get("next_step") or "None set",
         email_objective=email_objective,
         action_context=action_context or "No specific context provided",
+        contacts_block=contacts_block or "No contact data available.",
         tone_guidance=tone_guidance,
         deal_context=deal_context or "No additional deal context available.",
         email_context=email_context or "No email history available — analysis based on CRM data only.",
@@ -426,6 +439,7 @@ async def generate_call_brief(
     email_context: str = "",
     activity_context: str = "",
     deal_context: str = "",
+    contacts_block: str = "",
 ) -> Dict[str, Any]:
     signals_text = "\n".join([
         f"  [{s.get('label', '?').upper()}] {s.get('name', '')}: {s.get('detail', '')} ({s.get('score', 0)}/{s.get('max_score', 20)})"
@@ -444,6 +458,7 @@ async def generate_call_brief(
         contact_count=deal.get("contact_count", 1),
         economic_buyer_engaged=deal.get("economic_buyer_engaged", False),
         next_step=deal.get("next_step") or "None set",
+        contacts_block=contacts_block or "No contact data available.",
         deal_context=deal_context or "No additional deal context available.",
         signals_text=signals_text,
         email_context=email_context or "No email history available — analysis based on CRM data only.",

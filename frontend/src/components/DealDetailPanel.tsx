@@ -3,7 +3,7 @@ import { Sheet, SheetContent, SheetTitle, SheetDescription } from "@/components/
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import {
   Brain, Clock, Phone, Activity, GitMerge, Layers, ScanSearch,
-  GraduationCap, Zap, Sparkles, Trophy, Loader2, Check, X,
+  GraduationCap, Zap, Sparkles, Trophy, Loader2, Check, X, Users2, AlertTriangle, ArrowRight,
 } from "lucide-react";
 import BattleCardPanel from "./deal/BattleCardPanel";
 import { cn } from "@/lib/utils";
@@ -20,6 +20,7 @@ import CoachingPanel from "./deal/CoachingPanel";
 import ActivityFeedPanel from "./deal/ActivityFeedPanel";
 import AskDealIQPanel from "./deal/AskDealIQPanel";
 import MarkOutcomeSection from "./deal/MarkOutcomeSection";
+import ContactsPanel from "./deal/ContactsPanel";
 
 type PanelTab = "Overview" | "Battle Card";
 
@@ -121,13 +122,14 @@ function IntelRing({ score }: { score: number }) {
 
 // ── Section tier config ────────────────────────────────────────────────────────
 
-const EVIDENCE_SECTIONS = ["timeline", "health", "activity"] as const;
+const EVIDENCE_SECTIONS = ["timeline", "health", "activity", "contacts"] as const;
 const TOOLS_SECTIONS = ["ai-rep", "call-brief", "mismatch", "trackers", "ack", "coaching", "ask", "outcome"] as const;
 
 const SECTION_STYLES = {
   timeline:    { icon: Clock,          label: "Deal Timeline",                   iconColor: "text-slate-400" },
   health:      { icon: Activity,       label: "Health Score Breakdown",           iconColor: "text-slate-400" },
   activity:    { icon: Zap,            label: "Activity Feed",                    iconColor: "text-slate-400" },
+  contacts:    { icon: Users2,         label: "Contacts & Personas",              iconColor: "text-slate-400" },
   "ai-rep":    { icon: Brain,          label: "AI Sales Rep",                     iconColor: "text-slate-400" },
   "call-brief":{ icon: Phone,          label: "Pre-Call Intelligence Brief",      iconColor: "text-slate-400" },
   mismatch:    { icon: GitMerge,       label: "Narrative Check + Email Coach",    iconColor: "text-slate-400" },
@@ -162,6 +164,16 @@ export default function DealDetailPanel({
   const [savingField, setSavingField] = useState<string | null>(null);
   const [savedField, setSavedField] = useState<string | null>(null);
 
+  // Stage drift detection
+  const [stageDrift, setStageDrift] = useState<{
+    suggested_stage: string;
+    confidence: string;
+    reasoning: string;
+    evidence: string[];
+  } | null>(null);
+  const [stageDriftDismissed, setStageDriftDismissed] = useState(false);
+  const [applyingStageDrift, setApplyingStageDrift] = useState(false);
+
   // Notes
   const [noteOpen, setNoteOpen] = useState(false);
   const [noteText, setNoteText] = useState("");
@@ -177,7 +189,27 @@ export default function DealDetailPanel({
     setNoteOpen(false);
     setActiveTab(initialTab ?? "Overview");
     setOpenedSections(new Set(initialSection ? ["timeline", initialSection] : ["timeline"]));
+    setStageDrift(null);
+    setStageDriftDismissed(false);
   }, [dealId, stage, amount, initialTab, initialSection]);
+
+  // Auto-trigger stage drift detection when panel opens with a deal
+  useEffect(() => {
+    if (!dealId || !stage) return;
+    let cancelled = false;
+    api.checkStageDrift(dealId, stage, dealName).then((res) => {
+      if (cancelled) return;
+      if (!res.no_drift && res.suggested_stage) {
+        setStageDrift({
+          suggested_stage: res.suggested_stage,
+          confidence: res.confidence ?? "medium",
+          reasoning: res.reasoning ?? "",
+          evidence: res.evidence ?? [],
+        });
+      }
+    }).catch(() => { /* silent — non-critical */ });
+    return () => { cancelled = true; };
+  }, [dealId, stage]);
 
   async function handleFieldSave(field: string, value: string | number) {
     if (!dealId) return;
@@ -379,6 +411,55 @@ export default function DealDetailPanel({
             </button>
           </div>
 
+          {/* Stage Drift Banner */}
+          {stageDrift && !stageDriftDismissed && (
+            <div className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2.5">
+              <div className="flex items-start gap-2">
+                <AlertTriangle size={15} className="mt-0.5 shrink-0 text-amber-400" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-semibold text-amber-300 leading-tight">
+                    CRM stage may be outdated
+                  </p>
+                  <p className="mt-0.5 text-xs text-amber-200/80 leading-snug">
+                    {stageDrift.reasoning}
+                  </p>
+                  <div className="mt-2 flex items-center gap-2 flex-wrap">
+                    <span className="flex items-center gap-1 text-xs text-slate-400">
+                      <span className={cn("rounded-full border px-2 py-0.5 text-xs font-medium", stagePillClass(localStage ?? ""))}>
+                        {localStage}
+                      </span>
+                      <ArrowRight size={12} className="text-amber-400" />
+                      <span className={cn("rounded-full border px-2 py-0.5 text-xs font-medium", stagePillClass(stageDrift.suggested_stage))}>
+                        {stageDrift.suggested_stage}
+                      </span>
+                    </span>
+                    <button
+                      disabled={applyingStageDrift || savingField === "Stage"}
+                      onClick={async () => {
+                        setApplyingStageDrift(true);
+                        const newStage = stageDrift.suggested_stage;
+                        setLocalStage(newStage);
+                        setStageDriftDismissed(true);
+                        await handleFieldSave("Stage", newStage);
+                        setApplyingStageDrift(false);
+                      }}
+                      className="flex items-center gap-1 rounded-md bg-amber-500 px-2.5 py-1 text-xs font-semibold text-white hover:bg-amber-400 disabled:opacity-50 transition-colors"
+                    >
+                      {applyingStageDrift ? <Loader2 size={10} className="animate-spin" /> : <Check size={10} />}
+                      Update stage
+                    </button>
+                    <button
+                      onClick={() => setStageDriftDismissed(true)}
+                      className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Tab bar */}
           <div className="mt-3 flex gap-0 border-b border-slate-200 dark:border-slate-800 -mb-4 pb-0">
             {(["Overview", "Battle Card"] as PanelTab[]).map((tab) => (
@@ -508,6 +589,7 @@ export default function DealDetailPanel({
                         {openedSections.has(key) && key === "timeline"  && <DealTimeline dealId={dealId} />}
                         {openedSections.has(key) && key === "health"    && <HealthBreakdown dealId={dealId} />}
                         {openedSections.has(key) && key === "activity"  && <ActivityFeedPanel dealId={dealId} stage={stage} />}
+                        {openedSections.has(key) && key === "contacts"  && <ContactsPanel dealId={dealId} />}
                       </AccordionContent>
                     </AccordionItem>
                   );

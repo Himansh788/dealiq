@@ -104,10 +104,10 @@ def score_response_recency(
             )
         return HealthSignal(
             name="Buyer Response Recency",
-            score=5,
+            score=8,
             max_score=20,
-            label="warn",
-            detail="No response date recorded. Cannot measure buyer engagement.",
+            label="insufficient_data",
+            detail="No email data available. Connect Outlook or ensure emails are BCC'd to Zoho for accurate scoring.",
         )
     lenient = stage in LATE_STAGE_LENIENT
     if days_since_response <= 3:
@@ -364,24 +364,31 @@ def score_deal(
     )
 
 
-def score_deal_from_zoho(raw_deal: Dict[str, Any]) -> DealHealthResult:
-    """Score a deal using data directly from Zoho CRM fields."""
+def score_deal_from_zoho(
+    raw_deal: Dict[str, Any],
+    outlook_emails: Optional[List[Dict[str, Any]]] = None,
+) -> DealHealthResult:
+    """Score a deal using Zoho CRM fields, enriched with Outlook emails when available."""
     deal_id = raw_deal.get("id", "unknown")
     deal_name = raw_deal.get("name", "Unknown Deal")
     stage = raw_deal.get("stage", "Unknown")
 
-    # Days in current stage — use modified_time (when stage last changed) or created_time
-    # NOTE: last_activity_time is NOT stage entry time — it changes with every email/call
+    # When Outlook emails are available, delegate to score_deal_with_activities
+    # so communication signals are computed from real email data.
+    if outlook_emails:
+        activity_data = {"summary": {}}
+        return score_deal_with_activities(raw_deal, activity_data, outlook_emails=outlook_emails)
+
+    # Pure Zoho fallback — be honest about what we don't know
     days_in_stage = (
-        raw_deal.get("days_in_stage") or          # explicitly set (e.g. from stage history)
-        _days_since(raw_deal.get("modified_time")) or  # when deal record last changed
-        _days_since(raw_deal.get("created_time"))  # fallback: deal age
+        raw_deal.get("days_in_stage") or
+        _days_since(raw_deal.get("modified_time")) or
+        _days_since(raw_deal.get("created_time"))
     )
 
-    # Days since last activity
+    # last_activity_time is updated by rep-side CRM events — use as momentum proxy only,
+    # NOT as buyer response time. Pass None for buyer response when no email data.
     last_activity_days = _days_since(raw_deal.get("last_activity_time"))
-
-    # Use description/next step field
     next_step = raw_deal.get("next_step") or raw_deal.get("description")
 
     return score_deal(
@@ -389,7 +396,7 @@ def score_deal_from_zoho(raw_deal: Dict[str, Any]) -> DealHealthResult:
         deal_name=deal_name,
         stage=stage,
         next_step=next_step,
-        days_since_buyer_response=last_activity_days,  # Approximate
+        days_since_buyer_response=None,  # unknown without email data
         contact_count=raw_deal.get("contact_count", 1),
         economic_buyer_engaged=raw_deal.get("economic_buyer_engaged", False),
         discount_mention_count=raw_deal.get("discount_mention_count", 0),
@@ -688,7 +695,7 @@ def score_deal_with_activities(
         # has_outbound=True lets scorer distinguish "buyer never responded" from "no email data"
         score_response_recency(days_since_inbound, stage, has_outbound=(emails_out > 0)),
         (_rescale_signal(score_stakeholder_depth(
-            deal_data.get("contact_count", 1),
+            deal_data.get("confirmed_persona_count") or deal_data.get("contact_count", 1),
             deal_data.get("economic_buyer_engaged", False),
         ), 10)),
         score_discount_pattern(deal_data.get("discount_mention_count", 0)),  # stays 10
@@ -840,7 +847,7 @@ def score_deal_with_timeline(
         # has_outbound lets scorer distinguish "buyer never responded" from "no email data"
         score_response_recency(days_since_inbound, stage, has_outbound=(emails_out > 0)),
         _rescale_signal(score_stakeholder_depth(
-            deal_data.get("contact_count", 1),
+            deal_data.get("confirmed_persona_count") or deal_data.get("contact_count", 1),
             deal_data.get("economic_buyer_engaged", False),
         ), 10),
         score_discount_pattern(deal_data.get("discount_mention_count", 0)),

@@ -250,6 +250,17 @@ def match_outlook_emails(
     contact_domains: set[str] = {
         _extract_domain(c["email"]) for c in contacts if c.get("email")
     }
+    # Confirmed personas get a lower attribution threshold
+    confirmed_contact_emails: set[str] = {
+        c["email"].lower() for c in contacts
+        if c.get("email") and c.get("status") in ("confirmed", "zoho")
+    }
+    # All Zoho contacts are treated as confirmed
+    zoho_source_emails: set[str] = {
+        c["email"].lower() for c in contacts
+        if c.get("email") and c.get("source") == "zoho"
+    }
+    confirmed_contact_emails |= zoho_source_emails
     account_name = deal_context.get("account_name") or ""
     account_domain = account_name_to_domain(account_name)
     stage = (deal_context.get("stage") or "").lower()
@@ -303,8 +314,14 @@ def match_outlook_emails(
             contact_emails, contact_domains, account_domain,
         )
 
-        # Apply threshold (relaxed when we have an exact contact email match)
-        threshold = _THRESHOLD_CONTACT_MATCH if has_contact_match else _THRESHOLD_DEFAULT
+        # Apply threshold — relaxed further for confirmed personas
+        has_confirmed_match = bool(confirmed_contact_emails & set(participants))
+        if has_confirmed_match:
+            threshold = 15  # very high confidence — confirmed stakeholder
+        elif has_contact_match:
+            threshold = _THRESHOLD_CONTACT_MATCH
+        else:
+            threshold = _THRESHOLD_DEFAULT
         if score < threshold:
             n_score += 1
             continue

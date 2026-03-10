@@ -129,6 +129,20 @@ def _build_activity_context(deal: dict) -> str:
     else:
         lines.append("CONTACTS: No contact role data available in CRM")
 
+    # Build contacts section from all contact sources
+    contacts = deal.get("contact_roles") or deal.get("contacts") or []
+    if contacts:
+        contacts_lines = []
+        for c in contacts:
+            name = c.get("name") or c.get("Full_Name") or ""
+            email = c.get("email") or c.get("Email") or ""
+            role = c.get("role") or c.get("Contact_Role") or "Unknown"
+            contacts_lines.append(f"  - {name} <{email}> | {role}")
+        contacts_section = "CONTACTS:\n" + "\n".join(contacts_lines)
+    else:
+        contacts_section = "CONTACTS: None linked in CRM — deal may lack key stakeholders"
+    lines.append(f"\n{contacts_section}")
+
     closed_meetings = deal.get("closed_meetings") or []
     if closed_meetings:
         lines.append("\nCOMPLETED MEETINGS:")
@@ -294,7 +308,51 @@ async def get_ack_recommendation(deal_id: str, authorization: str = Header(...))
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
 
-    health = score_deal_from_zoho(raw)
+    # Enrich with contact/persona data
+    deal_with_health = dict(raw)
+    contacts_block = ""
+    if not simulated:
+        try:
+            from services.contact_intelligence import get_deal_contacts, format_contacts_for_ai
+            import logging as _logging
+            _log = _logging.getLogger(__name__)
+            user_key = session.get("email") or session.get("user_id") or "default"
+            contacts_data = await get_deal_contacts(
+                deal_id=deal_id,
+                zoho_token=session.get("access_token", ""),
+                user_key=user_key,
+                db=None,
+            )
+            contacts_block = format_contacts_for_ai(
+                contacts_data.get("zoho_contacts", []),
+                contacts_data.get("confirmed_personas", []),
+                contacts_data.get("potential_personas", []),
+            )
+            # Merge confirmed contact count into deal for health scoring
+            total_confirmed = len(contacts_data.get("zoho_contacts", [])) + len(contacts_data.get("confirmed_personas", []))
+            if total_confirmed:
+                deal_with_health["contact_count"] = total_confirmed
+                deal_with_health["contact_roles"] = contacts_data.get("zoho_contacts", []) + contacts_data.get("confirmed_personas", [])
+        except Exception as e:
+            import logging as _logging
+            _logging.getLogger(__name__).warning("analysis: contacts fetch failed deal=%s: %s", deal_id, e)
+
+    # Fetch Outlook emails for communication-based scoring
+    _outlook_emails_for_health: list = []
+    if not simulated:
+        try:
+            from services.outlook_enrichment import get_enriched_emails
+            _user_key = session.get("email") or session.get("user_id") or "default"
+            _outlook_emails_for_health = await get_enriched_emails(
+                deal_id=deal_id,
+                zoho_token=session.get("access_token", ""),
+                user_key=_user_key,
+                limit=20,
+            )
+        except Exception:
+            pass
+
+    health = score_deal_from_zoho(deal_with_health, outlook_emails=_outlook_emails_for_health or None)
 
     last_activity = raw.get("last_activity_time")
     days_stalled = 0
@@ -448,4 +506,142 @@ async def demo_autopsy():
         health_signals=signals,
         kill_reason="No response after 5 follow-ups. Buyer went silent after pricing discussion.",
     )
+
+
+# ── Stage Drift Detection ─────────────────────────────────────────────────────
+
+ZOHO_STAGES = [
+    "Qualification",
+    "Needs Analysis",
+    "Value Proposition",
+    "Id. Decision Makers",
+    "Perception Analysis",
+    "Proposal/Price Quote",
+    "Negotiation/Review",
+    "Contract Sent",
+    "Closed Won",
+    "Closed Lost",
+]
+
+# Stage keywords: if these phrases appear in emails/context, the deal is likely at that stage
+_STAGE_SIGNALS: dict[str, list[str]] = {
+    "Qualification":        ["intro call", "discovery call", "initial meeting", "first call", "qualify", "qualification"],
+    "Needs Analysis":       ["requirements", "use case", "pain points", "needs analysis", "scoping", "current process"],
+    "Value Proposition":    ["demo", "product demo", "demo done", "showed the product", "walkthrough", "product walk"],
+    "Proposal/Price Quote": ["proposal", "quote", "pricing", "cost breakdown", "roi", "business case"],
+    "Negotiation/Review":   ["negotiation", "negotiate", "counter", "revised pricing", "revised proposal", "legal review"],
+    "Contract Sent":        ["contract", "agreement", "msa", "nda", "docusign", "signed", "order form", "statement of work", "sow"],
+    "Closed Won":           ["purchase order", "po sent", "kicked off", "onboarding", "invoice"],
+}
+
+
+class StageCheckRequest(BaseModel):
+    deal_id: str
+    current_stage: str
+    deal_name: Optional[str] = None
+    account_name: Optional[str] = None
+
+
+@router.post("/stage-check")
+async def check_stage_drift(
+    request: StageCheckRequest,
+    authorization: str = Header(...),
+):
+    """
+    Analyze recent emails + activities to detect if the CRM stage is stale.
+    Returns suggested_stage + reasoning when drift is detected, or no_drift=True.
+    """
+    import logging
+    import os
+    _log = logging.getLogger(__name__)
+    session = _decode_session(authorization)
+
+    # ── 1. Fetch email context ────────────────────────────────────────────────
+    email_context = await _fetch_email_context(request.deal_id, session, limit=10)
+
+    # ── 2. Fast heuristic: keyword scan on email context ─────────────────────
+    email_lower = email_context.lower()
+    keyword_hits: dict[str, int] = {}
+    for stage, keywords in _STAGE_SIGNALS.items():
+        hits = sum(1 for kw in keywords if kw in email_lower)
+        if hits:
+            keyword_hits[stage] = hits
+
+    # ── 3. Demo mode — lightweight path, no Groq call ────────────────────────
+    if _is_demo(session):
+        # Simulate a drift: if stage is "Value Proposition" (demo done), suggest contract stage
+        demo_drift_map = {
+            "Value Proposition": ("Contract Sent", "Emails mention contract review and docusign link shared with buyer."),
+            "Needs Analysis":    ("Proposal/Price Quote", "Recent emails discuss pricing and ROI breakdown."),
+            "Qualification":     ("Needs Analysis", "Emails show completed discovery and requirements discussion."),
+        }
+        if request.current_stage in demo_drift_map:
+            sugg, reason = demo_drift_map[request.current_stage]
+            return {
+                "no_drift": False,
+                "current_stage": request.current_stage,
+                "suggested_stage": sugg,
+                "confidence": "high",
+                "reasoning": reason,
+                "evidence": [f"Email context contains language consistent with {sugg} stage."],
+            }
+        return {"no_drift": True, "current_stage": request.current_stage}
+
+    # ── 4. Call Groq for AI-powered detection ────────────────────────────────
+    try:
+        from groq import AsyncGroq
+        client = AsyncGroq(api_key=os.getenv("GROQ_API_KEY"))
+
+        prompt = f"""You are a CRM data quality checker for a B2B sales team.
+
+TASK: Determine if the CRM deal stage is stale or accurate based on recent email activity.
+
+DEAL: {request.deal_name or request.deal_id} ({request.account_name or "Unknown Account"})
+CURRENT CRM STAGE: {request.current_stage}
+
+VALID STAGES (in order):
+{chr(10).join(f"  {i+1}. {s}" for i, s in enumerate(ZOHO_STAGES))}
+
+RECENT EMAIL THREAD:
+{email_context}
+
+INSTRUCTIONS:
+- Read the email thread carefully.
+- If the emails clearly show the deal is at a DIFFERENT (usually more advanced) stage than CRM says, return that stage.
+- Only flag drift if you are confident (emails contain clear, specific evidence like "sending the contract", "docusign link", "proposal attached", etc.)
+- If emails are ambiguous or absent, return no_drift.
+- Do NOT suggest Closed Won or Closed Lost unless there is explicit confirmation.
+
+Respond ONLY with valid JSON — no markdown, no explanation:
+{{
+  "no_drift": true/false,
+  "suggested_stage": "Exact stage name from the list above, or null if no_drift",
+  "confidence": "high|medium|low",
+  "reasoning": "One sentence. Cite specific email evidence.",
+  "evidence": ["specific quote or signal from email 1", "signal 2"]
+}}"""
+
+        resp = await client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            max_tokens=300,
+            temperature=0.1,
+            messages=[{"role": "user", "content": prompt}],
+        )
+
+        raw = resp.choices[0].message.content.strip()
+        result = json.loads(raw)
+
+        # Validate suggested_stage is a real stage
+        if not result.get("no_drift") and result.get("suggested_stage") not in ZOHO_STAGES:
+            return {"no_drift": True, "current_stage": request.current_stage}
+
+        # Don't flag if suggestion == current stage
+        if result.get("suggested_stage") == request.current_stage:
+            return {"no_drift": True, "current_stage": request.current_stage}
+
+        return {"current_stage": request.current_stage, **result}
+
+    except Exception as exc:
+        _log.warning("stage-check Groq call failed deal=%s: %s", request.deal_id, exc)
+        return {"no_drift": True, "current_stage": request.current_stage}
     return {"deal_id": "sim_004", "autopsy": autopsy, "health_at_death": {"score": health.total_score, "label": health.health_label}}

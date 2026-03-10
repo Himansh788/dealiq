@@ -530,4 +530,38 @@ export const api = {
       method: "DELETE",
       headers: authHeaders(),
     }).then(handleResponse),
+
+  // ── Stage Drift Detection ──────────────────────────────────────────────────
+  checkStageDrift: (dealId: string, currentStage: string, dealName?: string, accountName?: string) =>
+    fetchWithTimeout(`${API_URL}/analysis/stage-check`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({
+        deal_id: dealId,
+        current_stage: currentStage,
+        deal_name: dealName ?? null,
+        account_name: accountName ?? null,
+      }),
+    }).then(handleResponse),
+
+  // ── Contact Intelligence ───────────────────────────────────────────────────
+
+  getDealContacts: (dealId: string, signal?: AbortSignal): Promise<any> =>
+    fetchWithTimeout(`${API_URL}/contacts/${dealId}`, {
+      headers: authHeaders(),
+      signal,
+    }).then(handleResponse),
+
+  confirmPersona: (
+    dealId: string,
+    email: string,
+    status: "confirmed" | "rejected",
+    name?: string,
+    role?: string,
+  ): Promise<any> =>
+    fetchWithTimeout(`${API_URL}/contacts/${dealId}/confirm`, {
+      method: "POST",
+      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ email, status, name, role }),
+    }).then(handleResponse),
 };

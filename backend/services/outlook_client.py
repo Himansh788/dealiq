@@ -5,8 +5,11 @@ Replaces gmail_client.py — same interface, Microsoft Graph endpoints.
 Degrades gracefully (returns []) when MICROSOFT_CLIENT_ID is not set.
 """
 
+import logging
 import os
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 MICROSOFT_CLIENT_ID = os.getenv("MICROSOFT_CLIENT_ID")
 GRAPH_API_BASE = "https://graph.microsoft.com/v1.0"
@@ -32,13 +35,16 @@ async def sync_emails_for_deal(
         f"from:{e} to:{e}" for e in contact_emails
     ) if contact_emails else None
 
+    # NOTE: Graph API rejects requests that combine $search with $orderby.
+    # Use one or the other — $search when we have contact emails, $orderby otherwise.
     params: dict[str, Any] = {
         "$top": 25,
-        "$orderby": "receivedDateTime desc",
         "$select": "id,subject,from,toRecipients,receivedDateTime,bodyPreview,isRead",
     }
     if search_query:
         params["$search"] = f'"{search_query}"'
+    else:
+        params["$orderby"] = "receivedDateTime desc"
 
     async with httpx.AsyncClient() as client:
         resp = await client.get(
@@ -48,6 +54,10 @@ async def sync_emails_for_deal(
             timeout=10,
         )
         if resp.status_code != 200:
+            logger.warning(
+                "outlook_client: Graph API returned %d for deal=%s body=%s",
+                resp.status_code, deal_id, resp.text[:300],
+            )
             return []
         return resp.json().get("value", [])
 

@@ -230,12 +230,33 @@ async def get_next_best_action(request: NBARequest, authorization: str = Header(
         else deal.get("_emails_raw", [])
     )
 
+    contacts_block = ""
+    if not _is_demo(session):
+        try:
+            from services.contact_intelligence import get_deal_contacts, format_contacts_for_ai
+            user_key = session.get("email") or session.get("user_id") or "default"
+            contacts_data = await get_deal_contacts(
+                deal_id=request.deal_id,
+                zoho_token=session.get("access_token", ""),
+                user_key=user_key,
+                db=None,
+            )
+            contacts_block = format_contacts_for_ai(
+                contacts_data.get("zoho_contacts", []),
+                contacts_data.get("confirmed_personas", []),
+                contacts_data.get("potential_personas", []),
+            )
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning("ai_rep: contacts fetch failed deal=%s: %s", request.deal_id, e)
+
     action_plan = await generate_next_best_action(
         deal=deal_with_health,
         health_signals=signals,
         rep_name=rep_name,
         email_thread=email_thread,
         deal_context=build_deal_context(deal_with_health),
+        contacts_block=contacts_block,
     )
 
     return {
@@ -276,6 +297,26 @@ async def draft_email(request: EmailDraftRequest, authorization: str = Header(..
     )
     email_context = _fmt_emails(emails)
 
+    contacts_block = ""
+    if not _is_demo(session):
+        try:
+            from services.contact_intelligence import get_deal_contacts, format_contacts_for_ai
+            user_key = session.get("email") or session.get("user_id") or "default"
+            contacts_data = await get_deal_contacts(
+                deal_id=request.deal_id,
+                zoho_token=session.get("access_token", ""),
+                user_key=user_key,
+                db=None,
+            )
+            contacts_block = format_contacts_for_ai(
+                contacts_data.get("zoho_contacts", []),
+                contacts_data.get("confirmed_personas", []),
+                contacts_data.get("potential_personas", []),
+            )
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning("ai_rep: contacts fetch failed deal=%s: %s", request.deal_id, e)
+
     email = await generate_email_draft(
         deal=deal_with_health,
         rep_name=rep_name,
@@ -283,6 +324,7 @@ async def draft_email(request: EmailDraftRequest, authorization: str = Header(..
         action_context=request.action_context or "",
         email_context=email_context,
         deal_context=build_deal_context(deal_with_health),
+        contacts_block=contacts_block,
     )
 
     return {
@@ -365,6 +407,26 @@ async def get_call_brief(request: CallBriefRequest, authorization: str = Header(
     email_context = _fmt_emails(emails)
     activity_context = _build_activity_context(deal_with_health)
 
+    contacts_block = ""
+    if not _is_demo(session):
+        try:
+            from services.contact_intelligence import get_deal_contacts, format_contacts_for_ai
+            user_key = session.get("email") or session.get("user_id") or "default"
+            contacts_data = await get_deal_contacts(
+                deal_id=request.deal_id,
+                zoho_token=session.get("access_token", ""),
+                user_key=user_key,
+                db=None,
+            )
+            contacts_block = format_contacts_for_ai(
+                contacts_data.get("zoho_contacts", []),
+                contacts_data.get("confirmed_personas", []),
+                contacts_data.get("potential_personas", []),
+            )
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning("ai_rep: contacts fetch failed deal=%s: %s", request.deal_id, e)
+
     brief = await generate_call_brief(
         deal=deal_with_health,
         health_signals=signals,
@@ -372,6 +434,7 @@ async def get_call_brief(request: CallBriefRequest, authorization: str = Header(
         email_context=email_context,
         activity_context=activity_context,
         deal_context=build_deal_context(deal_with_health),
+        contacts_block=contacts_block,
     )
 
     return {

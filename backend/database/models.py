@@ -425,3 +425,34 @@ class MicrosoftToken(Base):
     scopes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime | None] = mapped_column(DateTime, onupdate=func.now())
+
+
+# ---------------------------------------------------------------------------
+# deal_personas  (contact intelligence — Zoho contacts + Outlook-discovered)
+# ---------------------------------------------------------------------------
+
+class DealPersona(Base):
+    __tablename__ = "deal_personas"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_new_uuid)
+    deal_zoho_id: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    # Identity
+    email: Mapped[str] = mapped_column(String(255), nullable=False)
+    name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    role: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Source
+    source: Mapped[str] = mapped_column(String(20), nullable=False)  # zoho | outlook_discovered
+    # Rep decision
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")  # confirmed | pending | rejected
+    confirmed_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Extra metadata from email (display name from email headers)
+    display_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    last_seen_at: Mapped[str | None] = mapped_column(String(50), nullable=True)  # ISO date of last email
+    email_count: Mapped[int] = mapped_column(Integer, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        # One record per (deal, email) — upsert on conflict
+        Index("uq_deal_personas_deal_email", "deal_zoho_id", "email", unique=True),
+    )
