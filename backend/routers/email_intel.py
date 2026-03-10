@@ -428,13 +428,28 @@ async def get_email_thread(
     deal_id: str,
     authorization: str = Header(...),
     db: AsyncSession = Depends(get_db),
+    force_refresh: bool = False,
 ):
     """
     Return full email threads with bodies for a deal.
     Flat list + thread-grouped list returned together.
     AI analysis runs inline on the most active thread.
+    Results are cached in Redis for 15 min. Pass ?force_refresh=true to bypass.
     """
     session = _decode_session(authorization)
+    user_key = _user_key(session)
+
+    # ── Redis cache (skip for demo, skip when force_refresh=true) ─────────────
+    if not _is_demo(session) and not force_refresh:
+        try:
+            from services.cache import cache_get, cache_key as _ck
+            _cache_key = _ck("email_intel", user_key, deal_id)
+            cached = await cache_get(_cache_key)
+            if cached:
+                logger.debug("email_intel: cache hit user=%s deal=%s", user_key, deal_id)
+                return cached
+        except Exception as _ce:
+            logger.debug("email_intel: cache_get error: %s", _ce)
 
     # ── Demo ──────────────────────────────────────────────────────────────────
     if _is_demo(session) or deal_id.startswith("sim_"):
@@ -459,7 +474,6 @@ async def get_email_thread(
 
     # ── Real session ──────────────────────────────────────────────────────────
     zoho_token = session.get("access_token", "")
-    user_key = _user_key(session)
     emails: list[dict] = []
 
     # ── Step 1: Build deal context (needed for Outlook attribution) ────────
@@ -570,7 +584,7 @@ async def get_email_thread(
         "outlook_connected": ms_token is not None,
     }
 
-    return {
+    response = {
         "deal_id":        deal_id,
         "thread_count":   len(emails),
         "emails":         emails,
@@ -579,6 +593,45 @@ async def get_email_thread(
         "source":         "outlook+zoho" if (n_outlook and n_zoho) else ("outlook" if n_outlook else ("zoho" if n_zoho else "empty")),
         "source_summary": source_summary,
     }
+
+    # ── Persist AI extraction to DB (write-back so next load skips Groq) ─────
+    if extracted and db is not None:
+        try:
+            from database.models import EmailExtraction
+            from sqlalchemy import select as _select
+            # Upsert: delete old row for this deal then insert new one
+            existing = (await db.execute(
+                _select(EmailExtraction)
+                .where(EmailExtraction.deal_zoho_id == deal_id)
+                .order_by(EmailExtraction.created_at.desc())
+                .limit(1)
+            )).scalars().first()
+            if existing is None:
+                import uuid as _uuid
+                new_row = EmailExtraction(
+                    id=str(_uuid.uuid4()),
+                    deal_zoho_id=deal_id,
+                    next_step=extracted.get("next_step"),
+                    commitments=[c if isinstance(c, str) else str(c) for c in (extracted.get("commitments") or [])],
+                    open_questions=extracted.get("open_questions") or [],
+                    sentiment=extracted.get("sentiment"),
+                )
+                db.add(new_row)
+                await db.commit()
+                logger.debug("email_intel: saved AI extraction to DB for deal=%s", deal_id)
+        except Exception as _dbe:
+            logger.debug("email_intel: DB write-back failed deal=%s: %s", deal_id, _dbe)
+
+    # ── Cache the full response in Redis (15 min TTL) ─────────────────────────
+    try:
+        from services.cache import cache_set, cache_key as _ck, TTL_EMAIL_INTEL
+        _cache_key = _ck("email_intel", user_key, deal_id)
+        await cache_set(_cache_key, response, ttl=TTL_EMAIL_INTEL)
+        logger.debug("email_intel: cached response user=%s deal=%s ttl=900", user_key, deal_id)
+    except Exception as _ce:
+        logger.debug("email_intel: cache_set error: %s", _ce)
+
+    return response
 
 
 @router.post("/analyse/{deal_id}")

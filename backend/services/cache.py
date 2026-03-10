@@ -29,6 +29,7 @@ TTL_PIPELINE_METRICS = int(os.getenv("CACHE_TTL_PIPELINE_METRICS", "300"))   # 5
 TTL_AI_ANALYSIS      = int(os.getenv("CACHE_TTL_AI_ANALYSIS",      "3600"))  # 1 hr
 TTL_DEAL_DETAIL      = int(os.getenv("CACHE_TTL_DEAL_DETAIL",      "180"))   # 3 min
 TTL_EMAIL_ENRICHMENT = int(os.getenv("CACHE_TTL_EMAIL_ENRICHMENT",  "300"))  # 5 min
+TTL_EMAIL_INTEL      = int(os.getenv("CACHE_TTL_EMAIL_INTEL",       "900"))  # 15 min — full thread+AI response
 TTL_TIMELINE         = int(os.getenv("CACHE_TTL_TIMELINE",          "600"))  # 10 min
 TTL_ACTIVITIES       = int(os.getenv("CACHE_TTL_ACTIVITIES",        "300"))  # 5 min
 

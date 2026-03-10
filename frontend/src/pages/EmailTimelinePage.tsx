@@ -1385,10 +1385,14 @@ function AIInsightsPanel({
 export default function EmailTimelinePage() {
   const { toast } = useToast();
 
+  // Search-driven deal selector — no upfront bulk fetch
   const [deals, setDeals] = useState<Deal[]>([]);
-  const [dealsLoading, setDealsLoading] = useState(true);
+  const [dealsLoading, setDealsLoading] = useState(false);
+  const [dealSearch, setDealSearch] = useState("");
   const [open, setOpen] = useState(false);
   const [selectedDealId, setSelectedDealId] = useState("");
+  const [selectedDeal, setSelectedDeal] = useState<Deal | null>(null);
+  const dealSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [thread, setThread] = useState<ThreadData | null>(null);
   const [threadLoading, setThreadLoading] = useState(false);
@@ -1398,34 +1402,41 @@ export default function EmailTimelinePage() {
   const [viewMode, setViewMode] = useState<"grouped" | "flat">("grouped");
   const [draftModalOpen, setDraftModalOpen] = useState(false);
 
-  const selectedDeal = deals.find(d => d.id === selectedDealId);
-
-  // Normalize deal names (deal_name vs name)
+  // Debounced search: query Zoho when user types 2+ chars
   useEffect(() => {
-    let cancelled = false;
-
-    api.getAllDeals()
-      .then(data => {
-        if (cancelled) return;
-        const list = Array.isArray(data) ? data : [];
-        setDeals(list.map((d: any) => ({
-          id: d.id,
-          name: d.name ?? d.deal_name ?? "Unnamed Deal",
-          stage: d.stage ?? "Unknown",
-          health_label: d.health_label ?? "critical",
-          amount: d.amount ?? 0,
-        })));
-      })
-      .catch((err: unknown) => {
-        if (cancelled) return;
-        if (err instanceof DOMException && err.name === "AbortError") return;
-        if (err instanceof Error && err.name === "AbortError") return;
-        toast({ title: "Couldn't load deals", description: "Please refresh to try again.", variant: "destructive" });
-      })
-      .finally(() => { if (!cancelled) setDealsLoading(false); });
-
-    return () => { cancelled = true; };
-  }, []);
+    if (dealSearchTimer.current) clearTimeout(dealSearchTimer.current);
+    const term = dealSearch.trim();
+    if (term.length < 2) {
+      setDeals([]);
+      setDealsLoading(false);
+      return;
+    }
+    setDealsLoading(true);
+    dealSearchTimer.current = setTimeout(() => {
+      let cancelled = false;
+      api.getDealsPage(1, 20, term)
+        .then((data: any) => {
+          if (cancelled) return;
+          const list: any[] = data.deals ?? data ?? [];
+          setDeals(list.map((d: any) => ({
+            id: d.id,
+            name: d.name ?? d.deal_name ?? "Unnamed Deal",
+            stage: d.stage ?? "Unknown",
+            health_label: d.health_label ?? "critical",
+            amount: d.amount ?? 0,
+          })));
+        })
+        .catch((err: unknown) => {
+          if (cancelled) return;
+          if (err instanceof DOMException && err.name === "AbortError") return;
+          if (err instanceof Error && err.name === "AbortError") return;
+          toast({ title: "Search failed", description: "Couldn't search deals. Try again.", variant: "destructive" });
+        })
+        .finally(() => { if (!cancelled) setDealsLoading(false); });
+      return () => { cancelled = true; };
+    }, 350);
+    return () => { if (dealSearchTimer.current) clearTimeout(dealSearchTimer.current); };
+  }, [dealSearch]);
 
   useEffect(() => {
     if (!selectedDealId) { setThread(null); return; }
@@ -1454,7 +1465,7 @@ export default function EmailTimelinePage() {
     try {
       const result = await api.syncEmailsForDeal(selectedDealId);
       toast({ title: "Sync complete", description: `${result.threads_found ?? 0} email(s) found.` });
-      setThread(await api.getEmailThread(selectedDealId));
+      setThread(await api.getEmailThread(selectedDealId, undefined, true));
     } catch {
       toast({ title: "Sync failed", description: "Couldn't sync emails. Please try again.", variant: "destructive" });
     } finally {
@@ -1561,42 +1572,58 @@ export default function EmailTimelinePage() {
         {/* Controls */}
         <div className="flex items-center gap-3 flex-wrap">
 
-          {/* Deal selector */}
-          {dealsLoading ? <Skeleton className="h-8 w-56 rounded-lg" /> : (
-            <Popover open={open} onOpenChange={setOpen}>
-              <PopoverTrigger asChild>
-                <Button variant="outline" role="combobox" aria-expanded={open}
-                  className="h-8 min-w-[220px] max-w-xs justify-between text-xs border-border/50 font-normal">
-                  {selectedDeal
-                    ? <span className="flex items-center gap-2 truncate">
-                      <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", HEALTH_DOT[selectedDeal.health_label] ?? "bg-muted-foreground")} />
-                      <span className="truncate">{selectedDeal.name}</span>
-                    </span>
-                    : <span className="text-muted-foreground">Select a deal…</span>}
-                  <ChevronsUpDown className="ml-2 h-3 w-3 shrink-0 opacity-50" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-[320px] p-0" align="start">
-                <Command>
-                  <CommandInput placeholder="Search deals…" className="h-8 text-xs" />
-                  <CommandList>
-                    <CommandEmpty className="py-4 text-center text-xs text-muted-foreground">No deals found.</CommandEmpty>
-                    <CommandGroup>
-                      {deals.map(d => (
-                        <CommandItem key={d.id} value={`${d.name} ${d.stage}`} className="text-xs"
-                          onSelect={() => { setSelectedDealId(d.id === selectedDealId ? "" : d.id); setOpen(false); }}>
-                          <span className={cn("mr-2 h-1.5 w-1.5 rounded-full shrink-0", HEALTH_DOT[d.health_label] ?? "bg-muted-foreground")} />
-                          <span className="flex-1 truncate">{d.name}</span>
-                          {d.stage && <span className="ml-2 text-muted-foreground/60 shrink-0">{d.stage}</span>}
-                          <Check className={cn("ml-2 h-3 w-3 shrink-0", d.id === selectedDealId ? "opacity-100" : "opacity-0")} />
-                        </CommandItem>
-                      ))}
-                    </CommandGroup>
-                  </CommandList>
-                </Command>
-              </PopoverContent>
-            </Popover>
-          )}
+          {/* Deal selector — search-as-you-type (no upfront bulk fetch) */}
+          <Popover open={open} onOpenChange={setOpen}>
+            <PopoverTrigger asChild>
+              <Button variant="outline" role="combobox" aria-expanded={open}
+                className="h-8 min-w-[220px] max-w-xs justify-between text-xs border-border/50 font-normal">
+                {selectedDeal
+                  ? <span className="flex items-center gap-2 truncate">
+                    <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", HEALTH_DOT[selectedDeal.health_label] ?? "bg-muted-foreground")} />
+                    <span className="truncate">{selectedDeal.name}</span>
+                  </span>
+                  : <span className="text-muted-foreground">Search deals…</span>}
+                <ChevronsUpDown className="ml-2 h-3 w-3 shrink-0 opacity-50" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-[320px] p-0" align="start">
+              <Command shouldFilter={false}>
+                <CommandInput
+                  placeholder="Type to search deals…"
+                  className="h-8 text-xs"
+                  value={dealSearch}
+                  onValueChange={setDealSearch}
+                />
+                <CommandList>
+                  {dealsLoading
+                    ? <div className="py-3 text-center text-xs text-muted-foreground">Searching…</div>
+                    : dealSearch.trim().length < 2
+                    ? <div className="py-3 text-center text-xs text-muted-foreground">Type 2+ characters to search</div>
+                    : deals.length === 0
+                    ? <CommandEmpty className="py-4 text-center text-xs text-muted-foreground">No deals found.</CommandEmpty>
+                    : (
+                      <CommandGroup>
+                        {deals.map(d => (
+                          <CommandItem key={d.id} value={d.id} className="text-xs"
+                            onSelect={() => {
+                              setSelectedDealId(d.id);
+                              setSelectedDeal(d);
+                              setDealSearch("");
+                              setOpen(false);
+                            }}>
+                            <span className={cn("mr-2 h-1.5 w-1.5 rounded-full shrink-0", HEALTH_DOT[d.health_label] ?? "bg-muted-foreground")} />
+                            <span className="flex-1 truncate">{d.name}</span>
+                            {d.stage && <span className="ml-2 text-muted-foreground/60 shrink-0">{d.stage}</span>}
+                            <Check className={cn("ml-2 h-3 w-3 shrink-0", d.id === selectedDealId ? "opacity-100" : "opacity-0")} />
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    )
+                  }
+                </CommandList>
+              </Command>
+            </PopoverContent>
+          </Popover>
 
           {/* View toggle + Sync */}
           {selectedDealId && emails.length > 0 && (

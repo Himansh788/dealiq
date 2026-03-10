@@ -446,8 +446,11 @@ export const api = {
     fetchWithTimeout(`${API_URL}/meeting/history/${dealId}`, { headers: authHeaders() }).then(handleResponse),
 
   // ── Email Intel ────────────────────────────────────────────────────────────
-  getEmailThread: (dealId: string, signal?: AbortSignal) =>
-    fetchWithTimeout(`${API_URL}/email-intel/threads/${dealId}`, { headers: authHeaders(), signal }).then(handleResponse),
+  getEmailThread: (dealId: string, signal?: AbortSignal, forceRefresh = false) =>
+    fetchWithTimeout(
+      `${API_URL}/email-intel/threads/${dealId}${forceRefresh ? "?force_refresh=true" : ""}`,
+      { headers: authHeaders(), signal }
+    ).then(handleResponse),
 
   syncEmailsForDeal: (dealId: string, contactEmails: string[] = []) =>
     fetchWithTimeout(`${API_URL}/email-intel/sync`, {

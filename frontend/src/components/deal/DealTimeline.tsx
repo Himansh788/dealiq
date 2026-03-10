@@ -555,9 +555,17 @@ export default function DealTimeline({ dealId, onFollowUp }: { dealId: string; o
   );
 
   const intel = data.timeline_intelligence;
-  const taskEvents = data.events.filter(e => e.type === "task");
+  // Show most recent events at the top
+  const sortedEvents = [...data.events].sort((a, b) => {
+    // Sort by days_ago ascending (smallest = most recent = top)
+    // future events (is_future=true) stay at bottom
+    if (a.is_future && !b.is_future) return 1;
+    if (!a.is_future && b.is_future) return -1;
+    return (a.days_ago ?? 0) - (b.days_ago ?? 0);
+  });
+  const taskEvents = sortedEvents.filter(e => e.type === "task");
   const latestTaskIdx = taskEvents.length > 0
-    ? data.events.findIndex(e => e === taskEvents[taskEvents.length - 1])
+    ? sortedEvents.findIndex(e => e === taskEvents[0])
     : -1;
 
   // Show ghost no-reply row when last email was > 30d ago
@@ -590,8 +598,8 @@ export default function DealTimeline({ dealId, onFollowUp }: { dealId: string; o
         <div className="absolute left-[7px] top-0 bottom-0 w-px bg-border/60" />
 
         <div className="space-y-0">
-          {data.events.map((event, i) => {
-            const isLast     = i === data.events.length - 1;
+          {sortedEvents.map((event, i) => {
+            const isLast     = i === sortedEvents.length - 1;
             const isOverdue  = event.type === "closing_overdue";
             const isStage    = event.type === "stage_change";
             const isLastAct  = event.type === "last_activity";
