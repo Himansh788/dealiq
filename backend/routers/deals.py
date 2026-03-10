@@ -88,8 +88,8 @@ def is_active_deal(raw: dict, quarter_start: datetime, quarter_end: datetime) ->
             overdue_cutoff = quarter_start - timedelta(days=30)  # grace window for overdue
             if cd < overdue_cutoff:
                 return False   # too stale, past quarter started
-            if cd > quarter_end:
-                return False   # closing date beyond current quarter
+            if cd > quarter_end + timedelta(days=90):
+                return False   # closing date more than one quarter ahead
         except (ValueError, TypeError):
             pass  # unparseable date → include the deal
 
