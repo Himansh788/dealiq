@@ -8,6 +8,7 @@ from typing import Optional
 from groq import AsyncGroq
 from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel
+from services.cache import cache_get, cache_set, cache_delete, cache_key as _bck
 
 from services.health_scorer import score_deal_from_zoho
 from routers.warnings import _compute_warnings
@@ -36,10 +37,9 @@ def _is_demo(session: dict) -> bool:
     return session.get("access_token") == "DEMO_MODE"
 
 
-# ── In-memory cache: { deal_id: { data: dict, generated_at: datetime } } ────────
-
-_battlecard_cache: dict = {}
-CACHE_TTL_MINUTES = 60
+# TTL in seconds — battle cards cached for 1 hour with email context, 10 min without
+CACHE_TTL_SECONDS = 3600
+CACHE_TTL_NO_EMAIL = 600
 
 
 # ── Request / helpers ─────────────────────────────────────────────────────────
@@ -259,17 +259,17 @@ async def generate_battlecard(
 ):
     session = _decode_session(authorization)
     deal_id = body.deal_id
-
-    # Serve from cache if still fresh
-    cached_entry = _battlecard_cache.get(deal_id)
-    if cached_entry:
-        age_minutes = (datetime.utcnow() - cached_entry["generated_at"]).total_seconds() / 60
-        ttl = cached_entry.get("ttl_minutes", CACHE_TTL_MINUTES)
-        if age_minutes < ttl:
-            return {**cached_entry["data"], "cached": True}
-
-    # Fetch deal
     is_demo = _is_demo(session)
+
+    # Redis cache — user-scoped to prevent cross-tenant leakage
+    _user = (session.get("email") or session.get("user_id") or "anon").replace(":", "_")
+    _redis_key = _bck("battlecard", _user, deal_id)
+    if not is_demo:
+        _cached = await cache_get(_redis_key)
+        if _cached:
+            logger.debug("battlecard cache hit user=%s deal=%s", _user, deal_id)
+            return {**_cached, "cached": True}
+
     if is_demo:
         raw_deal = _get_demo_deal(deal_id)
     else:
@@ -352,18 +352,17 @@ async def generate_battlecard(
         "cached": False,
     }
 
-    # Only cache if we have email context — without it the card is lower quality
-    # and should be regenerated sooner (10 min) to pick up Outlook data once connected.
-    cache_ttl_override = None if email_context else 10  # noqa: stored in entry for future use
-    _battlecard_cache[deal_id] = {
-        "data": response_data,
-        "generated_at": datetime.utcnow(),
-        "ttl_minutes": cache_ttl_override if cache_ttl_override else CACHE_TTL_MINUTES,
-    }
+    # Cache in Redis — shorter TTL when no email context (lower quality card)
+    if not is_demo:
+        ttl = CACHE_TTL_SECONDS if email_context else CACHE_TTL_NO_EMAIL
+        await cache_set(_redis_key, response_data, ttl=ttl)
+
     return response_data
 
 
 @router.delete("/battlecard/cache/{deal_id}")
-async def clear_battlecard_cache(deal_id: str):
-    _battlecard_cache.pop(deal_id, None)
+async def clear_battlecard_cache(deal_id: str, authorization: str = Header(default="")):
+    """Invalidate battle card cache for a deal. Clears all users' cached cards for this deal."""
+    from services.cache import cache_delete_pattern
+    await cache_delete_pattern(f"dealiq:battlecard:*:{deal_id}")
     return {"cleared": True, "deal_id": deal_id}

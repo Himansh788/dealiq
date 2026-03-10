@@ -52,9 +52,24 @@ async def get_enriched_emails(
       body_full       str   (Zoho emails only; Outlook has bodyPreview)
       _outlook_match  dict  {confidence, attribution, in_zoho, is_internal}
                             present only for Outlook-sourced emails
+
+    Results are cached in Redis per (user_key, deal_id) for 5 minutes.
+    Cache is user-scoped — no cross-user leakage.
     """
     if not deal_id or not zoho_token:
         return []
+
+    # ── Redis cache — user + deal scoped ──────────────────────────────────
+    try:
+        from services.cache import cache_get, cache_set, cache_key as _ck, TTL_EMAIL_ENRICHMENT
+        _safe_user = (user_key or "anon").replace(":", "_")
+        _cache_key = _ck("emails", _safe_user, deal_id)
+        _cached = await cache_get(_cache_key)
+        if _cached is not None:
+            logger.debug("outlook_enrichment: cache hit user=%s deal=%s", _safe_user, deal_id)
+            return _cached[:limit]
+    except Exception:
+        _cache_key = None
 
     # ── Step 1: build deal context for the attribution engine ──────────────
     deal_context: dict = {}
@@ -130,7 +145,17 @@ async def get_enriched_emails(
     # ── Step 4: merge, sort, cap ───────────────────────────────────────────
     merged = outlook_matched + zoho_emails
     merged.sort(key=lambda e: e.get("date") or e.get("sent_at") or "", reverse=True)
-    return merged[:limit]
+    result = merged[:limit]
+
+    # ── Step 5: write to Redis cache ───────────────────────────────────────
+    try:
+        if _cache_key:
+            from services.cache import cache_set, TTL_EMAIL_ENRICHMENT
+            await cache_set(_cache_key, result, ttl=TTL_EMAIL_ENRICHMENT)
+    except Exception:
+        pass
+
+    return result
 
 
 # ── AI prompt formatter ────────────────────────────────────────────────────────

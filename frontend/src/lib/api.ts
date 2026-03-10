@@ -148,7 +148,9 @@ export const api = {
     if (filters?.health_label && filters.health_label !== "all") url.searchParams.set("health_label", filters.health_label);
     if (filters?.owner && filters.owner !== "all") url.searchParams.set("owner", filters.owner);
     if (filters?.stage && filters.stage !== "all") url.searchParams.set("stage", filters.stage);
-    return fetchWithTimeout(url.toString(), { headers: authHeaders(), signal }).then(handleResponse);
+    // 45s timeout — Zoho can be slow on first load before DB cache is warm.
+    // Subsequent loads hit the DB cache and return in <1s.
+    return fetchWithTimeout(url.toString(), { headers: authHeaders(), signal, timeoutMs: 45_000 }).then(handleResponse);
   },
 
   getDealFilterOptions: (): Promise<{ owners: string[]; stages: string[] }> =>

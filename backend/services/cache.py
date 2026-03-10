@@ -24,10 +24,13 @@ logger = logging.getLogger(__name__)
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
 # TTL constants — override via .env
-TTL_HEALTH_SCORES = int(os.getenv("CACHE_TTL_HEALTH_SCORES", "300"))     # 5 min
-TTL_PIPELINE_METRICS = int(os.getenv("CACHE_TTL_PIPELINE_METRICS", "120"))  # 2 min
-TTL_AI_ANALYSIS = int(os.getenv("CACHE_TTL_AI_ANALYSIS", "1800"))        # 30 min
-TTL_DEAL_DETAIL = int(os.getenv("CACHE_TTL_DEAL_DETAIL", "180"))          # 3 min
+TTL_HEALTH_SCORES    = int(os.getenv("CACHE_TTL_HEALTH_SCORES",    "300"))   # 5 min
+TTL_PIPELINE_METRICS = int(os.getenv("CACHE_TTL_PIPELINE_METRICS", "300"))   # 5 min (was 2 — too aggressive, caused redundant Groq calls)
+TTL_AI_ANALYSIS      = int(os.getenv("CACHE_TTL_AI_ANALYSIS",      "3600"))  # 1 hr
+TTL_DEAL_DETAIL      = int(os.getenv("CACHE_TTL_DEAL_DETAIL",      "180"))   # 3 min
+TTL_EMAIL_ENRICHMENT = int(os.getenv("CACHE_TTL_EMAIL_ENRICHMENT",  "300"))  # 5 min
+TTL_TIMELINE         = int(os.getenv("CACHE_TTL_TIMELINE",          "600"))  # 10 min
+TTL_ACTIVITIES       = int(os.getenv("CACHE_TTL_ACTIVITIES",        "300"))  # 5 min
 
 # Connection pool — created lazily on first use, shared across requests.
 _pool = None

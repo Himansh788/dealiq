@@ -347,6 +347,10 @@ export default function Dashboard() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { toast } = useToast();
 
+  // Stable primitive dep — prevents the whole session object reference causing spurious
+  // effect re-runs (and aborting in-flight requests) on parent re-renders.
+  const sessionToken = session?.access_token ?? null;
+
   // Data state
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [allDeals, setAllDeals] = useState<Deal[]>([]);
@@ -390,6 +394,10 @@ export default function Dashboard() {
   // Ref to scroll the deal table into view on page change
   const dealTableRef = useRef<HTMLDivElement>(null);
 
+  // Prevents the search debounce from firing a no-op state update on initial mount,
+  // which would trigger a re-render and potentially abort the first deals fetch.
+  const searchMountedRef = useRef(false);
+
   // Filter state
   const [searchName, setSearchName] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -399,7 +407,7 @@ export default function Dashboard() {
 
   // Load metrics + AI summary in one shot (both served from shared server cache)
   useEffect(() => {
-    if (!session) { navigate("/", { replace: true }); return; }
+    if (!sessionToken) { navigate("/", { replace: true }); return; }
     const controller = new AbortController();
     let cancelled = false;
 
@@ -431,22 +439,28 @@ export default function Dashboard() {
       });
 
     return () => { cancelled = true; controller.abort(); };
-  }, [session, navigate]);
+  }, [sessionToken, navigate]);
 
   // Fetch filter options (all owners + stages across all deals) once on mount
   useEffect(() => {
-    if (!session) return;
+    if (!sessionToken) return;
     api.getDealFilterOptions()
       .then(({ owners, stages }) => {
         setOwnerOptions(owners);
         setStageOptions(stages);
       })
       .catch(() => {}); // non-critical — dropdowns fall back to empty
-  }, [session]);
+  }, [sessionToken]);
 
-  // Debounce search input — 300ms after typing stops, update debouncedSearch and reset to page 1
+  // Debounce search input — 300ms after typing stops, update debouncedSearch and reset to page 1.
+  // Guard skips the initial mount so we don't fire a no-op state update that could
+  // trigger a re-render cycle and abort the first deals fetch.
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
+    if (!searchMountedRef.current) {
+      searchMountedRef.current = true;
+      return;
+    }
     if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
     searchDebounceRef.current = setTimeout(() => {
       setDebouncedSearch(searchName);
@@ -462,9 +476,11 @@ export default function Dashboard() {
     setCurrentPage(1);
   }, [filterHealth, filterOwner, filterStage]);
 
-  // Load deals — re-fetches on page change or search change
+  // Load deals — re-fetches on page/filter/search change.
+  // Uses sessionToken (primitive string) as dep instead of the session object so that
+  // parent re-renders don't create a new object reference and abort the in-flight request.
   useEffect(() => {
-    if (!session) return;
+    if (!sessionToken) return;
     const controller = new AbortController();
     let cancelled = false;
     setLoadingDeals(true);
@@ -502,15 +518,17 @@ export default function Dashboard() {
         if (cancelled) return;
         if (err instanceof DOMException && err.name === "AbortError") return;
         if (err instanceof Error && err.name === "AbortError") return;
-        setAllDeals(DEMO_DEALS);
-        setTotalDeals(DEMO_DEALS.length);
-        setTotalPages(Math.ceil(DEMO_DEALS.length / PER_PAGE) || 1);
+        // Only fall back to demo data if we have no deals loaded yet
+        if (allDeals.length === 0) {
+          setAllDeals(DEMO_DEALS);
+          setTotalDeals(DEMO_DEALS.length);
+          setTotalPages(Math.ceil(DEMO_DEALS.length / PER_PAGE) || 1);
+        }
       })
       .finally(() => { if (!cancelled) setLoadingDeals(false); });
 
     return () => { cancelled = true; controller.abort(); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session, currentPage, debouncedSearch, filterHealth, filterOwner, filterStage]);
+  }, [sessionToken, currentPage, debouncedSearch, filterHealth, filterOwner, filterStage]);
 
   // Batch-fetch warnings for the current page of deals
   useEffect(() => {

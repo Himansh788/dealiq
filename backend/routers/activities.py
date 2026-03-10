@@ -2,18 +2,14 @@ from fastapi import APIRouter, Header, HTTPException
 from typing import Optional
 import base64
 import json
-import time
 from datetime import datetime, timezone
 
 from models.activity_schemas import ActivityFeedResponse, TeamActivitySummary
 from services.activity_intelligence import get_deal_activity_feed, build_team_summary
 from services.demo_data import SIMULATED_DEALS, SIMULATED_ACTIVITIES
+from services.cache import cache_get, cache_set, cache_key as _ack, TTL_ACTIVITIES
 
 router = APIRouter()
-
-# Simple 5-minute module-level cache for team summary
-_team_summary_cache: dict = {"data": None, "expires_at": 0.0}
-CACHE_TTL_SECONDS = 300
 
 
 def _decode_session(authorization: str) -> dict:
@@ -64,16 +60,13 @@ async def get_team_activity_summary(
     session = _decode_session(authorization)
     is_demo = _is_demo(session)
 
-    # Cache key includes demo vs real
-    cache_key = "demo" if is_demo else session.get("user_id", "real")
-    now_ts = time.time()
+    # Redis cache — scoped by user email/id to prevent cross-tenant leakage
+    _user = (session.get("email") or session.get("user_id") or "anon").replace(":", "_")
+    _key = _ack("team_summary", "demo" if is_demo else _user)
 
-    if (
-        _team_summary_cache.get("data") is not None
-        and _team_summary_cache.get("key") == cache_key
-        and now_ts < _team_summary_cache.get("expires_at", 0)
-    ):
-        return _team_summary_cache["data"]
+    _cached = await cache_get(_key)
+    if _cached is not None:
+        return TeamActivitySummary(**_cached)
 
     if is_demo:
         deals = SIMULATED_DEALS
@@ -86,11 +79,7 @@ async def get_team_activity_summary(
             raise HTTPException(status_code=502, detail="Failed to fetch deal data from Zoho")
 
     summary = build_team_summary(deals, is_demo=is_demo)
-
-    _team_summary_cache["data"] = summary
-    _team_summary_cache["key"] = cache_key
-    _team_summary_cache["expires_at"] = now_ts + CACHE_TTL_SECONDS
-
+    await cache_set(_key, summary.model_dump(), ttl=TTL_ACTIVITIES)
     return summary
 
 

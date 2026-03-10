@@ -14,11 +14,12 @@ import httpx
 # ── Redis cache layer (falls back to in-memory if Redis unavailable) ──────────
 from services.cache import (
     cache_get, cache_set, cache_delete_pattern, cache_key as _rkey,
-    TTL_HEALTH_SCORES, TTL_PIPELINE_METRICS,
+    TTL_HEALTH_SCORES, TTL_PIPELINE_METRICS, TTL_TIMELINE, TTL_ACTIVITIES,
 )
 
-# ── In-memory fallback cache for health scores (used when Redis is unavailable)
-_health_cache: dict = {}  # deal_id -> (result, expires_at)
+# ── In-memory fallback cache for health scores (Redis-unavailable only)
+# Key: "{user_key}:{deal_id}" to prevent cross-user leakage in multi-worker setups
+_health_cache: dict = {}  # "{user_key}:{deal_id}" -> (result, expires_at)
 _HEALTH_CACHE_TTL = TTL_HEALTH_SCORES
 
 # ── Pipeline metrics + AI summary shared cache ────────────────────────────────
@@ -489,11 +490,17 @@ async def list_deals(
         else:
             # No rows at all — blocking Zoho fetch on first load
             try:
-                raw_deals = await _fetch_all_zoho_deals(session["access_token"])
-                # Write in background so response isn't blocked; own session
+                raw_deals = await asyncio.wait_for(
+                    _fetch_all_zoho_deals(session["access_token"]),
+                    timeout=35,  # 35s < 45s client timeout — ensures backend responds before client gives up
+                )
                 asyncio.create_task(_bg_write(upsert_deals, raw_deals, user_email))
                 cache_meta = get_cache_status(datetime.now(timezone.utc), "deals")
                 cache_meta["source"] = "zoho"
+            except asyncio.TimeoutError:
+                logger.warning("list_deals: Zoho cold-fetch timed out after 35s — returning demo data")
+                raw_deals = SIMULATED_DEALS
+                simulated = True
             except Exception:
                 raw_deals = SIMULATED_DEALS
                 simulated = True
@@ -733,24 +740,29 @@ async def get_deal_health(deal_id: str, authorization: str = Header(...)):
     demo = _is_demo(session) or deal_id.startswith("sim_")
 
     # Cache check — skip cache for demo (fast anyway)
+    # Keys are user-scoped to prevent cross-tenant data leakage
+    user_key = session.get("email") or session.get("user_id") or "anon"
+    _safe_user = user_key.replace(":", "_")
+
     if not demo:
-        # Try Redis first
-        redis_key = _rkey("health", deal_id)
+        # Try Redis first (user-scoped key)
+        redis_key = _rkey("health", _safe_user, deal_id)
         redis_cached = await cache_get(redis_key)
         if redis_cached:
-            logger.debug("health redis cache hit deal=%s", deal_id)
+            logger.debug("health redis cache hit user=%s deal=%s", _safe_user, deal_id)
             from models.schemas import DealHealthResult
             try:
                 return DealHealthResult(**redis_cached)
             except Exception:
                 pass  # fall through to recompute if deserialization fails
 
-        # Fallback: in-memory cache
-        mem_cached = _health_cache.get(deal_id)
+        # Fallback: in-memory cache (also user-scoped)
+        mem_cache_key = f"{_safe_user}:{deal_id}"
+        mem_cached = _health_cache.get(mem_cache_key)
         if mem_cached:
             result, expires_at = mem_cached
             if datetime.now(timezone.utc).timestamp() < expires_at:
-                logger.debug("health mem cache hit deal=%s", deal_id)
+                logger.debug("health mem cache hit user=%s deal=%s", _safe_user, deal_id)
                 return result
 
     if demo:
@@ -771,48 +783,59 @@ async def get_deal_health(deal_id: str, authorization: str = Header(...)):
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
 
-    # Fetch activity bundle — async, non-blocking, failure-safe
+    # Fetch activity bundle — Redis-cached, then Zoho
     activity_data = None
+    _act_key = _rkey("activities", _safe_user, deal_id) if not demo else None
     if demo:
         from services.demo_data import get_demo_activity_data
         activity_data = get_demo_activity_data(deal_id)
     else:
-        try:
-            from services.zoho_client import get_all_activity_for_deal
-            activity_data = await asyncio.wait_for(
-                get_all_activity_for_deal(session["access_token"], deal_id),
-                timeout=15,
-            )
-        except (asyncio.TimeoutError, Exception) as e:
-            logger.warning("Activity fetch failed deal=%s: %s", deal_id, e)
+        activity_data = await cache_get(_act_key)
+        if activity_data is None:
+            try:
+                from services.zoho_client import get_all_activity_for_deal
+                activity_data = await asyncio.wait_for(
+                    get_all_activity_for_deal(session["access_token"], deal_id),
+                    timeout=15,
+                )
+                if activity_data:
+                    await cache_set(_act_key, activity_data, ttl=TTL_ACTIVITIES)
+            except (asyncio.TimeoutError, Exception) as e:
+                logger.warning("Activity fetch failed deal=%s: %s", deal_id, e)
 
-    # Fetch timeline analysis — non-blocking, graceful fallback
+    # Fetch timeline analysis — Redis-cached, then Zoho
     timeline_analysis = {}
+    _tl_analysis_key = _rkey("tl_analysis", _safe_user, deal_id) if not demo else None
     if demo:
         from services.demo_data import get_demo_timeline
         from services.timeline_analyzer import analyze_timeline
         demo_tl = get_demo_timeline(deal_id)
         timeline_analysis = analyze_timeline(demo_tl.get("timeline", []))
     else:
-        try:
-            from services.zoho_client import fetch_deal_timeline
-            from services.timeline_analyzer import analyze_timeline
-            raw_tl = await asyncio.wait_for(
-                fetch_deal_timeline(session["access_token"], deal_id),
-                timeout=10,
-            )
-            timeline_analysis = analyze_timeline(raw_tl.get("timeline", []))
-        except (asyncio.TimeoutError, Exception) as e:
-            logger.warning("Timeline fetch failed deal=%s: %s", deal_id, e)
+        _cached_tl = await cache_get(_tl_analysis_key)
+        if _cached_tl is not None:
+            timeline_analysis = _cached_tl
+        else:
+            try:
+                from services.zoho_client import fetch_deal_timeline
+                from services.timeline_analyzer import analyze_timeline
+                raw_tl = await asyncio.wait_for(
+                    fetch_deal_timeline(session["access_token"], deal_id),
+                    timeout=10,
+                )
+                timeline_analysis = analyze_timeline(raw_tl.get("timeline", []))
+                if timeline_analysis:
+                    await cache_set(_tl_analysis_key, timeline_analysis, ttl=TTL_TIMELINE)
+            except (asyncio.TimeoutError, Exception) as e:
+                logger.warning("Timeline fetch failed deal=%s: %s", deal_id, e)
 
-    # Fetch Outlook emails to enrich health signals when rep didn't BCC Zoho
+    # Fetch Outlook emails — get_enriched_emails already caches internally
     outlook_emails: list = []
     if not demo:
         try:
             from services.outlook_enrichment import get_enriched_emails
-            user_key = session.get("email") or session.get("user_id") or "default"
             outlook_emails = await asyncio.wait_for(
-                get_enriched_emails(deal_id, session["access_token"], user_key, limit=20),
+                get_enriched_emails(deal_id, session["access_token"], _safe_user, limit=20),
                 timeout=8,
             )
             logger.info("health: deal=%s outlook_emails=%d", deal_id, len(outlook_emails))
@@ -899,11 +922,12 @@ async def get_deal_health(deal_id: str, authorization: str = Header(...)):
         "recommended_actions": recommended_actions,
     })
 
-    # Store in cache (Redis + in-memory fallback)
+    # Store in cache (Redis + in-memory fallback) — user-scoped keys
     if not demo:
-        redis_key = _rkey("health", deal_id)
+        redis_key = _rkey("health", _safe_user, deal_id)
         await cache_set(redis_key, result.model_dump(), ttl=_HEALTH_CACHE_TTL)
-        _health_cache[deal_id] = (result, datetime.now(timezone.utc).timestamp() + _HEALTH_CACHE_TTL)
+        mem_cache_key = f"{_safe_user}:{deal_id}"
+        _health_cache[mem_cache_key] = (result, datetime.now(timezone.utc).timestamp() + _HEALTH_CACHE_TTL)
 
     return result
 
@@ -921,6 +945,15 @@ async def get_deal_timeline(deal_id: str, authorization: str = Header(...)):
     """
     session = _decode_session(authorization)
     simulated = _is_demo(session) or deal_id.startswith("sim_")
+
+    # Redis cache — timeline is expensive (3 Zoho calls + AI narrative)
+    if not simulated:
+        _tl_user = (session.get("email") or session.get("user_id") or "anon").replace(":", "_")
+        _tl_key = _rkey("timeline", _tl_user, deal_id)
+        _tl_cached = await cache_get(_tl_key)
+        if _tl_cached:
+            logger.debug("timeline cache hit user=%s deal=%s", _tl_user, deal_id)
+            return _tl_cached
 
     from services.deal_timeline import build_timeline, generate_timeline_narrative
     from services.timeline_analyzer import analyze_timeline, enrich_timeline_events
@@ -1065,6 +1098,10 @@ async def get_deal_timeline(deal_id: str, authorization: str = Header(...)):
         "deal_health_signals": signals_data,
     }
 
+    # Write timeline to Redis cache
+    if not simulated:
+        await cache_set(_tl_key, base_timeline, ttl=TTL_TIMELINE)
+
     return base_timeline
 
 
@@ -1177,11 +1214,16 @@ async def update_deal_field(
             deal_id, body.field, body.value, session.get("access_token", "")
         )
         if success:
-            # Invalidate health + metrics caches for this deal so next load is fresh
-            await cache_delete_pattern(_rkey("health", deal_id))
+            # Invalidate health caches for this deal (all users — pattern match)
+            await cache_delete_pattern(f"dealiq:health:*:{deal_id}")
             await cache_delete_pattern("dealiq:metrics:*")
-            # Also evict in-memory fallback
-            _health_cache.pop(deal_id, None)
+            await cache_delete_pattern(f"dealiq:emails:*:{deal_id}")
+            await cache_delete_pattern(f"dealiq:timeline:*:{deal_id}")
+            await cache_delete_pattern(f"dealiq:activities:*:{deal_id}")
+            # Evict in-memory fallback entries for this deal (all users)
+            stale = [k for k in _health_cache if k.endswith(f":{deal_id}")]
+            for k in stale:
+                _health_cache.pop(k, None)
             return {"success": True, "updated_field": body.field, "new_value": body.value}
         return {"success": False, "error": "Zoho returned a non-SUCCESS code"}
     except Exception as e:
