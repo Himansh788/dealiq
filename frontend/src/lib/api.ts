@@ -16,10 +16,10 @@ const TIMEOUT_MS = 15_000;
 
 function fetchWithTimeout(
   input: RequestInfo,
-  init?: RequestInit & { signal?: AbortSignal },
+  init?: RequestInit & { signal?: AbortSignal; timeoutMs?: number },
 ): Promise<Response> {
   const timeoutController = new AbortController();
-  const timeoutId = setTimeout(() => timeoutController.abort(), TIMEOUT_MS);
+  const timeoutId = setTimeout(() => timeoutController.abort(), init?.timeoutMs ?? TIMEOUT_MS);
 
   const callerSignal = init?.signal;
   if (callerSignal) {
@@ -113,13 +113,13 @@ export function friendlyError(err: unknown): string {
 
 export const api = {
   getLoginUrl: () =>
-    fetchWithTimeout(`${API_URL}/auth/login`).then(handleResponse),
+    fetchWithTimeout(`${API_URL}/auth/login`, { timeoutMs: 60_000 }).then(handleResponse),
 
   getCrmLoginUrl: (provider: "zoho" | "salesforce" | "hubspot") =>
-    fetchWithTimeout(`${API_URL}/auth/${provider}/login`).then(handleResponse),
+    fetchWithTimeout(`${API_URL}/auth/${provider}/login`, { timeoutMs: 60_000 }).then(handleResponse),
 
   getDemoSession: () =>
-    fetchWithTimeout(`${API_URL}/auth/demo-session`).then(handleResponse),
+    fetchWithTimeout(`${API_URL}/auth/demo-session`, { timeoutMs: 60_000 }).then(handleResponse),
 
   // ── Deals ─────────────────────────────────────────────────────────────────
   getMetrics: (signal?: AbortSignal) =>
