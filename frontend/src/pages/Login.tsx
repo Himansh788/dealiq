@@ -276,7 +276,20 @@ export default function Login() {
       </div>
 
       {/* ── Right: Sign-in panel ── */}
-      <div className="flex flex-1 flex-col items-center justify-center p-8 bg-white dark:bg-slate-900">
+      <div className="relative flex flex-1 flex-col items-center justify-center p-8 bg-white dark:bg-slate-900 overflow-hidden">
+
+        {/* Subtle background decoration */}
+        <div className="pointer-events-none absolute inset-0">
+          {/* Dot grid */}
+          <div className="absolute inset-0 opacity-[0.035] dark:opacity-[0.06]" style={{
+            backgroundImage: `url("data:image/svg+xml,%3Csvg width='20' height='20' viewBox='0 0 20 20' xmlns='http://www.w3.org/2000/svg'%3E%3Ccircle cx='2' cy='2' r='1' fill='%236366f1'/%3E%3C/svg%3E")`,
+            backgroundRepeat: "repeat",
+          }} />
+          {/* Floating orbs */}
+          <div className="absolute -top-20 -right-20 h-72 w-72 rounded-full bg-blue-100/60 dark:bg-blue-900/20 blur-3xl" />
+          <div className="absolute bottom-10 -left-16 h-56 w-56 rounded-full bg-indigo-100/50 dark:bg-indigo-900/15 blur-3xl" />
+          <div className="absolute top-1/2 right-8 h-40 w-40 rounded-full bg-sky-100/40 dark:bg-sky-900/10 blur-2xl" />
+        </div>
         <div className="w-full max-w-sm">
 
           {/* Brand mark */}

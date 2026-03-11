@@ -409,11 +409,15 @@ async def get_board(
         auto_entries = [r for r in results if r is not None]
         auto_analyzed_count = len(auto_entries)
 
+        # Persist auto-analyzed entries so counts are stable across page refreshes
+        for entry in auto_entries:
+            if entry["deal_id"] not in already_analyzed_ids:
+                _winloss_store.append(entry)
+
     except Exception as e:
         logger.warning(f"Win/loss board auto-detection failed: {e}")
 
-    manual_ids = {e["deal_id"] for e in _winloss_store}
-    merged = list(_winloss_store) + [e for e in auto_entries if e["deal_id"] not in manual_ids]
+    merged = list(_winloss_store)
 
     won = [e for e in merged if e["outcome"] == "won"]
     lost = [e for e in merged if e["outcome"] == "lost"]
@@ -425,27 +429,33 @@ async def get_board(
             counts[p] = counts.get(p, 0) + 1
         return counts
 
-    def _avg_amount(entries: list[dict]) -> float:
+    def _amounts(entries: list[dict]) -> tuple[int, int]:
         amounts = [e.get("amount", 0) for e in entries if e.get("amount")]
-        return round(sum(amounts) / len(amounts)) if amounts else 0
+        total = sum(amounts)
+        avg = round(total / len(amounts)) if amounts else 0
+        return total, avg
 
     def _top_pattern(counts: dict) -> str:
         return max(counts, key=lambda k: counts[k]) if counts else ""
 
     won_patterns = _pattern_counts(won)
     lost_patterns = _pattern_counts(lost)
+    won_total, won_avg = _amounts(won)
+    lost_total, lost_avg = _amounts(lost)
 
     return {
         "summary": {
             "won": {
                 "count": len(won),
-                "avg_amount": _avg_amount(won),
+                "total_amount": won_total,
+                "avg_amount": won_avg,
                 "top_pattern": _top_pattern(won_patterns),
                 "pattern_counts": won_patterns,
             },
             "lost": {
                 "count": len(lost),
-                "avg_amount": _avg_amount(lost),
+                "total_amount": lost_total,
+                "avg_amount": lost_avg,
                 "top_pattern": _top_pattern(lost_patterns),
                 "pattern_counts": lost_patterns,
             },

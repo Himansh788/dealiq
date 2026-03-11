@@ -84,6 +84,7 @@ interface WinLossEntry {
 
 interface BoardSummary {
   count: number;
+  total_amount: number;
   avg_amount: number;
   top_pattern: string;
   pattern_counts: Record<string, number>;
@@ -213,10 +214,9 @@ function computeSummary(deals: WinLossEntry[]): BoardSummary {
   for (const d of deals) counts[d.deal_pattern] = (counts[d.deal_pattern] ?? 0) + 1;
   const topPattern =
     Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "";
-  const avgAmount = deals.length
-    ? Math.round(deals.reduce((s, d) => s + d.amount, 0) / deals.length)
-    : 0;
-  return { count: deals.length, avg_amount: avgAmount, top_pattern: topPattern, pattern_counts: counts };
+  const totalAmount = deals.reduce((s, d) => s + d.amount, 0);
+  const avgAmount = deals.length ? Math.round(totalAmount / deals.length) : 0;
+  return { count: deals.length, total_amount: totalAmount, avg_amount: avgAmount, top_pattern: topPattern, pattern_counts: counts };
 }
 
 // ── useCountUp hook ───────────────────────────────────────────────────────────
@@ -275,9 +275,9 @@ function AnimatedMetricCard({
 }) {
   const isWon = outcome === "won";
   const animCount = useCountUp(summary.count, 1200, animated);
-  const animAvg = useCountUp(summary.avg_amount, 1200, animated);
+  const animTotal = useCountUp(summary.total_amount, 1200, animated);
   const displayCount = animated ? animCount : summary.count;
-  const displayAvg = animated ? animAvg : summary.avg_amount;
+  const displayTotal = animated ? animTotal : summary.total_amount;
 
   const wonBorderColor = "border-l-[#10b981]";
   const lostBorderColor = "border-l-[#F26A4F]";
@@ -307,10 +307,12 @@ function AnimatedMetricCard({
           </p>
           <p className="text-xs text-muted-foreground">deals</p>
         </div>
-        {summary.avg_amount > 0 && (
+        {summary.total_amount > 0 && (
           <div>
-            <p className="font-mono text-xl font-semibold text-foreground tabular-nums">{formatCurrency(displayAvg)}</p>
-            <p className="text-xs text-muted-foreground">avg deal size</p>
+            <p className="font-mono text-xl font-semibold text-foreground tabular-nums">{formatCurrency(displayTotal)}</p>
+            <p className="text-xs text-muted-foreground">
+              total · <span className="tabular-nums">{formatCurrency(summary.avg_amount)} avg</span>
+            </p>
           </div>
         )}
       </div>
