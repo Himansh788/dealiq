@@ -285,7 +285,6 @@ async def get_filter_options(
     """
     session = _decode_session(authorization)
     simulated = _is_demo(session)
-    quarter_start, quarter_end = get_current_quarter_range()
 
     if simulated:
         raw_deals = SIMULATED_DEALS
@@ -301,10 +300,14 @@ async def get_filter_options(
             except Exception:
                 raw_deals = SIMULATED_DEALS
 
-    active_raw = [r for r in raw_deals if is_active_deal(r, quarter_start, quarter_end)]
+    # Use the same set of deals the dashboard table shows — exclude only truly
+    # terminal stages. The quarter-date filter is intentionally NOT applied here
+    # because it was silently dropping real prod deals with future closing dates,
+    # resulting in empty owner/stage dropdowns.
+    visible_raw = [r for r in raw_deals if r.get("stage") not in EXCLUDED_STAGES]
 
-    owners = sorted({str(r.get("owner") or "") for r in active_raw if r.get("owner")})
-    stages = sorted({str(r.get("stage") or "") for r in active_raw if r.get("stage")})
+    owners = sorted({str(r.get("owner") or "") for r in visible_raw if r.get("owner")})
+    stages = sorted({str(r.get("stage") or "") for r in visible_raw if r.get("stage")})
 
     return {"owners": owners, "stages": stages}
 
