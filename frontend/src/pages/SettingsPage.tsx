@@ -229,20 +229,6 @@ export default function SettingsPage() {
               <p className="text-[11px] text-muted-foreground mb-3">Deal alerts and deal rooms in Slack</p>
               <Badge variant="outline" className="text-[9px] border-border/30">Q3 2026</Badge>
             </div>
-
-            {/* Gong */}
-            <div className="rounded-xl border border-border/20 bg-card/20 p-5 opacity-60 grayscale transition-all hover:grayscale-0 hover:opacity-100">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-pink-500/10 mb-3">
-                <svg className="h-5 w-5 text-pink-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
-                  <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-                  <line x1="12" x2="12" y1="19" y2="22" />
-                </svg>
-              </div>
-              <p className="text-sm font-semibold text-foreground mb-1">Gong</p>
-              <p className="text-[11px] text-muted-foreground mb-3">Ingest call transcripts for analysis</p>
-              <Badge variant="outline" className="text-[9px] border-border/30">Future</Badge>
-            </div>
           </div>
         </div>
 
