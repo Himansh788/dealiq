@@ -251,8 +251,8 @@ export const api = {
   // Pass signal from component useEffect so unmount cancels the in-flight
   // request cleanly.  Each call gets its own AbortController via fetchWithTimeout
   // — no shared controller, no cross-request cancellation.
-  getDealTimeline: (dealId: string, signal?: AbortSignal) =>
-    fetchWithTimeout(`${API_URL}/deals/${dealId}/timeline`, { headers: authHeaders(), signal }).then(handleResponse),
+  getDealTimeline: (dealId: string, signal?: AbortSignal, forceRefresh = false) =>
+    fetchWithTimeout(`${API_URL}/deals/${dealId}/timeline${forceRefresh ? "?force_refresh=true" : ""}`, { headers: authHeaders(), signal }).then(handleResponse),
 
   // ── Live Email Coach ───────────────────────────────────────────────────────
   emailCoach: (emailDraft: string, dealId?: string, dealContext?: any) =>

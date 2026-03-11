@@ -492,11 +492,14 @@ def enrich_timeline_events(
                 "is_automation": is_automation,
             })
 
-    # Merge: use existing events as base; add new v9 events that don't duplicate
+    # Merge: use existing events as base; add new v9 events that don't duplicate.
+    # Exclude synthetic placeholder types (last_activity, closing_date) from the
+    # dedup set — they share timestamps with real events and would swallow them.
+    _SYNTHETIC_TYPES = {"last_activity", "closing_date"}
     existing_datetimes = {
         _parse_dt(e.get("datetime"))
         for e in existing_events
-        if _parse_dt(e.get("datetime"))
+        if _parse_dt(e.get("datetime")) and e.get("type") not in _SYNTHETIC_TYPES
     }
 
     merged = list(existing_events)
@@ -505,7 +508,7 @@ def enrich_timeline_events(
         if ev_dt is None:
             merged.append(ev)
             continue
-        # Skip if an existing event is within 60 seconds (dedup by time proximity)
+        # Skip if a real (non-synthetic) existing event is within 60 seconds
         duplicate = any(
             abs((ev_dt - ex_dt).total_seconds()) < 60
             for ex_dt in existing_datetimes

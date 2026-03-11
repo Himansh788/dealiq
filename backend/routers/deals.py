@@ -949,7 +949,11 @@ async def get_deal_health(deal_id: str, authorization: str = Header(...)):
 
 
 @router.get("/{deal_id}/timeline")
-async def get_deal_timeline(deal_id: str, authorization: str = Header(...)):
+async def get_deal_timeline(
+    deal_id: str,
+    authorization: str = Header(...),
+    force_refresh: bool = False,
+):
     """
     Build a full activity timeline for a deal.
 
@@ -958,14 +962,15 @@ async def get_deal_timeline(deal_id: str, authorization: str = Header(...)):
     2. Zoho notes + activities (existing build_timeline logic)
 
     Falls back gracefully: if v9 fails, existing data still renders.
+    Pass ?force_refresh=true to bypass Redis cache and fetch fresh data.
     """
     session = _decode_session(authorization)
     simulated = _is_demo(session) or deal_id.startswith("sim_")
 
     # Redis cache — timeline is expensive (3 Zoho calls + AI narrative)
-    if not simulated:
-        _tl_user = (session.get("email") or session.get("user_id") or "anon").replace(":", "_")
-        _tl_key = _rkey("timeline", _tl_user, deal_id)
+    _tl_user = (session.get("email") or session.get("user_id") or "anon").replace(":", "_")
+    _tl_key = _rkey("timeline", _tl_user, deal_id)
+    if not simulated and not force_refresh:
         _tl_cached = await cache_get(_tl_key)
         if _tl_cached:
             logger.debug("timeline cache hit user=%s deal=%s", _tl_user, deal_id)
@@ -1087,13 +1092,15 @@ async def get_deal_timeline(deal_id: str, authorization: str = Header(...)):
     # Prepend v9 signals (they're more accurate)
     base_timeline["signals"] = v9_signals + base_timeline.get("signals", [])
 
-    # Generate narrative
+    # Generate narrative — pass authoritative days_since_last_email so the AI
+    # doesn't rely solely on the CRM event list (which may miss Outlook emails).
     narrative = await generate_timeline_narrative(
         deal_name=raw.get("name", "This deal"),
         stage=raw.get("stage", "Unknown"),
         amount=float(raw.get("amount") or 0),
         health_label=raw.get("health_label", "unknown"),
         timeline=base_timeline,
+        days_since_last_email=timeline_analysis.get("days_since_last_email"),
     )
 
     base_timeline["narrative"] = narrative

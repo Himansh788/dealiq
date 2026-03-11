@@ -560,7 +560,8 @@ async def get_email_thread(
             pass
 
     # ── 5. AI analysis — run on the most active thread (most messages) ────
-    extracted = await _get_db_extraction(deal_id, db)
+    # Skip DB cache when force_refresh=True so analysis reflects fresh emails
+    extracted = None if force_refresh else await _get_db_extraction(deal_id, db)
     if not extracted and threads:
         biggest = max(threads, key=lambda t: t["message_count"])
         thread_text = _build_thread_text(biggest["messages"])
@@ -619,6 +620,14 @@ async def get_email_thread(
                 db.add(new_row)
                 await db.commit()
                 logger.debug("email_intel: saved AI extraction to DB for deal=%s", deal_id)
+            else:
+                # Update existing row so stale analysis doesn't persist
+                existing.next_step = extracted.get("next_step")
+                existing.commitments = [c if isinstance(c, str) else str(c) for c in (extracted.get("commitments") or [])]
+                existing.open_questions = extracted.get("open_questions") or []
+                existing.sentiment = extracted.get("sentiment")
+                await db.commit()
+                logger.debug("email_intel: updated AI extraction in DB for deal=%s", deal_id)
         except Exception as _dbe:
             logger.debug("email_intel: DB write-back failed deal=%s: %s", deal_id, _dbe)
 

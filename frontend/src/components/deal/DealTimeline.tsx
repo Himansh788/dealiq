@@ -6,7 +6,7 @@ import {
   Plus, FileText, Phone, Mail, CheckSquare, MailOpen,
   Activity, Flag, AlertTriangle, Sparkles, Brain,
   GitMerge, TrendingUp, TrendingDown, Bot, User,
-  ChevronDown, ChevronUp, Calendar, ExternalLink,
+  ChevronDown, ChevronUp, Calendar, ExternalLink, RefreshCw,
 } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -476,6 +476,12 @@ export default function DealTimeline({ dealId, onFollowUp }: { dealId: string; o
   const [error, setError] = useState<string | null>(null);
   // Increment to trigger a manual retry without changing dealId
   const [retryKey, setRetryKey] = useState(0);
+  const [forceRefresh, setForceRefresh] = useState(false);
+
+  const handleForceRefresh = () => {
+    setForceRefresh(true);
+    setRetryKey((k) => k + 1);
+  };
 
   useEffect(() => {
     if (!dealId) return;
@@ -489,7 +495,8 @@ export default function DealTimeline({ dealId, onFollowUp }: { dealId: string; o
     setLoading(true);
     setError(null);
 
-    api.getDealTimeline(dealId, controller.signal)
+    const isForce = forceRefresh;
+    api.getDealTimeline(dealId, controller.signal, isForce)
       .then((d) => {
         if (!cancelled) setData(d);
       })
@@ -505,7 +512,10 @@ export default function DealTimeline({ dealId, onFollowUp }: { dealId: string; o
         );
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+          setForceRefresh(false);
+        }
       });
 
     return () => {
@@ -513,7 +523,7 @@ export default function DealTimeline({ dealId, onFollowUp }: { dealId: string; o
       controller.abort();
     };
     // retryKey is intentional — incrementing it re-runs this effect
-  }, [dealId, retryKey]);
+  }, [dealId, retryKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (loading) return (
     <div className="space-y-4 py-2">
@@ -574,6 +584,18 @@ export default function DealTimeline({ dealId, onFollowUp }: { dealId: string; o
 
   return (
     <div className="space-y-4">
+
+      {/* Force refresh button */}
+      <div className="flex justify-end">
+        <button
+          onClick={handleForceRefresh}
+          disabled={loading}
+          className="flex items-center gap-1 rounded-md border border-border bg-muted/50 px-2 py-1 text-[11px] text-muted-foreground hover:bg-muted transition-colors disabled:opacity-50"
+        >
+          <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} />
+          Refresh
+        </button>
+      </div>
 
       {/* 1. Summary stat chips */}
       <SummaryBar intel={intel} totalEvents={data.total_events} />

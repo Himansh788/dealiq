@@ -198,6 +198,7 @@ async def generate_timeline_narrative(
     amount: float,
     health_label: str,
     timeline: Dict[str, Any],
+    days_since_last_email: Optional[int] = None,
 ) -> str:
     # Only past events — exclude future closing date so AI doesn't misread recency
     past_events = [e for e in timeline["events"] if not e.get("is_future")]
@@ -213,13 +214,27 @@ async def generate_timeline_narrative(
     most_recent_label = recent_events[0]["label"] if recent_events else "none"
     most_recent_days = recent_events[0].get("days_ago", "?") if recent_events else "?"
 
+    # Use the authoritative days_since_last_email (includes Outlook emails not in Zoho).
+    # This overrides what the AI might infer from the CRM-only event list.
+    if days_since_last_email is None:
+        days_since_last_email = silence  # fallback
+    last_email_line = (
+        f"Last email contact: {days_since_last_email} day(s) ago (verified across CRM + Outlook)"
+        if days_since_last_email is not None
+        else "Last email contact: unknown"
+    )
+
     prompt = f"""You are a sales manager reading a deal's activity timeline.
 
 DEAL: {deal_name} | STAGE: {stage} | AMOUNT: ${amount:,.0f} | HEALTH: {health_label}
 Most recent activity: {most_recent_label} ({most_recent_days} days ago)
 Days since any activity: {silence} | Days to close: {closing if closing is not None else 'unknown'}
+{last_email_line}
 
-RECENT TIMELINE (most recent first):
+NOTE: The "last email" figure above is authoritative and includes emails tracked via Outlook,
+which may not appear as individual email events in the CRM timeline below. Do NOT contradict it.
+
+RECENT CRM TIMELINE (most recent first):
 {events_text}
 
 Write a 2-3 sentence narrative. Tell me:
