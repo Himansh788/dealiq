@@ -58,11 +58,9 @@ async def get_today_actions(
     except Exception:
         deals = []
 
-    if db is None:
-        return {"actions": [], "total": 0, "source": "live", "message": "Database not available"}
-
+    # Run scan even when db is None — CRM checks + email drift don't need the DB
     try:
-        actions = await run_morning_scan(deals, db, generate_drafts=False)
+        actions = await run_morning_scan(deals, db, generate_drafts=False, session=session)
     except Exception:
         actions = []
     filtered = [a for a in actions if a.get("deal_id") not in _dismissed]

@@ -208,7 +208,19 @@ export default function Login() {
     setLoadingProvider("demo");
     try {
       const data = await api.getDemoSession();
-      setSession({ ...data, crm_provider: "demo" });
+      // Backend returns { session: base64string, message: string }
+      // Decode the base64 session to extract access_token etc.
+      if (data.session) {
+        const decoded = JSON.parse(atob(data.session));
+        setSession({
+          access_token: decoded.access_token || "DEMO_MODE",
+          display_name: decoded.display_name || "Demo User",
+          email: decoded.email || "demo@dealiq.ai",
+          crm_provider: "demo",
+        });
+      } else {
+        setSession({ access_token: "DEMO_MODE", display_name: "Demo User", email: "demo@dealiq.ai", crm_provider: "demo" });
+      }
       navigate("/dashboard");
     } catch {
       setSession({ access_token: "DEMO_MODE", display_name: "Demo User", email: "demo@dealiq.ai", crm_provider: "demo" });

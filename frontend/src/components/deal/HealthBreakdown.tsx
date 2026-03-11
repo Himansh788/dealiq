@@ -154,17 +154,23 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
-export default function HealthBreakdown({ dealId }: { dealId: string }) {
-  const [data, setData] = useState<HealthData | null>(null);
-  const [loading, setLoading] = useState(true);
+export default function HealthBreakdown({ dealId, preloadedData }: { dealId: string; preloadedData?: Record<string, unknown> | null }) {
+  const [data, setData] = useState<HealthData | null>(preloadedData as HealthData | null ?? null);
+  const [loading, setLoading] = useState(!preloadedData);
 
   useEffect(() => {
+    // If parent already fetched health data, use it directly — no second call
+    if (preloadedData) {
+      setData(preloadedData as HealthData);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     api.getDealHealth(dealId)
       .then(setData)
       .catch(() => setData(null))
       .finally(() => setLoading(false));
-  }, [dealId]);
+  }, [dealId, preloadedData]);
 
   // Compute display score early so useCountUp is ALWAYS called unconditionally
   // (React Rules of Hooks: hooks must not be called after conditional returns)

@@ -54,6 +54,7 @@ interface Action {
   context: string;
   suggested_action: string;
   draft?: string;
+  suggested_stage?: string;
 }
 
 interface PendingUpdate {
@@ -115,6 +116,8 @@ function ctaConfig(action: Action): { label: string; icon: React.ElementType } {
   const type = action.type?.toLowerCase() ?? "";
   const days = action.days_since_contact ?? 0;
 
+  if (type.includes("stage_drift"))
+    return { label: "Update Stage", icon: SkipForward };
   if (type.includes("zombie") || days > 90)
     return { label: "Revive Deal", icon: Flame };
   if (type.includes("follow_up") || type.includes("no_response") || days > 30)
@@ -198,8 +201,33 @@ export default function Home() {
     });
   }
 
+  // stage_drift actions → shown in CRM Updates section, not as regular action cards
+  const stageDriftUpdates = useMemo(() => {
+    return actions
+      .filter((a) => a.type === "stage_drift" && !dismissed.has(a.id) && !dismissed.has(`drift_${a.deal_id}`))
+      .map((a) => ({
+        id: `drift_${a.deal_id}`,
+        deal_id: a.deal_id,
+        deal_name: a.deal_name,
+        field_name: "Stage",
+        old_value: a.stage,
+        new_value: a.suggested_stage ?? "Next Stage",
+        confidence: a.urgency_score >= 78 ? "high" : "medium",
+        context: a.context,
+        is_drift: true,
+      }));
+  }, [actions, dismissed]);
+
+  const allCrmUpdates = useMemo(
+    () => [...pendingUpdates, ...stageDriftUpdates],
+    [pendingUpdates, stageDriftUpdates]
+  );
+
   const visibleActions = useMemo(() => {
-    let list = actions.filter((a) => !dismissed.has(a.id) && !snoozed.has(a.id));
+    // Exclude stage_drift — they live in the CRM Updates section
+    let list = actions.filter(
+      (a) => !dismissed.has(a.id) && !snoozed.has(a.id) && a.type !== "stage_drift"
+    );
 
     if (search.trim()) {
       const q = search.toLowerCase();
@@ -254,12 +282,21 @@ export default function Home() {
   }
 
   async function handleApproveUpdate(id: string) {
+    if (id.startsWith("drift_")) {
+      setDismissed((prev) => new Set([...prev, id]));
+      toast({ title: "Stage update noted", description: "Remember to update the stage in your CRM." });
+      return;
+    }
     await api.approveCrmUpdate(id).catch(() => null);
     setPendingUpdates((prev) => prev.filter((u) => u.id !== id));
     toast({ title: "CRM updated", description: "Field update applied to Zoho." });
   }
 
   async function handleRejectUpdate(id: string) {
+    if (id.startsWith("drift_")) {
+      setDismissed((prev) => new Set([...prev, id]));
+      return;
+    }
     await api.rejectCrmUpdate(id).catch(() => null);
     setPendingUpdates((prev) => prev.filter((u) => u.id !== id));
   }
@@ -298,9 +335,9 @@ export default function Home() {
                       {formatCurrency(atRiskValue)} at risk
                     </span>
                   )}
-                  {pendingUpdates.length > 0 && (
+                  {allCrmUpdates.length > 0 && (
                     <span className="inline-flex items-center gap-1.5 rounded-full border border-blue-400/30 bg-blue-400/10 px-3 py-1 text-[11px] font-semibold text-blue-400">
-                      {pendingUpdates.length} CRM updates
+                      {allCrmUpdates.length} CRM updates
                     </span>
                   )}
                 </div>
@@ -345,48 +382,67 @@ export default function Home() {
           )}
 
           {/* ── Pending CRM Updates Banner ── */}
-          {!loading && pendingUpdates.length > 0 && (
+          {!loading && allCrmUpdates.length > 0 && (
             <section>
-              <div className="flex items-center gap-2 mb-2">
+              <div className="flex items-center gap-2 mb-3">
                 <Database className="h-4 w-4 text-blue-400" />
                 <h2 className="text-sm font-semibold text-foreground">CRM Updates Awaiting Approval</h2>
-                <Badge variant="outline" className="ml-auto text-[10px] h-4 px-1.5 text-blue-400 border-blue-400/30 bg-blue-400/10">
-                  {pendingUpdates.length} pending
+                <Badge className="ml-auto text-[10px] px-2 py-0.5 bg-blue-500/20 text-blue-400 border-blue-400/30 hover:bg-blue-500/20">
+                  {allCrmUpdates.length} pending
                 </Badge>
               </div>
-              <div className="space-y-2">
-                {pendingUpdates.map((u) => (
-                  <div
-                    key={u.id}
-                    className="flex items-center gap-3 rounded-xl border border-blue-400/20 bg-blue-400/5 px-4 py-3"
-                  >
+              <div className="rounded-xl border border-blue-400/20 bg-blue-400/5 divide-y divide-blue-400/10 overflow-hidden">
+                {allCrmUpdates.map((u) => (
+                  <div key={u.id} className="flex items-start gap-4 px-4 py-3.5">
                     <div className="flex-1 min-w-0">
-                      <p className="text-xs font-semibold text-foreground">
-                        {u.deal_name || u.deal_id} — <span className="font-normal text-muted-foreground">{u.field_name}</span>
+                      <p className="text-[13px] font-semibold text-foreground leading-snug">
+                        {u.deal_name || u.deal_id}
+                        <span className="text-muted-foreground font-normal"> — </span>
+                        <span className="text-foreground/80">{u.field_name}</span>
                       </p>
-                      <p className="text-[11px] text-muted-foreground mt-0.5">
-                        {u.old_value ? <><span className="line-through">{u.old_value}</span> → </> : ""}{u.new_value}
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {u.old_value ? (
+                          <>
+                            <span className="line-through text-muted-foreground/50">{u.old_value}</span>
+                            <span className="mx-1.5 text-muted-foreground/40">→</span>
+                          </>
+                        ) : null}
+                        <span className="text-foreground/80 font-medium">{u.new_value}</span>
                       </p>
-                      {u.context && <p className="text-[10px] text-muted-foreground/60 mt-0.5">{u.context}</p>}
+                      {u.context && (
+                        <p className="text-[11px] text-muted-foreground/60 mt-1 leading-relaxed">{u.context}</p>
+                      )}
                     </div>
-                    <Badge variant="outline" className="text-[10px] h-4 px-1.5 shrink-0 capitalize text-muted-foreground">
-                      {u.confidence}
-                    </Badge>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="shrink-0 h-6 px-2 text-[11px] border-health-green/40 text-health-green hover:bg-health-green/10"
-                      onClick={() => handleApproveUpdate(u.id)}
-                    >
-                      Apply
-                    </Button>
-                    <button
-                      className="text-muted-foreground/40 hover:text-muted-foreground shrink-0"
-                      onClick={() => handleRejectUpdate(u.id)}
-                      aria-label="Reject update"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
+                    <div className="flex items-center gap-2 shrink-0 mt-0.5">
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          "text-[10px] px-2 py-0 capitalize border",
+                          u.confidence === "high"
+                            ? "border-health-green/40 text-health-green bg-health-green/5"
+                            : u.confidence === "medium"
+                            ? "border-health-yellow/40 text-health-yellow bg-health-yellow/5"
+                            : "border-border/40 text-muted-foreground"
+                        )}
+                      >
+                        {u.confidence}
+                      </Badge>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 px-3 text-[11px] font-medium border-health-green/40 text-health-green hover:bg-health-green/10 hover:border-health-green/60"
+                        onClick={() => handleApproveUpdate(u.id)}
+                      >
+                        Apply
+                      </Button>
+                      <button
+                        className="text-muted-foreground/30 hover:text-muted-foreground transition-colors"
+                        onClick={() => handleRejectUpdate(u.id)}
+                        aria-label="Reject update"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>

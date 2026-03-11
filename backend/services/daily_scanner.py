@@ -134,9 +134,11 @@ def _check_no_next_step(deal: dict[str, Any]) -> dict[str, Any] | None:
 
 
 async def _check_missed_followup(
-    deal: dict[str, Any], db: AsyncSession
+    deal: dict[str, Any], db: AsyncSession | None
 ) -> dict[str, Any] | None:
     """Check if rep promised something in email but hasn't followed up."""
+    if db is None:
+        return None
     result = await db.execute(
         select(EmailExtraction)
         .where(EmailExtraction.deal_zoho_id == deal["id"])
@@ -162,14 +164,188 @@ async def _check_missed_followup(
     return None
 
 
+ZOHO_STAGES = [
+    "Qualification", "Needs Analysis", "Value Proposition", "Id. Decision Makers",
+    "Perception Analysis", "Proposal/Price Quote", "Negotiation/Review",
+    "Contract Sent", "Closed Won", "Closed Lost",
+]
+
+_STAGE_KEYWORDS: dict[str, list[str]] = {
+    "Proposal/Price Quote": ["proposal", "quote", "pricing", "cost breakdown", "roi", "business case", "investment"],
+    "Negotiation/Review":   ["negotiation", "negotiate", "counter", "revised pricing", "legal review", "revised proposal"],
+    "Contract Sent":        ["contract", "agreement", "msa", "nda", "docusign", "signed", "order form", "sow", "statement of work"],
+    "Closed Won":           ["purchase order", "po sent", "kicked off", "onboarding", "invoice", "approved", "go ahead"],
+    "Needs Analysis":       ["requirements", "use case", "pain points", "scoping", "current process", "discovery"],
+    "Value Proposition":    ["demo", "product demo", "walkthrough", "demo done", "showed the product"],
+}
+
+
+async def _fetch_email_context_for_scan(deal_id: str, session: dict, limit: int = 8) -> str:
+    """Fetch email context for a deal — Outlook primary, Zoho fallback."""
+    try:
+        from services.outlook_enrichment import get_enriched_emails, fmt_emails_for_ai
+        user_key = session.get("email") or session.get("user_id") or "default"
+        emails = await get_enriched_emails(
+            deal_id=deal_id,
+            zoho_token=session.get("access_token", ""),
+            user_key=user_key,
+            limit=limit,
+        )
+        if emails:
+            return fmt_emails_for_ai(emails, limit=limit)
+    except Exception:
+        pass
+    try:
+        from services.zoho_client import fetch_deal_emails
+        emails = await fetch_deal_emails(session.get("access_token", ""), deal_id)
+        if emails:
+            parts = []
+            for e in emails[:limit]:
+                subj = e.get("Subject") or e.get("subject") or "(no subject)"
+                frm = e.get("From") or e.get("from") or ""
+                body = (e.get("Description") or e.get("body") or "")[:300]
+                parts.append(f"From: {frm}\nSubject: {subj}\n{body}")
+            return "\n---\n".join(parts)
+    except Exception:
+        pass
+    return ""
+
+
+async def _check_stage_drift_batch(
+    deals: list[dict[str, Any]],
+    session: dict,
+    max_deals: int = 6,
+) -> list[dict[str, Any]]:
+    """
+    Detect CRM stage staleness by comparing email context against the current stage.
+    Fetches emails for the most recently-active deals, then does ONE batched AI call
+    to identify mismatches. Returns up to 3 stage_drift action items.
+    """
+    if not deals or not GROQ_API_KEY:
+        return []
+
+    closed = {"Closed Won", "Closed Lost"}
+    candidates = sorted(
+        [d for d in deals if d.get("stage") not in closed and d.get("last_activity_time")],
+        key=lambda d: d.get("last_activity_time", ""),
+        reverse=True,
+    )[:max_deals]
+
+    if not candidates:
+        return []
+
+    # Fetch email context for each candidate concurrently
+    import asyncio
+    contexts = await asyncio.gather(
+        *[_fetch_email_context_for_scan(d["id"], session, limit=8) for d in candidates],
+        return_exceptions=True,
+    )
+
+    # Build the batch prompt
+    deal_blocks = []
+    valid_candidates = []
+    for deal, ctx in zip(candidates, contexts):
+        if isinstance(ctx, Exception) or not ctx or len(ctx) < 50:
+            continue
+        block = (
+            f"DEAL #{len(valid_candidates)+1}: {deal.get('name', deal.get('deal_name', 'Unknown'))} "
+            f"(id={deal['id']}, stage={deal.get('stage','?')})\n{ctx[:600]}"
+        )
+        deal_blocks.append(block)
+        valid_candidates.append(deal)
+
+    if not deal_blocks:
+        return []
+
+    # Use the actual stages present in the pipeline — handles custom stage names
+    all_stages = list(dict.fromkeys(
+        d.get("stage", "") for d in deals if d.get("stage")
+    ))
+    stages_list = "\n".join(f"  {i+1}. {s}" for i, s in enumerate(all_stages))
+    batch_text = "\n\n".join(deal_blocks)
+
+    prompt = f"""You are a CRM data quality checker for a B2B sales team.
+For each deal below, read the email thread and decide if the CRM stage is stale — i.e. the deal has actually progressed further than what CRM shows.
+
+STAGES USED IN THIS PIPELINE (in rough progression order):
+{stages_list}
+
+DEALS TO ANALYZE:
+{batch_text}
+
+RULES:
+- Only flag drift when emails contain CLEAR, SPECIFIC evidence (contract language, signed docs, proposal sent, demo completed, pricing discussed, etc.)
+- Return the suggested_stage using EXACTLY the stage name as shown in the list above
+- The suggested stage must be MORE ADVANCED than the current stage
+- Never suggest the final Closed stages unless there is explicit confirmation (signed contract, PO received)
+- If evidence is weak or absent → no_drift: true for that deal
+
+Respond with a JSON array — one object per deal, in the same order as the deals above:
+[
+  {{"deal_id": "...", "no_drift": true/false, "suggested_stage": "exact stage name from list or null", "confidence": "high|medium|low", "reasoning": "one sentence citing specific email evidence"}},
+  ...
+]
+Return ONLY the JSON array, no markdown fences."""
+
+    try:
+        client = AsyncGroq(api_key=GROQ_API_KEY)
+        resp = await client.chat.completions.create(
+            model=_FAST_MODEL,
+            max_tokens=600,
+            temperature=0.1,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        raw = resp.choices[0].message.content.strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        results = json.loads(raw)
+    except Exception:
+        return []
+
+    actions = []
+    for deal, result in zip(valid_candidates, results):
+        if result.get("no_drift"):
+            continue
+        suggested = result.get("suggested_stage")
+        confidence = result.get("confidence", "low")
+        if not suggested or confidence == "low":
+            continue
+        # Ensure suggested stage is different from current
+        current = deal.get("stage", "")
+        if suggested == current:
+            continue
+        # Soft-validate: suggested stage must appear in the pipeline's known stages
+        if suggested not in all_stages:
+            continue
+
+        actions.append({
+            "type": "stage_drift",
+            "deal_id": deal["id"],
+            "deal_name": deal.get("name", deal.get("deal_name", "Unknown")),
+            "company": deal.get("account_name", deal.get("company", "")),
+            "amount": deal.get("amount", 0),
+            "stage": current,
+            "urgency_score": 78 if confidence == "high" else 65,
+            "context": result.get("reasoning", f"Emails suggest this deal has advanced beyond '{current}'."),
+            "suggested_action": f"Update CRM stage from '{current}' → '{suggested}' to reflect actual deal progress.",
+            "suggested_stage": suggested,
+        })
+
+    return actions[:3]  # surface at most 3 to avoid noise
+
+
 async def run_morning_scan(
     deals: list[dict[str, Any]],
     db: AsyncSession,
     generate_drafts: bool = False,
+    session: dict | None = None,
 ) -> list[dict[str, Any]]:
     """
     Run the morning scan across all active deals.
     Returns actions sorted by urgency_score DESC, capped at 12.
+    Pass session to enable email-based stage drift detection.
     """
     actions: list[dict[str, Any]] = []
     active_stages = {"Closed Won", "Closed Lost"}
@@ -196,9 +372,22 @@ async def run_morning_scan(
         if result:
             actions.append(result)
 
-    # Sort by urgency descending, cap at 12
+    # Sort + cap the CRM-rule actions first
     actions.sort(key=lambda a: a["urgency_score"], reverse=True)
     actions = actions[:12]
+
+    # Email-based stage drift detection — runs across ALL active deals and is
+    # appended AFTER the cap so it is never crowded out by overdue/silent signals.
+    # A deal can be both overdue AND need a stage update, so we scan all, not just unflagged.
+    if session:
+        drift_actions = await _check_stage_drift_batch(
+            [d for d in deals if d.get("stage") not in active_stages],
+            session,
+        )
+        # Deduplicate: if a deal already has an action, skip drift for it to avoid two cards
+        existing_ids = {a["deal_id"] for a in actions}
+        drift_actions = [a for a in drift_actions if a["deal_id"] not in existing_ids]
+        actions.extend(drift_actions)
 
     # Optionally generate AI email drafts
     if generate_drafts:

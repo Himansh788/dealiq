@@ -199,20 +199,27 @@ async def generate_timeline_narrative(
     health_label: str,
     timeline: Dict[str, Any],
 ) -> str:
+    # Only past events — exclude future closing date so AI doesn't misread recency
+    past_events = [e for e in timeline["events"] if not e.get("is_future")]
+    # Most-recent first so the AI prioritises the latest activity
+    recent_events = list(reversed(past_events))[:8]
     events_text = "\n".join([
         f"  {i+1}. [{e.get('days_ago', '?')} days ago] {e['label']}: {e.get('detail', '')}"
-        for i, e in enumerate(timeline["events"][-8:])
+        for i, e in enumerate(recent_events)
     ]) or "  No recorded events"
 
     silence = timeline.get("silence_days")
     closing = timeline.get("days_to_close")
+    most_recent_label = recent_events[0]["label"] if recent_events else "none"
+    most_recent_days = recent_events[0].get("days_ago", "?") if recent_events else "?"
 
     prompt = f"""You are a sales manager reading a deal's activity timeline.
 
 DEAL: {deal_name} | STAGE: {stage} | AMOUNT: ${amount:,.0f} | HEALTH: {health_label}
-Silent for: {silence} days | Days to close: {closing if closing is not None else 'unknown'}
+Most recent activity: {most_recent_label} ({most_recent_days} days ago)
+Days since any activity: {silence} | Days to close: {closing if closing is not None else 'unknown'}
 
-RECENT TIMELINE:
+RECENT TIMELINE (most recent first):
 {events_text}
 
 Write a 2-3 sentence narrative. Tell me:
@@ -220,7 +227,7 @@ Write a 2-3 sentence narrative. Tell me:
 2. Whether the current silence is normal for this stage or a warning sign
 3. What must happen next and by when
 
-Be direct and specific. No bullet points. Output only the narrative text."""
+Be direct and specific. Reference the most recent activity accurately. No bullet points. Output only the narrative text."""
 
     try:
         resp = await _get_client().chat.completions.create(

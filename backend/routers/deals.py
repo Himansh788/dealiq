@@ -884,6 +884,22 @@ async def get_deal_health(deal_id: str, authorization: str = Header(...)):
             except Exception:
                 pass
 
+        # Patch email counts with Outlook data when available — Zoho often misses inbound emails
+        enriched_activity_summary = dict(activity_summary)
+        if outlook_emails:
+            inbound_from_outlook = sum(
+                1 for e in outlook_emails
+                if isinstance(e, dict) and e.get("direction") in ("inbound", "received")
+            )
+            outbound_from_outlook = sum(
+                1 for e in outlook_emails
+                if isinstance(e, dict) and e.get("direction") in ("outbound", "sent")
+            )
+            if inbound_from_outlook > enriched_activity_summary.get("emails_inbound", 0):
+                enriched_activity_summary["emails_inbound"] = inbound_from_outlook
+            if outbound_from_outlook > enriched_activity_summary.get("emails_outbound", 0):
+                enriched_activity_summary["emails_outbound"] = outbound_from_outlook
+
         ai_analysis = await generate_deal_health_analysis(
             deal_name=raw.get("name", "Unknown"),
             deal_stage=raw.get("stage", "Unknown"),
@@ -895,7 +911,7 @@ async def get_deal_health(deal_id: str, authorization: str = Header(...)):
             health_label=result.health_label,
             total_score=result.total_score,
             timeline_analysis=timeline_analysis,
-            activity_summary=activity_summary,
+            activity_summary=enriched_activity_summary,
         )
     except Exception as e:
         logger.warning("deal_health_ai call failed for %s: %s", deal_id, e)

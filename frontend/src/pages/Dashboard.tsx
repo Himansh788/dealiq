@@ -11,10 +11,6 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import {
-  Table, TableBody, TableCell, TableHead,
-  TableHeader, TableRow
-} from "@/components/ui/table";
-import {
   Select, SelectContent, SelectItem,
   SelectTrigger, SelectValue
 } from "@/components/ui/select";
@@ -1147,254 +1143,246 @@ export default function Dashboard() {
                     ) : null}
                   </div>
                 )}
-                <Table>
-                  <TableHeader>
-                    <TableRow className="border-border/30 hover:bg-transparent">
-                      <TableHead className="py-3 pl-6 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/50">Deal</TableHead>
-                      <TableHead className="py-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/50">Stage</TableHead>
-                      <TableHead className="py-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/50">Owner</TableHead>
-                      <TableHead className="py-3 text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/50">Amount</TableHead>
-                      <TableHead className="py-3 text-center text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/50">Score</TableHead>
-                      <TableHead className="py-3 text-center text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/50">Warnings</TableHead>
-                      <TableHead className="py-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/50">Status</TableHead>
-                      <TableHead className="w-8" />
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {(() => {
-                      // Warn if 5+ deals share identical non-zero scores — likely a scoring bug
-                      const scoreCounts: Record<number, number> = {};
-                      filteredAndSortedDeals.forEach(d => { if (d.health_score > 0) scoreCounts[d.health_score] = (scoreCounts[d.health_score] ?? 0) + 1; });
-                      Object.entries(scoreCounts).forEach(([score, count]) => {
-                        if (count >= 5) console.warn(`[DealIQ] ${count} deals share health_score=${score} — possible scoring bug`);
-                      });
-                      return null;
-                    })()}
-                    {filteredAndSortedDeals.map((deal, idx) => {
-                      const whyLine = getDealWhyLine(deal);
-                      const scoreBarColor =
-                        deal.health_score >= 75 ? "bg-health-green" :
-                          deal.health_score >= 50 ? "bg-health-yellow" :
-                            deal.health_score >= 25 ? "bg-health-orange" :
-                              "bg-health-red";
-                      const healthHex = deal.health_score >= 75 ? "#10b981" : deal.health_score >= 50 ? "#f59e0b" : deal.health_score >= 25 ? "#f97316" : "#ef4444";
-                      const scoreLabel =
-                        deal.health_score >= 75 ? "Healthy" :
-                          deal.health_score >= 50 ? "At Risk" :
-                            deal.health_score >= 25 ? "Critical" : "Zombie";
-                      return (
-                        <TableRow
-                          key={deal.id}
-                          onClick={() => { setPanelInitialSection(undefined); setSelectedDealId(deal.id); }}
-                          className={cn(
-                            "deal-row group cursor-pointer border-border/20 transition-all duration-100 fade-slide-in relative",
-                            selectedDealId === deal.id
-                              ? "bg-primary/10 hover:bg-primary/[0.13]"
-                              : ""
-                          )}
-                          style={{ animationDelay: `${idx * 30}ms`, '--row-health-color': healthHex } as React.CSSProperties}
-                          // Mark first row for tour
-                          {...(idx === 0 ? { "data-tour": "analyse-btn" } : {})}
-                        >
-                          {/* Deal + Company */}
-                          <TableCell className="py-3.5 pl-6">
-                            <div className="flex items-center gap-3 min-w-0">
-                              <div className={cn(
-                                "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-xs font-bold",
-                                dealInitialClass(deal.health_label)
-                              )}>
-                                {deal.deal_name.charAt(0).toUpperCase()}
-                              </div>
-                              <div className="min-w-0">
-                                <div className="flex items-center gap-2">
-                                  <p className="truncate text-sm font-semibold leading-tight text-foreground">
-                                    {deal.deal_name}
-                                  </p>
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setPanelInitialSection(undefined);
-                                      setPanelInitialTab("Battle Card");
-                                      setSelectedDealId(deal.id);
-                                    }}
-                                    className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 text-xs text-sky-400 hover:text-sky-300 bg-sky-500/10 hover:bg-sky-500/15 border border-sky-500/20 rounded-lg px-2 py-0.5 flex-shrink-0"
-                                  >
-                                    <Zap size={10} strokeWidth={2.5} />
-                                    Brief
-                                  </button>
-                                </div>
-                                <p className="mt-0.5 truncate text-xs text-muted-foreground/60">
-                                  {deal.company}
-                                </p>
-                                {whyLine && (
-                                  <p className={cn("mt-0.5 truncate text-[10px] italic", whyLine.colorClass)}>
-                                    {whyLine.text}
-                                  </p>
-                                )}
-                              </div>
-                            </div>
-                          </TableCell>
+                {/* Column header row */}
+                <div className="grid grid-cols-[minmax(0,1fr)_190px_170px_100px_80px_90px_110px_32px] border-b border-border/30 px-0">
+                  <div className="py-3 pl-8 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/50">Deal</div>
+                  <div className="py-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/50">Stage</div>
+                  <div className="py-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/50">Owner</div>
+                  <div className="py-3 text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/50">Amount</div>
+                  <div className="py-3 text-center text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/50">Score</div>
+                  <div className="py-3 text-center text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/50">Warnings</div>
+                  <div className="py-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/50">Status</div>
+                  <div />
+                </div>
 
-                          {/* Stage — click to edit inline */}
-                          <TableCell className="py-3.5" onClick={(e) => e.stopPropagation()}>
-                            {savingStage === deal.id ? (
-                              <div className="inline-flex items-center gap-1.5 text-xs text-muted-foreground/60">
-                                <Loader2 size={12} className="animate-spin" />
-                                Saving…
+                {/* Deal rows */}
+                <div className="divide-y divide-border/20">
+                  {(() => {
+                    const scoreCounts: Record<number, number> = {};
+                    filteredAndSortedDeals.forEach(d => { if (d.health_score > 0) scoreCounts[d.health_score] = (scoreCounts[d.health_score] ?? 0) + 1; });
+                    Object.entries(scoreCounts).forEach(([score, count]) => {
+                      if (count >= 5) console.warn(`[DealIQ] ${count} deals share health_score=${score} — possible scoring bug`);
+                    });
+                    return null;
+                  })()}
+                  {filteredAndSortedDeals.map((deal, idx) => {
+                    const whyLine = getDealWhyLine(deal);
+                    const scoreBarColor =
+                      deal.health_score >= 75 ? "bg-health-green" :
+                        deal.health_score >= 50 ? "bg-health-yellow" :
+                          deal.health_score >= 25 ? "bg-health-orange" :
+                            "bg-health-red";
+                    const healthHex = deal.health_score >= 75 ? "#10b981" : deal.health_score >= 50 ? "#f59e0b" : deal.health_score >= 25 ? "#f97316" : "#ef4444";
+                    const scoreLabel =
+                      deal.health_score >= 75 ? "Healthy" :
+                        deal.health_score >= 50 ? "At Risk" :
+                          deal.health_score >= 25 ? "Critical" : "Zombie";
+                    return (
+                      <div
+                        key={deal.id}
+                        onClick={() => { setPanelInitialSection(undefined); setSelectedDealId(deal.id); }}
+                        className={cn(
+                          "deal-row group grid grid-cols-[minmax(0,1fr)_190px_170px_100px_80px_90px_110px_32px] items-center cursor-pointer transition-all duration-100 fade-slide-in relative",
+                          selectedDealId === deal.id
+                            ? "bg-primary/10 hover:bg-primary/[0.13]"
+                            : "hover:bg-muted/40"
+                        )}
+                        style={{ animationDelay: `${idx * 30}ms`, '--row-health-color': healthHex } as React.CSSProperties}
+                        {...(idx === 0 ? { "data-tour": "analyse-btn" } : {})}
+                      >
+                        {/* Deal + Company */}
+                        <div className="py-3.5 pl-6 min-w-0">
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className={cn(
+                              "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-xs font-bold",
+                              dealInitialClass(deal.health_label)
+                            )}>
+                              {deal.deal_name.charAt(0).toUpperCase()}
+                            </div>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                <p className="truncate text-sm font-semibold leading-tight text-foreground">
+                                  {deal.deal_name}
+                                </p>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setPanelInitialSection(undefined);
+                                    setPanelInitialTab("Battle Card");
+                                    setSelectedDealId(deal.id);
+                                  }}
+                                  className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 text-xs text-sky-400 hover:text-sky-300 bg-sky-500/10 hover:bg-sky-500/15 border border-sky-500/20 rounded-lg px-2 py-0.5 flex-shrink-0"
+                                >
+                                  <Zap size={10} strokeWidth={2.5} />
+                                  Brief
+                                </button>
                               </div>
-                            ) : editingStage?.dealId === deal.id ? (
-                              <select
-                                autoFocus
-                                value={editingStage.value}
-                                onChange={(e) => setEditingStage({ dealId: deal.id, value: e.target.value })}
-                                onBlur={() => {
+                              <p className="mt-0.5 truncate text-xs text-muted-foreground/60">
+                                {deal.company}
+                              </p>
+                              {whyLine && (
+                                <p className={cn("mt-0.5 truncate text-[10px] italic", whyLine.colorClass)}>
+                                  {whyLine.text}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Stage — click to edit inline */}
+                        <div className="py-3.5" onClick={(e) => e.stopPropagation()}>
+                          {savingStage === deal.id ? (
+                            <div className="inline-flex items-center gap-1.5 text-xs text-muted-foreground/60">
+                              <Loader2 size={12} className="animate-spin" />
+                              Saving…
+                            </div>
+                          ) : editingStage?.dealId === deal.id ? (
+                            <select
+                              autoFocus
+                              value={editingStage.value}
+                              onChange={(e) => setEditingStage({ dealId: deal.id, value: e.target.value })}
+                              onBlur={() => {
+                                if (editingStage.value !== deal.stage) {
+                                  saveStageEdit(deal.id, editingStage.value, deal.stage);
+                                } else {
+                                  setEditingStage(null);
+                                }
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
                                   if (editingStage.value !== deal.stage) {
                                     saveStageEdit(deal.id, editingStage.value, deal.stage);
                                   } else {
                                     setEditingStage(null);
                                   }
-                                }}
-                                onKeyDown={(e) => {
-                                  if (e.key === "Enter") {
-                                    if (editingStage.value !== deal.stage) {
-                                      saveStageEdit(deal.id, editingStage.value, deal.stage);
-                                    } else {
-                                      setEditingStage(null);
-                                    }
-                                  }
-                                  if (e.key === "Escape") setEditingStage(null);
-                                }}
-                                className="text-xs bg-secondary border border-border/60 rounded-lg px-2 py-1 text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
-                              >
-                                {["Qualification", "Needs Analysis", "Value Proposition", "Proposal", "Negotiation", "Contract Sent", "Closed Won", "Closed Lost"].map((s) => (
-                                  <option key={s} value={s}>{s}</option>
-                                ))}
-                              </select>
-                            ) : (
-                              <span
-                                className={cn(
-                                  "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium whitespace-nowrap cursor-pointer hover:opacity-80 transition-opacity",
-                                  stagePillClass(deal.stage)
-                                )}
-                                title="Click to edit stage"
-                                onClick={() => setEditingStage({ dealId: deal.id, value: deal.stage })}
-                              >
-                                {deal.stage}
-                              </span>
-                            )}
-                          </TableCell>
-
-                          {/* Owner */}
-                          <TableCell className="py-3.5 max-w-[150px]">
-                            <OwnerAvatar name={deal.owner ?? "—"} />
-                          </TableCell>
-
-                          {/* Amount */}
-                          <TableCell className="py-3.5 text-right">
-                            <span className="font-mono tabular-nums text-sm font-semibold text-foreground/90">
-                              {formatCurrency(deal.amount)}
-                            </span>
-                          </TableCell>
-
-                          {/* Health Score */}
-                          <TableCell className="py-3.5 text-center">
-                            <div
-                              className="flex flex-col items-center gap-0.5"
-                              title={`Health Score: ${deal.health_score}/100 — ${scoreLabel}`}
+                                }
+                                if (e.key === "Escape") setEditingStage(null);
+                              }}
+                              className="text-xs bg-secondary border border-border/60 rounded-lg px-2 py-1 text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
                             >
-                              <div className="flex items-center gap-1">
-                                <HealthRing score={deal.health_score} />
-                                {deal.score_trend === "improving" && (
-                                  <span className="text-xs text-health-green" title="Score improving">↗</span>
-                                )}
-                                {deal.score_trend === "declining" && (
-                                  <span className="text-xs text-destructive" title="Score declining">↘</span>
-                                )}
-                                {deal.score_trend === "stable" && (
-                                  <span className="text-xs text-muted-foreground" title="Score stable">→</span>
-                                )}
-                              </div>
-                              <div className="w-full h-1 max-w-[40px] rounded-full bg-border/40 overflow-hidden">
-                                <div
-                                  className={cn("h-full rounded-full transition-all", scoreBarColor)}
-                                  style={{ width: `${Math.max(deal.health_score, 2)}%` }}
-                                />
-                              </div>
-                            </div>
-                          </TableCell>
+                              {["Qualification", "Needs Analysis", "Value Proposition", "Proposal", "Negotiation", "Contract Sent", "Closed Won", "Closed Lost"].map((s) => (
+                                <option key={s} value={s}>{s}</option>
+                              ))}
+                            </select>
+                          ) : (
+                            <span
+                              className={cn(
+                                "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium whitespace-nowrap cursor-pointer hover:opacity-80 transition-opacity",
+                                stagePillClass(deal.stage)
+                              )}
+                              title="Click to edit stage"
+                              onClick={() => setEditingStage({ dealId: deal.id, value: deal.stage })}
+                            >
+                              {deal.stage}
+                            </span>
+                          )}
+                        </div>
 
-                          {/* Warnings */}
-                          <TableCell className="py-3.5 text-center">
-                            {(() => {
-                              const w = dealWarnings[deal.id];
-                              if (!w) {
-                                return <span className="text-muted-foreground/20 text-xs">—</span>;
-                              }
-                              const tooltipText = w.top_warning
-                                ? w.top_warning
-                                : w.has_critical
-                                  ? `${w.warning_count} critical warning${w.warning_count !== 1 ? "s" : ""} — click to view`
-                                  : w.warning_count > 0
-                                    ? `${w.warning_count} warning${w.warning_count !== 1 ? "s" : ""} — click to view`
-                                    : "All signals healthy";
-                              if (w.has_critical) {
-                                return (
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <div className="inline-flex items-center gap-1 rounded-lg border border-rose-500/25 bg-rose-500/15 px-2 py-0.5 text-rose-400 cursor-help">
-                                        <AlertTriangle size={11} strokeWidth={2.5} />
-                                        <span className="text-xs font-semibold">{w.warning_count}</span>
-                                      </div>
-                                    </TooltipTrigger>
-                                    <TooltipContent side="top" className="max-w-[220px] text-xs text-center">
-                                      {tooltipText}
-                                    </TooltipContent>
-                                  </Tooltip>
-                                );
-                              }
-                              if (w.warning_count > 0) {
-                                return (
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <div className="inline-flex items-center gap-1 rounded-lg border border-amber-500/25 bg-amber-500/15 px-2 py-0.5 text-amber-400 cursor-help">
-                                        <AlertCircle size={11} strokeWidth={2.5} />
-                                        <span className="text-xs font-semibold">{w.warning_count}</span>
-                                      </div>
-                                    </TooltipTrigger>
-                                    <TooltipContent side="top" className="max-w-[220px] text-xs text-center">
-                                      {tooltipText}
-                                    </TooltipContent>
-                                  </Tooltip>
-                                );
-                              }
-                              return <CheckCircle2 size={14} className="text-emerald-500" strokeWidth={2} />;
-                            })()}
-                          </TableCell>
+                        {/* Owner */}
+                        <div className="py-3.5">
+                          <OwnerAvatar name={deal.owner ?? "—"} />
+                        </div>
 
-                          {/* Status Badge */}
-                          <TableCell className="py-3.5">
-                            <Badge variant="outline" className={cn(
-                              "border text-xs font-medium capitalize",
-                              healthColor(deal.health_label)
-                            )}>
-                              {deal.health_label.replace("_", " ")}
-                            </Badge>
-                          </TableCell>
+                        {/* Amount */}
+                        <div className="py-3.5 text-right">
+                          <span className="font-mono tabular-nums text-sm font-semibold text-foreground/90">
+                            {formatCurrency(deal.amount)}
+                          </span>
+                        </div>
 
-                          {/* Chevron */}
-                          <TableCell className="py-3.5 pr-4 w-8">
-                            <ChevronRight className={cn(
-                              "h-4 w-4 transition-all duration-150",
-                              selectedDealId === deal.id
-                                ? "text-primary opacity-100"
-                                : "text-muted-foreground opacity-0 group-hover:opacity-50"
-                            )} />
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
+                        {/* Health Score */}
+                        <div className="py-3.5 flex flex-col items-center gap-0.5" title={`Health Score: ${deal.health_score}/100 — ${scoreLabel}`}>
+                          <div className="flex items-center gap-1">
+                            <HealthRing score={deal.health_score} />
+                            {deal.score_trend === "improving" && (
+                              <span className="text-xs text-health-green" title="Score improving">↗</span>
+                            )}
+                            {deal.score_trend === "declining" && (
+                              <span className="text-xs text-destructive" title="Score declining">↘</span>
+                            )}
+                            {deal.score_trend === "stable" && (
+                              <span className="text-xs text-muted-foreground" title="Score stable">→</span>
+                            )}
+                          </div>
+                          <div className="w-full h-1 max-w-[40px] rounded-full bg-border/40 overflow-hidden">
+                            <div
+                              className={cn("h-full rounded-full transition-all", scoreBarColor)}
+                              style={{ width: `${Math.max(deal.health_score, 2)}%` }}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Warnings */}
+                        <div className="py-3.5 flex items-center justify-center">
+                          {(() => {
+                            const w = dealWarnings[deal.id];
+                            if (!w) {
+                              return <span className="text-muted-foreground/20 text-xs">—</span>;
+                            }
+                            const tooltipText = w.top_warning
+                              ? w.top_warning
+                              : w.has_critical
+                                ? `${w.warning_count} critical warning${w.warning_count !== 1 ? "s" : ""} — click to view`
+                                : w.warning_count > 0
+                                  ? `${w.warning_count} warning${w.warning_count !== 1 ? "s" : ""} — click to view`
+                                  : "All signals healthy";
+                            if (w.has_critical) {
+                              return (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <div className="inline-flex items-center gap-1 rounded-lg border border-rose-500/25 bg-rose-500/15 px-2 py-0.5 text-rose-400 cursor-help">
+                                      <AlertTriangle size={11} strokeWidth={2.5} />
+                                      <span className="text-xs font-semibold">{w.warning_count}</span>
+                                    </div>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="top" className="max-w-[220px] text-xs text-center">
+                                    {tooltipText}
+                                  </TooltipContent>
+                                </Tooltip>
+                              );
+                            }
+                            if (w.warning_count > 0) {
+                              return (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <div className="inline-flex items-center gap-1 rounded-lg border border-amber-500/25 bg-amber-500/15 px-2 py-0.5 text-amber-400 cursor-help">
+                                      <AlertCircle size={11} strokeWidth={2.5} />
+                                      <span className="text-xs font-semibold">{w.warning_count}</span>
+                                    </div>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="top" className="max-w-[220px] text-xs text-center">
+                                    {tooltipText}
+                                  </TooltipContent>
+                                </Tooltip>
+                              );
+                            }
+                            return <CheckCircle2 size={14} className="text-emerald-500" strokeWidth={2} />;
+                          })()}
+                        </div>
+
+                        {/* Status Badge */}
+                        <div className="py-3.5">
+                          <Badge variant="outline" className={cn(
+                            "border text-xs font-medium capitalize",
+                            healthColor(deal.health_label)
+                          )}>
+                            {deal.health_label.replace("_", " ")}
+                          </Badge>
+                        </div>
+
+                        {/* Chevron */}
+                        <div className="py-3.5 pr-1 flex items-center justify-center">
+                          <ChevronRight className={cn(
+                            "h-4 w-4 transition-all duration-150",
+                            selectedDealId === deal.id
+                              ? "text-primary opacity-100"
+                              : "text-muted-foreground opacity-0 group-hover:opacity-50"
+                          )} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
 
                 {/* Pagination */}
                 {totalPages > 1 && (

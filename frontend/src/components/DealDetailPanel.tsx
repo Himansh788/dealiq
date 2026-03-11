@@ -154,6 +154,7 @@ export default function DealDetailPanel({
   const [activeTab, setActiveTab] = useState<PanelTab>(initialTab ?? "Overview");
   const [liveScore, setLiveScore] = useState<number | undefined>(undefined);
   const [liveLabel, setLiveLabel] = useState<string | undefined>(undefined);
+  const [healthData, setHealthData] = useState<Record<string, unknown> | null>(null);
   const [openedSections, setOpenedSections] = useState<Set<string>>(new Set(DEFAULT_OPEN));
 
   // Inline edit state
@@ -249,12 +250,14 @@ export default function DealDetailPanel({
     if (!dealId) return;
     setLiveScore(undefined);
     setLiveLabel(undefined);
+    setHealthData(null);
     api.getDealHealth(dealId)
       .then((data) => {
         const score = data.total_score ?? data.overall_score;
         const label = data.health_label;
         setLiveScore(score);
         setLiveLabel(label);
+        setHealthData(data as Record<string, unknown>);
         if (score != null) onDealUpdated?.("health_score", score);
         if (label) onDealUpdated?.("health_label", label);
       })
@@ -587,7 +590,7 @@ export default function DealDetailPanel({
                       </AccordionTrigger>
                       <AccordionContent className="px-4 pb-4 pt-0">
                         {openedSections.has(key) && key === "timeline"  && <DealTimeline dealId={dealId} />}
-                        {openedSections.has(key) && key === "health"    && <HealthBreakdown dealId={dealId} />}
+                        {openedSections.has(key) && key === "health"    && <HealthBreakdown dealId={dealId} preloadedData={healthData} />}
                         {openedSections.has(key) && key === "activity"  && <ActivityFeedPanel dealId={dealId} stage={stage} />}
                         {openedSections.has(key) && key === "contacts"  && <ContactsPanel dealId={dealId} />}
                       </AccordionContent>
