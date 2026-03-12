@@ -297,7 +297,8 @@ async def get_filter_options(
         else:
             try:
                 raw_deals = await _fetch_all_zoho_deals(session["access_token"])
-            except Exception:
+            except Exception as e:
+                logger.error("_fetch_all_zoho_deals failed for user=%s: %s", session.get("email"), e)
                 raw_deals = SIMULATED_DEALS
 
     # Use the same set of deals the dashboard table shows — exclude only truly
