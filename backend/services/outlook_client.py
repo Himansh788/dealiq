@@ -31,9 +31,14 @@ async def sync_emails_for_deal(
 
     # Use $search with email addresses — more reliable than OData filter for recipients
     # Graph search syntax: "from:email OR to:email"
+    # Guard: ensure all items are strings before building the search query
+    safe_emails = [e if isinstance(e, str) else str(e.get("address", "")) for e in contact_emails]
+    safe_emails = [e.strip().lower() for e in safe_emails if e and isinstance(e, str)]
+    if not safe_emails:
+        logger.warning("outlook_client: contact_emails resolved to empty after sanitisation (original=%s)", contact_emails)
     search_query = " OR ".join(
-        f"from:{e} to:{e}" for e in contact_emails
-    ) if contact_emails else None
+        f"from:{e} to:{e}" for e in safe_emails
+    ) if safe_emails else None
 
     # NOTE: Graph API rejects requests that combine $search with $orderby.
     # Use one or the other — $search when we have contact emails, $orderby otherwise.

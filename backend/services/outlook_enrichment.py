@@ -109,7 +109,14 @@ async def get_enriched_emails(
     if ms_token and deal_context:
         try:
             contacts = deal_context.get("contacts") or []
-            contact_emails = [c["email"] for c in contacts if c.get("email")]
+            contact_emails = []
+            for c in contacts:
+                email = c.get("email")
+                if isinstance(email, dict):
+                    # Some Zoho/Graph responses nest email as {"address": "...", "name": "..."}
+                    email = email.get("address") or email.get("email") or ""
+                if email and isinstance(email, str):
+                    contact_emails.append(email.strip().lower())
             logger.info(
                 "outlook_enrichment: deal=%s contact_emails=%s",
                 deal_id, contact_emails,
