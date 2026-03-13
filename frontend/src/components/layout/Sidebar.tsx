@@ -7,7 +7,6 @@ import {
   Sparkles,
   Trophy,
   Target,
-  Globe,
   FileText,
   Settings,
   LogOut,
@@ -26,11 +25,10 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 const TOP_NAV = [
   { icon: Home, label: "My Day", path: "/home", dot: false },
   { icon: LayoutDashboard, label: "Deals", path: "/dashboard", dot: false },
-  { icon: Target, label: "Forecast", path: "/forecast", dot: false },
+  { icon: Target, label: "Forecast & Analytics", path: "/forecast", dot: false },
   { icon: Mail, label: "Email", path: "/emails", dot: true },
   { icon: Sparkles, label: "Ask AI", path: "/ask", dot: false },
   { icon: Trophy, label: "Win/Loss", path: "/winloss", dot: false },
-  { icon: Globe, label: "Regional Analytics", path: "/analytics", dot: false },
   { icon: FileText, label: "Contract Intelligence", path: "/contracts", dot: false },
 ] as const;
 
@@ -89,7 +87,8 @@ export default function Sidebar() {
 
   const isActive = (path: string) =>
     location.pathname === path ||
-    (path === "/dashboard" && location.pathname === "/deals");
+    (path === "/dashboard" && location.pathname === "/deals") ||
+    (path === "/forecast" && location.pathname === "/analytics");
 
   return (
     <aside className="flex h-screen w-[60px] shrink-0 flex-col items-center border-r border-border/40 bg-background py-3">

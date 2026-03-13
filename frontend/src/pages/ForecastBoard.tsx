@@ -172,6 +172,10 @@ function DealCard({
 
 // ── Column ────────────────────────────────────────────────────────────────────
 
+const MAX_VISIBLE_CARDS = 8;
+// ~72px per card + 8px gap × 8 cards
+const COLUMN_MAX_HEIGHT = 632;
+
 function DealColumn({
   title,
   colorClass,
@@ -191,6 +195,7 @@ function DealColumn({
 }) {
   const candidates = promoteCandidates?.filter(d => d.health_score >= 65).slice(0, 3) ?? [];
   const isEmptyCommit = title === "Commit" && deals.length === 0;
+  const isOverflow = deals.length > MAX_VISIBLE_CARDS;
 
   return (
     <div className="flex flex-col min-w-0">
@@ -206,52 +211,72 @@ function DealColumn({
         </span>
       </div>
       <div className={cn(
-        "bg-muted/20 border border-t-0 border-border rounded-b-xl p-3 min-h-[320px] space-y-2 flex-1",
+        "bg-muted/20 border border-t-0 border-border rounded-b-xl p-3 flex-1 flex flex-col",
         isEmptyCommit && "bg-rose-500/10 border-rose-500/20"
       )}>
         {deals.length === 0 ? (
-          isEmptyCommit ? (
-            <div className="flex flex-col items-center justify-center h-32 gap-2">
-              <AlertTriangle className="h-6 w-6 text-rose-500/70" />
-              <span className="text-rose-500/80 text-xs font-semibold">No committed deals</span>
-            </div>
-          ) : (
-            <>
+          <div className="min-h-[320px] flex flex-col">
+            {isEmptyCommit ? (
               <div className="flex flex-col items-center justify-center h-32 gap-2">
-                <div className="w-8 h-8 rounded-full border-2 border-dashed border-border/50 flex items-center justify-center">
-                  <Plus size={14} className="text-muted-foreground/40" />
-                </div>
-                <span className="text-muted-foreground/50 text-xs">Move deals here</span>
+                <AlertTriangle className="h-6 w-6 text-rose-500/70" />
+                <span className="text-rose-500/80 text-xs font-semibold">No committed deals</span>
               </div>
-              {promoteCandidates !== undefined && (
-                <div className="mt-3 px-1">
-                  <p className="text-xs text-muted-foreground/60 mb-2 uppercase tracking-wider">Promote to Commit?</p>
-                  {candidates.length > 0 ? candidates.map(deal => (
-                    <button
-                      key={deal.id}
-                      onClick={() => onCategorize(deal.id, "commit")}
-                      className="w-full text-left mb-1.5 px-3 py-2 rounded-lg bg-muted/30 hover:bg-emerald-500/10 hover:border-emerald-500/30 border border-border/50 transition-all group/suggest"
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-muted-foreground group-hover/suggest:text-foreground text-xs truncate transition-colors">
-                          {deal.name}
-                        </span>
-                        <span className="text-emerald-500/60 group-hover/suggest:text-emerald-400 text-xs ml-2 flex-shrink-0 transition-colors">
-                          {deal.health_score} ↑
-                        </span>
-                      </div>
-                    </button>
-                  )) : (
-                    <p className="text-xs text-muted-foreground/50 italic">No high-health deals in Best Case yet</p>
-                  )}
+            ) : (
+              <>
+                <div className="flex flex-col items-center justify-center h-32 gap-2">
+                  <div className="w-8 h-8 rounded-full border-2 border-dashed border-border/50 flex items-center justify-center">
+                    <Plus size={14} className="text-muted-foreground/40" />
+                  </div>
+                  <span className="text-muted-foreground/50 text-xs">Move deals here</span>
                 </div>
-              )}
-            </>
-          )
+                {promoteCandidates !== undefined && (
+                  <div className="mt-3 px-1">
+                    <p className="text-xs text-muted-foreground/60 mb-2 uppercase tracking-wider">Promote to Commit?</p>
+                    {candidates.length > 0 ? candidates.map(deal => (
+                      <button
+                        key={deal.id}
+                        onClick={() => onCategorize(deal.id, "commit")}
+                        className="w-full text-left mb-1.5 px-3 py-2 rounded-lg bg-muted/30 hover:bg-emerald-500/10 hover:border-emerald-500/30 border border-border/50 transition-all group/suggest"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-muted-foreground group-hover/suggest:text-foreground text-xs truncate transition-colors">
+                            {deal.name}
+                          </span>
+                          <span className="text-emerald-500/60 group-hover/suggest:text-emerald-400 text-xs ml-2 flex-shrink-0 transition-colors">
+                            {deal.health_score} ↑
+                          </span>
+                        </div>
+                      </button>
+                    )) : (
+                      <p className="text-xs text-muted-foreground/50 italic">No high-health deals in Best Case yet</p>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
         ) : (
-          deals.map((deal) => (
-            <DealCard key={deal.id} deal={deal} onCategorize={onCategorize} />
-          ))
+          <>
+            <div
+              className="space-y-2"
+              style={isOverflow ? {
+                maxHeight: `${COLUMN_MAX_HEIGHT}px`,
+                overflowY: "auto",
+                paddingRight: "4px",
+                scrollbarWidth: "thin",
+                scrollbarColor: "rgba(255,255,255,0.15) transparent",
+              } : { minHeight: "320px" }}
+            >
+              {deals.map((deal) => (
+                <DealCard key={deal.id} deal={deal} onCategorize={onCategorize} />
+              ))}
+            </div>
+            {isOverflow && (
+              <p className="text-[11px] text-muted-foreground/50 text-center pt-2 shrink-0">
+                {deals.length} deals — scroll to see all
+              </p>
+            )}
+          </>
         )}
       </div>
     </div>
@@ -286,6 +311,7 @@ export default function ForecastBoard() {
 
   const [board, setBoard] = useState<ForecastBoard | null>(null);
   const [localDeals, setLocalDeals] = useState<Record<string, "commit" | "best_case" | "pipeline" | "omit">>({});
+  const [savedDeals, setSavedDeals] = useState<Record<string, "commit" | "best_case" | "pipeline" | "omit">>({});
   const [loading, setLoading] = useState(true);
 
   // Quota form
@@ -319,6 +345,7 @@ export default function ForecastBoard() {
         ];
         allDeals.forEach((d) => { overrides[d.id] = d.effective_category; });
         setLocalDeals(overrides);
+        setSavedDeals(overrides);
       })
       .catch((err: unknown) => {
         if (err instanceof DOMException && err.name === "AbortError") return;
@@ -419,6 +446,7 @@ export default function ForecastBoard() {
       };
       setSubmitSuccess(record);
       setNotes("");
+      setSavedDeals({ ...localDeals });
       // Reload submissions for history
       api.getForecastSubmissions().then((d: { submissions: ForecastSubmissionRecord[] }) => {
         setSubmissions(d.submissions ?? []);
@@ -445,16 +473,14 @@ export default function ForecastBoard() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-background">
-        <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
-          <div className="mb-6 flex items-center justify-between">
-            <div>
-              <Skeleton className="h-7 w-48 mb-2" />
-              <Skeleton className="h-4 w-72" />
-            </div>
+      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
+        <div className="mb-6 flex items-center justify-between">
+          <div>
+            <Skeleton className="h-7 w-48 mb-2" />
+            <Skeleton className="h-4 w-72" />
           </div>
-          <BoardSkeleton />
         </div>
+        <BoardSkeleton />
       </div>
     );
   }
@@ -467,13 +493,16 @@ export default function ForecastBoard() {
   const pipelineTotal = categories.pipeline.total;
   const totalPipeline = commitTotal + bestCaseTotal + pipelineTotal;
 
+  const unsavedCount = Object.keys(localDeals).filter(
+    (id) => localDeals[id] !== savedDeals[id]
+  ).length;
+
   const commitPct = quota > 0 ? Math.min((commitTotal / quota) * 100, 100) : 0;
   const bestCasePct = quota > 0 ? Math.min(((bestCaseTotal) / quota) * 100, 100 - commitPct) : 0;
   const quotaReachedPct = quota > 0 ? Math.min((totalPipeline / quota) * 100, 100) : 0;
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 space-y-6">
+    <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 space-y-6">
 
         {/* Page title */}
         <div className="flex items-center justify-between">
@@ -484,6 +513,25 @@ export default function ForecastBoard() {
             </p>
           </div>
         </div>
+
+        {/* Unsaved changes banner */}
+        {unsavedCount > 0 && !submitSuccess && (
+          <div className="flex items-center justify-between gap-3 bg-amber-500/10 border border-amber-500/30 rounded-xl px-4 py-3">
+            <div className="flex items-center gap-2 text-amber-400 text-sm">
+              <AlertTriangle size={14} strokeWidth={2.5} />
+              <span>
+                <span className="font-semibold">{unsavedCount} deal{unsavedCount !== 1 ? "s" : ""} moved</span>
+                {" "}— submit to lock in your forecast
+              </span>
+            </div>
+            <button
+              onClick={() => document.getElementById("submit-section")?.scrollIntoView({ behavior: "smooth" })}
+              className="text-xs text-amber-400 hover:text-amber-300 underline shrink-0"
+            >
+              Go to Submit
+            </button>
+          </div>
+        )}
 
         {/* ── SECTION A: Quota Progress ────────────────────────────────────── */}
         <div className="bg-card border border-border rounded-2xl p-6 space-y-5">
@@ -636,7 +684,7 @@ export default function ForecastBoard() {
         </div>
 
         {/* ── SECTION C: Submit Forecast ───────────────────────────────────── */}
-        <div className="bg-card border border-border rounded-2xl p-6 space-y-4">
+        <div id="submit-section" className="bg-card border border-border rounded-2xl p-6 space-y-4">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <h2 className="text-sm font-semibold text-foreground">Submit This Week's Forecast</h2>
             <span className="text-xs text-muted-foreground/60">{currentWeekLabel()}</span>
@@ -769,7 +817,6 @@ export default function ForecastBoard() {
           )}
         </div>
 
-      </div>
     </div>
   );
 }

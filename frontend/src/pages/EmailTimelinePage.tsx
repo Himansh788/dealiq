@@ -311,6 +311,19 @@ function renderPlainBody(text: string, compact = false): React.ReactNode {
   );
 }
 
+// ── Helpers ────────────────────────────────────────────────────────────────────
+
+/**
+ * Prefix-based word matching: every query word must be a prefix of at least
+ * one word in the target string. Case-insensitive.
+ */
+function matchesPrefixSearch(target: string, query: string): boolean {
+  if (!query.trim()) return true;
+  const targetWords = target.toLowerCase().split(/[\s&'"-]+/).filter(Boolean);
+  const queryWords = query.toLowerCase().trim().split(/\s+/).filter(Boolean);
+  return queryWords.every(qw => targetWords.some(tw => tw.startsWith(qw)));
+}
+
 // ── Constants ──────────────────────────────────────────────────────────────────
 
 const HEALTH_DOT: Record<string, string> = {
@@ -1417,7 +1430,12 @@ export default function EmailTimelinePage() {
       api.getDealsPage(1, 20, term)
         .then((data: any) => {
           if (cancelled) return;
-          const list: any[] = data.deals ?? data ?? [];
+          const rawList: any[] = data.deals ?? data ?? [];
+          const list = dealSearch.trim()
+            ? rawList.filter((d: any) =>
+                matchesPrefixSearch(d.name ?? d.deal_name ?? "", dealSearch)
+              )
+            : rawList;
           setDeals(list.map((d: any) => ({
             id: d.id,
             name: d.name ?? d.deal_name ?? "Unnamed Deal",

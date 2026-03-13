@@ -80,6 +80,18 @@ interface TeamActivitySummary {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+/**
+ * Prefix-based word matching: every query word must be a prefix of at least
+ * one word in the target string. Case-insensitive.
+ * e.g. "che" matches "Cherokee Hotel" but NOT "Manchester Hotels".
+ */
+function matchesPrefixSearch(target: string, query: string): boolean {
+  if (!query.trim()) return true;
+  const targetWords = target.toLowerCase().split(/[\s&'"-]+/).filter(Boolean);
+  const queryWords = query.toLowerCase().trim().split(/\s+/).filter(Boolean);
+  return queryWords.every(qw => targetWords.some(tw => tw.startsWith(qw)));
+}
+
 function formatCurrency(val: number): string {
   if (val >= 1_000_000) return `$${(val / 1_000_000).toFixed(1)}M`;
   if (val >= 1_000) return `$${Math.round(val / 1_000)}K`;
@@ -592,8 +604,16 @@ export default function Dashboard() {
 
   // Filtering is server-side. Client-side: sort only.
   const filteredAndSortedDeals = useMemo(() => {
+    // Client-side prefix filter: each query word must start a word in the deal name or company
+    const base = debouncedSearch.trim()
+      ? allDeals.filter(d =>
+          matchesPrefixSearch(d.deal_name, debouncedSearch) ||
+          matchesPrefixSearch(d.company, debouncedSearch)
+        )
+      : allDeals;
+
     if (sortAsc) {
-      return [...allDeals].sort((a, b) => b.health_score - a.health_score);
+      return [...base].sort((a, b) => b.health_score - a.health_score);
     }
     // Default: warnings-first sort
     const warnTier = (id: string): number => {
@@ -603,12 +623,12 @@ export default function Dashboard() {
       if (w.warning_count > 0) return 1;
       return 2;
     };
-    return [...allDeals].sort((a, b) => {
+    return [...base].sort((a, b) => {
       const tierDiff = warnTier(a.id) - warnTier(b.id);
       if (tierDiff !== 0) return tierDiff;
       return a.health_score - b.health_score;
     });
-  }, [allDeals, sortAsc, dealWarnings]);
+  }, [allDeals, sortAsc, dealWarnings, debouncedSearch]);
 
   // hasActiveFilters excludes searchName — search is server-side so pagination still shows
   const hasActiveFilters = filterOwner !== "all" || filterStage !== "all" || filterHealth !== "all";

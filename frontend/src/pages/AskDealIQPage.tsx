@@ -32,6 +32,17 @@ interface Deal {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+/**
+ * Prefix-based word matching: every query word must be a prefix of at least
+ * one word in the target string. Case-insensitive.
+ */
+function matchesPrefixSearch(target: string, query: string): boolean {
+  if (!query.trim()) return true;
+  const targetWords = target.toLowerCase().split(/[\s&'"-]+/).filter(Boolean);
+  const queryWords = query.toLowerCase().trim().split(/\s+/).filter(Boolean);
+  return queryWords.every(qw => targetWords.some(tw => tw.startsWith(qw)));
+}
+
 const HEALTH_DOT: Record<string, string> = {
   healthy:  "bg-health-green",
   watching: "bg-health-yellow",
@@ -67,7 +78,13 @@ export default function AskDealIQPage() {
       api.getDealsPage(1, 20, term)
         .then((data: any) => {
           if (cancelled) return;
-          const list: Deal[] = (Array.isArray(data) ? data : data?.deals ?? []).map((d: any) => ({
+          const rawList: any[] = Array.isArray(data) ? data : data?.deals ?? [];
+          const filtered = dealSearch.trim()
+            ? rawList.filter((d: any) =>
+                matchesPrefixSearch(d.name ?? d.deal_name ?? "", dealSearch)
+              )
+            : rawList;
+          const list: Deal[] = filtered.map((d: any) => ({
             id:           d.id,
             name:         d.name ?? d.deal_name ?? "Unnamed Deal",
             company:      d.account_name ?? d.company ?? "—",
