@@ -848,9 +848,13 @@ async def get_contacts_for_deal(access_token: str, deal_id: str) -> list:
             role = c.get("Contact_Role", "")
             if isinstance(role, dict):
                 role = role.get("name", "")
+            # Zoho sometimes returns Email as a dict {"email": "...", "user_name": "..."}
+            raw_email = c.get("Email", "")
+            if isinstance(raw_email, dict):
+                raw_email = raw_email.get("email") or raw_email.get("address") or ""
             result.append({
                 "id": c.get("id", ""),
-                "email": c.get("Email", ""),
+                "email": str(raw_email).strip().lower() if raw_email else "",
                 "name": f'{c.get("First_Name", "")} {c.get("Last_Name", "")}'.strip(),
                 "role": role,
                 "title": c.get("Title", ""),

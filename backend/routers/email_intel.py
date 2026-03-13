@@ -319,7 +319,13 @@ async def _fetch_and_match_outlook_emails(
     from services.email_matcher import match_outlook_emails
 
     contacts = deal_context.get("contacts") or []
-    contact_emails = [c["email"] for c in contacts if c.get("email")]
+    contact_emails = []
+    for c in contacts:
+        val = c.get("email") or c.get("Email") or ""
+        if isinstance(val, dict):
+            val = val.get("email") or val.get("address") or ""
+        if val and isinstance(val, str):
+            contact_emails.append(val.strip().lower())
 
     if not contact_emails and not deal_context.get("account_name"):
         logger.info(

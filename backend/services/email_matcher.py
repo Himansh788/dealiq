@@ -244,21 +244,29 @@ def match_outlook_emails(
         return []
 
     contacts = deal_context.get("contacts") or []
+
+    def _safe_email(c: dict) -> str:
+        """Extract a plain lowercase email string from a contact dict, handling dict values."""
+        val = c.get("email") or c.get("Email") or ""
+        if isinstance(val, dict):
+            val = val.get("email") or val.get("address") or ""
+        return str(val).strip().lower() if val else ""
+
     contact_emails: set[str] = {
-        c["email"].lower() for c in contacts if c.get("email")
+        e for c in contacts if (e := _safe_email(c))
     }
     contact_domains: set[str] = {
-        _extract_domain(c["email"]) for c in contacts if c.get("email")
+        _extract_domain(e) for e in contact_emails if e
     }
     # Confirmed personas get a lower attribution threshold
     confirmed_contact_emails: set[str] = {
-        c["email"].lower() for c in contacts
-        if c.get("email") and c.get("status") in ("confirmed", "zoho")
+        _safe_email(c) for c in contacts
+        if _safe_email(c) and c.get("status") in ("confirmed", "zoho")
     }
     # All Zoho contacts are treated as confirmed
     zoho_source_emails: set[str] = {
-        c["email"].lower() for c in contacts
-        if c.get("email") and c.get("source") == "zoho"
+        _safe_email(c) for c in contacts
+        if _safe_email(c) and c.get("source") == "zoho"
     }
     confirmed_contact_emails |= zoho_source_emails
     account_name = deal_context.get("account_name") or ""
