@@ -46,8 +46,11 @@ async def sync_emails_for_deal(
         deal_id, contact_emails, safe_emails,
     )
 
+    # Graph KQL: space between terms = AND, so "from:x to:x" means both must be true.
+    # We want emails where the contact appears as sender OR recipient — use explicit OR.
+    # Format: (from:a@b.com OR to:a@b.com) OR (from:c@d.com OR to:c@d.com)
     search_query = " OR ".join(
-        f"from:{e} to:{e}" for e in safe_emails
+        f"(from:{e} OR to:{e})" for e in safe_emails
     ) if safe_emails else None
 
     # NOTE: Graph API rejects $search combined with $orderby — use one or the other.
@@ -57,7 +60,7 @@ async def sync_emails_for_deal(
     }
     if search_query:
         params["$search"] = f'"{search_query}"'
-        logger.info("outlook_client [deal=%s]: using $search query (contact emails present)", deal_id)
+        logger.info("outlook_client [deal=%s]: $search=%s", deal_id, params["$search"])
     else:
         params["$orderby"] = "receivedDateTime desc"
         logger.info("outlook_client [deal=%s]: no contact emails — fetching last 25 messages unfiltered", deal_id)
