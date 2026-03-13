@@ -156,7 +156,7 @@ Respond ONLY with valid JSON (no markdown fences, no explanation outside the JSO
     try:
         resp = await _get_client().chat.completions.create(
             model=MODEL,
-            max_tokens=800,
+            max_tokens=1200,
             temperature=0.2,
             messages=[
                 {"role": "system", "content": "You are a B2B SaaS deal health analyst. Return ONLY valid JSON — no markdown, no explanation outside the JSON object."},

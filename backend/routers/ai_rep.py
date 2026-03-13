@@ -265,8 +265,8 @@ async def get_next_best_action(request: NBARequest, authorization: str = Header(
         "action_plan": action_plan,
         "health_score": health_result.total_score,
         "health_label": health_result.health_label,
-        "email_thread_used": len(email_thread) > 0,
-        "email_count": len(email_thread),
+        "email_thread_used": bool(email_context),
+        "email_count": email_context.count("[→ REP]") + email_context.count("[← BUYER]"),
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "status": "pending_approval",
     }
