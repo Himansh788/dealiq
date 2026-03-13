@@ -87,21 +87,40 @@ async def get_enriched_emails(
     try:
         from routers.ms_auth import get_user_token
         ms_tokens_dict = await get_user_token(user_key)
+        logger.info(
+            "outlook_enrichment: deal=%s user_key=%s ms_tokens_dict_keys=%s",
+            deal_id, user_key, list(ms_tokens_dict.keys()) if ms_tokens_dict else None,
+        )
         if ms_tokens_dict:
             ms_token = ms_tokens_dict.get("access_token")
             ms_email = ms_tokens_dict.get("ms_email") or ""
             if "@" in ms_email:
                 internal_domain = ms_email.split("@")[-1].lower()
+        else:
+            logger.warning("outlook_enrichment: no MS token found for user_key=%s", user_key)
     except Exception as e:
-        logger.debug("outlook_enrichment: MS token lookup failed: %s", e)
+        logger.warning("outlook_enrichment: MS token lookup failed: %s", e)
+
+    logger.info(
+        "outlook_enrichment: deal=%s ms_token_present=%s internal_domain=%s deal_context_keys=%s",
+        deal_id, bool(ms_token), internal_domain, list(deal_context.keys()) if deal_context else [],
+    )
 
     if ms_token and deal_context:
         try:
             contacts = deal_context.get("contacts") or []
             contact_emails = [c["email"] for c in contacts if c.get("email")]
+            logger.info(
+                "outlook_enrichment: deal=%s contact_emails=%s",
+                deal_id, contact_emails,
+            )
 
             from services.outlook_client import sync_emails_for_deal
             raw_outlook = await sync_emails_for_deal(ms_token, deal_id, contact_emails)
+            logger.info(
+                "outlook_enrichment: deal=%s raw_outlook_count=%d",
+                deal_id, len(raw_outlook),
+            )
 
             if raw_outlook:
                 from services.email_matcher import match_outlook_emails

@@ -3,7 +3,7 @@ import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import {
   Target, TrendingUp, TrendingDown, AlertTriangle,
-  BarChart3, Globe, Zap, ChevronDown, ChevronRight,
+  BarChart3, Globe, Map, Zap, ChevronDown, ChevronRight,
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell,
@@ -288,7 +288,7 @@ export default function RegionalAnalytics() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold text-foreground flex items-center gap-2">
-            <Globe className="w-5 h-5 text-primary" />
+            <Map className="w-5 h-5 text-primary" />
             Regional Target Analytics
           </h1>
           <p className="text-xs text-muted-foreground mt-0.5">

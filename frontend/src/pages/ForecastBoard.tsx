@@ -646,12 +646,26 @@ export default function ForecastBoard() {
             <p className="text-sm text-muted-foreground/60 italic">Set a quota to see coverage</p>
           )}
 
-          {ai_risk_count > 0 && (
-            <div className="flex items-center gap-2 text-xs text-rose-400">
-              <AlertTriangle size={13} strokeWidth={2.5} />
-              <span>{ai_risk_count} deal{ai_risk_count > 1 ? "s" : ""} in Commit with health score below 60</span>
-            </div>
-          )}
+          {(() => {
+            const commitRiskCount = categories.commit.deals.filter(d => d.health_score < 60).length;
+            const pipelineRiskCount = ai_risk_count;
+            return (
+              <>
+                {commitRiskCount > 0 && (
+                  <div className="flex items-center gap-2 text-xs text-rose-400">
+                    <AlertTriangle size={13} strokeWidth={2.5} />
+                    <span>{commitRiskCount} deal{commitRiskCount > 1 ? "s" : ""} in Commit with health score below 60</span>
+                  </div>
+                )}
+                {pipelineRiskCount > 0 && commitRiskCount === 0 && (
+                  <div className="flex items-center gap-2 text-xs text-amber-400">
+                    <AlertTriangle size={13} strokeWidth={2.5} />
+                    <span>{pipelineRiskCount} deal{pipelineRiskCount > 1 ? "s" : ""} across pipeline with health score below 60</span>
+                  </div>
+                )}
+              </>
+            );
+          })()}
         </div>
 
         {/* ── SECTION B: Three-column board ────────────────────────────────── */}

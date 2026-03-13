@@ -91,8 +91,20 @@ async def get_forecast(
         raw_deals = list(SIMULATED_DEALS)
     else:
         try:
-            from routers.deals import _fetch_all_zoho_deals
-            raw_deals = await _fetch_all_zoho_deals(session["access_token"])
+            from services.zoho_client import fetch_deals, map_zoho_deal
+            access_token = session["access_token"]
+            raw_deals = []
+            page = 1
+            while True:
+                page_raw = await fetch_deals(access_token, page=page, per_page=200)
+                if not page_raw:
+                    break
+                raw_deals.extend([map_zoho_deal(r) for r in page_raw])
+                if len(page_raw) < 200:
+                    break
+                page += 1
+                if page > 10:
+                    break
         except Exception:
             raw_deals = list(SIMULATED_DEALS)
             simulated = True
@@ -331,27 +343,45 @@ async def get_forecast_board(authorization: str = Header(default="")):
             if "health_score" not in d:
                 d["health_score"] = 50
     else:
-        try:
-            from services.zoho_client import fetch_deals, map_zoho_deal
-            from services.health_scorer import score_deal_from_zoho
-            raw = await fetch_deals(session.get("access_token", ""))
-            deals = []
-            for r in raw:
-                d = map_zoho_deal(r)
-                # Enrich with computed fields needed by health scorer
-                d["days_in_stage"] = _days_since(d.get("created_time"))
-                d["last_activity_days"] = _days_since(d.get("last_activity_time"))
-                d["days_since_buyer_response"] = _days_since(d.get("last_activity_time"))
-                prob = d.get("probability", 0) or 0
-                d["activity_count_30d"] = 5 if prob >= 90 else 3 if prob >= 50 else 2 if prob >= 20 else 1
-                d["economic_buyer_engaged"] = prob >= 70
-                d["contact_count"] = 2 if prob >= 30 else 1
-                d["discount_mention_count"] = 0
-                result = score_deal_from_zoho(d)
-                d["health_score"] = result.total_score
-                deals.append(d)
-        except Exception:
-            deals = list(SIMULATED_DEALS)
+        from services.zoho_client import fetch_deals, map_zoho_deal
+        from services.health_scorer import score_deal_from_zoho
+        access_token = session.get("access_token", "")
+        raw_deals = []
+        page = 1
+        while True:
+            page_raw = await fetch_deals(access_token, page=page, per_page=200)
+            if not page_raw:
+                break
+            raw_deals.extend([map_zoho_deal(r) for r in page_raw])
+            if len(page_raw) < 200:
+                break
+            page += 1
+            if page > 10:
+                break
+        # Filter to current user's deals only
+        user_name = (session.get("display_name") or "").strip().lower()
+        if user_name:
+            raw_deals = [
+                d for d in raw_deals
+                if (d.get("owner") or "").strip().lower() == user_name
+            ]
+        # Filter out closed deals before scoring
+        raw_deals = [d for d in raw_deals if (d.get("stage") or "").lower() not in {
+            "closed won", "closed lost", "won", "lost", "churned"
+        }]
+        deals = []
+        for d in raw_deals:
+            d["days_in_stage"] = _days_since(d.get("created_time"))
+            d["last_activity_days"] = _days_since(d.get("last_activity_time"))
+            d["days_since_buyer_response"] = _days_since(d.get("last_activity_time"))
+            prob = d.get("probability", 0) or 0
+            d["activity_count_30d"] = 5 if prob >= 90 else 3 if prob >= 50 else 2 if prob >= 20 else 1
+            d["economic_buyer_engaged"] = prob >= 70
+            d["contact_count"] = 2 if prob >= 30 else 1
+            d["discount_mention_count"] = 0
+            result = score_deal_from_zoho(d)
+            d["health_score"] = result.total_score
+            deals.append(d)
 
     # Fetch warning summaries for all deals in one shot (best-effort)
     warnings_map: dict = _warnings_cache.get(token, {})

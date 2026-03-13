@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useSearchParams, useLocation } from "react-router-dom";
-import { Target, Globe } from "lucide-react";
+import { TrendingUp, Map } from "lucide-react";
 import { cn } from "@/lib/utils";
 import ForecastBoard from "./ForecastBoard";
 import RegionalAnalytics from "./RegionalAnalytics";
@@ -8,8 +8,8 @@ import RegionalAnalytics from "./RegionalAnalytics";
 type Tab = "forecast" | "analytics";
 
 const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
-  { id: "forecast", label: "Forecast Board", icon: Target },
-  { id: "analytics", label: "Regional Analytics", icon: Globe },
+  { id: "forecast", label: "Forecast Board", icon: TrendingUp },
+  { id: "analytics", label: "Regional Analytics", icon: Map },
 ];
 
 export default function ForecastAnalyticsPage() {

@@ -53,11 +53,11 @@ async def sync_emails_for_deal(
             params=params,
             timeout=10,
         )
+        logger.info(
+            "outlook_client: Graph API status=%d deal=%s params=%s body=%s",
+            resp.status_code, deal_id, params, resp.text[:500],
+        )
         if resp.status_code != 200:
-            logger.warning(
-                "outlook_client: Graph API returned %d for deal=%s body=%s",
-                resp.status_code, deal_id, resp.text[:300],
-            )
             return []
         return resp.json().get("value", [])
 

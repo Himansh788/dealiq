@@ -3,43 +3,80 @@ const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 // Abort any fetch that takes longer than this — prevents eternal spinners
 const TIMEOUT_MS = 15_000;
 
-// ── Per-request timeout wrapper ───────────────────────────────────────────────
+// ── Token refresh ─────────────────────────────────────────────────────────────
 //
-// Creates a fresh AbortController (timeout controller) for EVERY request.
-// No shared/global controller exists — each call is fully independent.
-//
-// If the caller also passes an AbortSignal (e.g. from a component useEffect
-// cleanup), we wire it so EITHER signal firing cancels the request:
-//   - timeout fires after 15s
-//   - caller fires on component unmount
-// Whichever comes first wins.  The timeout is always cleared on settle.
+// Serialises concurrent refresh attempts so only one Zoho /oauth/v2/token
+// call is ever in flight. All waiters share the same Promise.
 
-function fetchWithTimeout(
+let _refreshPromise: Promise<boolean> | null = null;
+
+async function _doRefresh(): Promise<boolean> {
+  const raw = localStorage.getItem("dealiq_session");
+  if (!raw) return false;
+  try {
+    const session = JSON.parse(atob(raw));
+    if (!session.refresh_token || session.refresh_token === "DEMO_MODE") return false;
+    const res = await fetch(`${API_URL}/auth/refresh`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${raw}` },
+    });
+    if (!res.ok) return false;
+    const data = await res.json();
+    if (data.session) {
+      localStorage.setItem("dealiq_session", data.session);
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+function refreshSession(): Promise<boolean> {
+  if (!_refreshPromise) {
+    _refreshPromise = _doRefresh().finally(() => { _refreshPromise = null; });
+  }
+  return _refreshPromise;
+}
+
+// ── Per-request fetch with timeout + auto token refresh ───────────────────────
+//
+// On 401 / 502 (Zoho INVALID_TOKEN proxied as 502), refreshes the session
+// token once and transparently retries the request with fresh auth headers.
+// All existing `.then(handleResponse)` call sites get this for free.
+
+async function fetchWithTimeout(
   input: RequestInfo,
   init?: RequestInit & { signal?: AbortSignal; timeoutMs?: number },
 ): Promise<Response> {
-  const timeoutController = new AbortController();
-  const timeoutId = setTimeout(() => timeoutController.abort(), init?.timeoutMs ?? TIMEOUT_MS);
+  const _rawFetch = (overrideHeaders?: HeadersInit) => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), init?.timeoutMs ?? TIMEOUT_MS);
+    const callerSignal = init?.signal;
+    if (callerSignal) {
+      if (callerSignal.aborted) { clearTimeout(timeoutId); controller.abort(); }
+      else callerSignal.addEventListener("abort", () => { clearTimeout(timeoutId); controller.abort(); }, { once: true });
+    }
+    const headers = overrideHeaders ?? init?.headers;
+    return fetch(input, { ...init, headers, signal: controller.signal })
+      .finally(() => clearTimeout(timeoutId));
+  };
 
-  const callerSignal = init?.signal;
-  if (callerSignal) {
-    if (callerSignal.aborted) {
-      clearTimeout(timeoutId);
-      timeoutController.abort();
-    } else {
-      callerSignal.addEventListener("abort", () => {
-        clearTimeout(timeoutId);
-        timeoutController.abort();
-      }, { once: true });
+  const res = await _rawFetch();
+
+  // Auto-refresh on expired token (401 from our backend, or 502 = Zoho 401 proxied)
+  if ((res.status === 401 || res.status === 502) && init?.headers) {
+    const hasAuth = !!(init.headers as Record<string, string>)["Authorization"];
+    if (hasAuth) {
+      const refreshed = await refreshSession();
+      if (refreshed) {
+        // Retry with freshly-read auth headers from updated localStorage
+        return _rawFetch({ ...(init.headers as object), ...authHeaders() });
+      }
     }
   }
 
-  // Spread init but override signal with our timeout controller's signal.
-  // The caller signal is handled above via event listener — NOT by spreading it
-  // into fetch(), which would ignore timeoutController entirely.
-  return fetch(input, { ...init, signal: timeoutController.signal }).finally(() =>
-    clearTimeout(timeoutId)
-  );
+  return res;
 }
 
 // ── Response handler ──────────────────────────────────────────────────────────

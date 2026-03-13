@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Header, Query
 from fastapi.responses import RedirectResponse, JSONResponse
 import os
 import secrets
@@ -8,6 +8,7 @@ from services.zoho_client import (
     get_authorization_url,
     exchange_code_for_tokens,
     get_current_user,
+    refresh_access_token,
 )
 
 router = APIRouter()
@@ -59,14 +60,37 @@ async def callback(code: str = Query(...), state: str = Query(default="")):
 
 
 @router.post("/refresh")
-async def refresh_token_endpoint(refresh_token: str):
-    """Get a new access token using the refresh token."""
-    from services.zoho_client import refresh_access_token
+async def refresh_token_endpoint(authorization: str = Header(default="")):
+    """
+    Refresh the Zoho access token using the refresh_token embedded in the
+    current session. Returns a new fully-encoded session that the frontend
+    should store in localStorage to replace the stale one.
+    """
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing Bearer token")
+    raw = authorization.replace("Bearer ", "").strip()
     try:
-        result = await refresh_access_token(refresh_token)
-        return {"access_token": result.get("access_token"), "expires_in": result.get("expires_in")}
+        session = json.loads(base64.b64decode(raw).decode())
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid session token")
+
+    rt = session.get("refresh_token", "")
+    if not rt or rt == "DEMO_MODE":
+        raise HTTPException(status_code=400, detail="No refresh token available")
+
+    try:
+        result = await refresh_access_token(rt)
     except Exception as e:
-        raise HTTPException(status_code=401, detail=str(e))
+        raise HTTPException(status_code=401, detail=f"Zoho token refresh failed: {e}")
+
+    new_access_token = result.get("access_token")
+    if not new_access_token:
+        raise HTTPException(status_code=401, detail="Zoho did not return a new access token")
+
+    # Build updated session preserving all user fields, just swapping access_token
+    new_session = {**session, "access_token": new_access_token}
+    encoded = base64.b64encode(json.dumps(new_session).encode()).decode()
+    return {"session": encoded}
 
 
 @router.get("/demo-session")

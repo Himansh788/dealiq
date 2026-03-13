@@ -224,6 +224,17 @@ def determine_health_label(score: int) -> str:
         return "zombie"
 
 
+def apply_signal_override(label: str, signals: List[HealthSignal]) -> str:
+    """
+    Override the score-derived label when signals are disproportionately bad.
+    Rule: 2+ critical signals → label can be no better than 'critical'.
+    """
+    critical_count = sum(1 for s in signals if s.label == "critical")
+    if critical_count >= 2 and label in ("healthy", "at_risk"):
+        return "critical"
+    return label
+
+
 def build_recommendation(signals: List[HealthSignal], score: int, stage: str) -> str:
     """Build a plain-language recommendation based on the worst signals."""
     critical = [s for s in signals if s.label == "critical"]
@@ -349,7 +360,7 @@ def score_deal(
     ]
 
     total = sum(s.score for s in signals)
-    label = determine_health_label(total)
+    label = apply_signal_override(determine_health_label(total), signals)
     recommendation = build_recommendation(signals, total, stage)
     action_required = any(s.label == "critical" for s in signals)
 
@@ -714,7 +725,7 @@ def score_deal_with_activities(
     ]
 
     total = sum(s.score for s in signals)
-    label = determine_health_label(total)
+    label = apply_signal_override(determine_health_label(total), signals)
     recommendation = build_recommendation(signals, total, stage)
     action_required = any(s.label == "critical" for s in signals)
 
@@ -869,7 +880,7 @@ def score_deal_with_timeline(
 
     all_signals = rescaled_core + timeline_signals
     total = min(100, sum(s.score for s in all_signals))
-    label = determine_health_label(total)
+    label = apply_signal_override(determine_health_label(total), all_signals)
     recommendation = build_recommendation(all_signals, total, stage)
     action_required = any(s.label == "critical" for s in all_signals)
 
