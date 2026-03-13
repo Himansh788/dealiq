@@ -16,6 +16,8 @@ from routers.warnings import router as warnings_router
 from routers.battlecard import router as battlecard_router
 from routers.auth_crm import router as auth_crm_router
 from routers.contacts import router as contacts_router
+from routers.regional_analytics import router as regional_analytics_router
+from routers.contracts import router as contracts_router
 import uvicorn
 
 app = FastAPI(
@@ -57,6 +59,8 @@ app.include_router(warnings_router, prefix="/warnings", tags=["Warnings"])
 app.include_router(battlecard_router, tags=["Battle Card"])
 app.include_router(auth_crm_router)  # /auth/{provider}/login + /auth/{provider}/callback
 app.include_router(contacts_router, prefix="", tags=["Contact Intelligence"])
+app.include_router(regional_analytics_router, prefix="/analytics", tags=["Regional Analytics"])
+app.include_router(contracts_router, prefix="/contracts", tags=["Contract Intelligence"])
 
 
 @app.on_event("startup")
@@ -165,6 +169,32 @@ async def debug_db():
         }
     except Exception as exc:
         return {"connection": "OK", "count_error": str(exc)}
+
+@app.get("/debug/ai")
+async def debug_ai():
+    """Verify Claude (Anthropic) is connected and responding."""
+    import os
+    from anthropic import AsyncAnthropic
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        return {"status": "error", "error": "ANTHROPIC_API_KEY not set in .env"}
+    try:
+        client = AsyncAnthropic(api_key=api_key)
+        resp = await client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=50,
+            messages=[{"role": "user", "content": "Reply with exactly: DealIQ is running on Claude."}],
+        )
+        return {
+            "status": "ok",
+            "model": resp.model,
+            "response": resp.content[0].text,
+            "input_tokens": resp.usage.input_tokens,
+            "output_tokens": resp.usage.output_tokens,
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
 
 @app.get("/debug/routes")
 def debug_routes():

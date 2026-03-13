@@ -456,3 +456,77 @@ class DealPersona(Base):
         # One record per (deal, email) — upsert on conflict
         Index("uq_deal_personas_deal_email", "deal_zoho_id", "email", unique=True),
     )
+
+
+# ---------------------------------------------------------------------------
+# regional_targets
+# ---------------------------------------------------------------------------
+
+class RegionalTarget(Base):
+    __tablename__ = "regional_targets"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    region: Mapped[str] = mapped_column(String(50), nullable=False)
+    quarter: Mapped[str] = mapped_column(String(10), nullable=False)   # "Q1"/"Q2"/"Q3"/"Q4"
+    fiscal_year: Mapped[int] = mapped_column(Integer, nullable=False)
+    target_amount: Mapped[float] = mapped_column(Numeric(15, 2), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime, onupdate=func.now())
+
+    __table_args__ = (
+        Index("uq_regional_targets_region_quarter_fy", "region", "quarter", "fiscal_year", unique=True),
+    )
+
+
+# ---------------------------------------------------------------------------
+# contract_intelligence
+# ---------------------------------------------------------------------------
+
+class StandardContract(Base):
+    __tablename__ = "standard_contracts"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_new_uuid)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    version: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    uploaded_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    file_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    raw_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    clauses_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class ProspectContract(Base):
+    __tablename__ = "prospect_contracts"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_new_uuid)
+    deal_id: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    deal_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    prospect_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    region: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    uploaded_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    file_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    raw_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    clauses_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    standard_contract_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("standard_contracts.id"), nullable=True)
+
+
+class ContractDeviation(Base):
+    __tablename__ = "contract_deviations"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_new_uuid)
+    prospect_contract_id: Mapped[str] = mapped_column(String(36), ForeignKey("prospect_contracts.id"), nullable=False, index=True)
+    clause_category: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    clause_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    standard_value: Mapped[str | None] = mapped_column(Text, nullable=True)
+    prospect_value: Mapped[str | None] = mapped_column(Text, nullable=True)
+    deviation_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    severity: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    risk_score: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
+    ai_explanation: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ai_counter_suggestion: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_discount_related: Mapped[bool] = mapped_column(Boolean, default=False)
+    discount_standard_pct: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
+    discount_prospect_pct: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
+    accepted: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    accepted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

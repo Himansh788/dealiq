@@ -589,8 +589,8 @@ async def check_stage_drift(
 
     # ── 4. Call Groq for AI-powered detection ────────────────────────────────
     try:
-        from groq import AsyncGroq
-        client = AsyncGroq(api_key=os.getenv("GROQ_API_KEY"))
+        from services.ai_client import AsyncAnthropicCompat as AsyncGroq
+        client = AsyncGroq(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
         prompt = f"""You are a CRM data quality checker for a B2B sales team.
 
@@ -622,13 +622,22 @@ Respond ONLY with valid JSON — no markdown, no explanation:
 }}"""
 
         resp = await client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            max_tokens=300,
+            model="claude-haiku-4-5-20251001",
+            max_tokens=600,
             temperature=0.1,
-            messages=[{"role": "user", "content": prompt}],
+            messages=[
+                {"role": "system", "content": "You are a CRM data quality checker. Respond ONLY with valid JSON — no markdown, no explanation."},
+                {"role": "user", "content": prompt},
+            ],
         )
 
         raw = resp.choices[0].message.content.strip()
+        # Strip markdown code fences if present
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+            raw = raw.strip()
         result = json.loads(raw)
 
         # Validate suggested_stage is a real stage

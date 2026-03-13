@@ -7,7 +7,7 @@ import json
 import logging
 import os
 from datetime import datetime, timezone
-from groq import AsyncGroq
+from services.ai_client import AsyncAnthropicCompat as AsyncGroq
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -44,9 +44,9 @@ def _is_demo(session: dict) -> bool:
 
 
 def _get_groq_client() -> AsyncGroq:
-    api_key = os.getenv("GROQ_API_KEY")
+    api_key = os.getenv("ANTHROPIC_API_KEY")
     if not api_key:
-        raise RuntimeError("GROQ_API_KEY not set")
+        raise RuntimeError("ANTHROPIC_API_KEY not set")
     return AsyncGroq(api_key=api_key)
 
 
@@ -181,8 +181,11 @@ Return ONLY valid JSON — no markdown, no explanation:
 }}"""
 
     response = await client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
-        messages=[{"role": "user", "content": prompt}],
+        model="claude-sonnet-4-5-20250929",
+        messages=[
+            {"role": "system", "content": "You are a B2B sales win/loss analyst. Return ONLY valid JSON — no markdown, no explanation outside the JSON object."},
+            {"role": "user", "content": prompt},
+        ],
         max_tokens=800,
     )
     return json.loads(_strip_json_fences(response.choices[0].message.content))
@@ -226,8 +229,11 @@ Return ONLY valid JSON — no markdown:
 }}"""
 
     response = await client.chat.completions.create(
-        model="llama-3.3-70b-versatile",  # same model for quality
-        messages=[{"role": "user", "content": prompt}],
+        model="claude-sonnet-4-5-20250929",  # same model for quality
+        messages=[
+            {"role": "system", "content": "You are a B2B sales win/loss analyst. Return ONLY valid JSON — no markdown, no explanation outside the JSON object."},
+            {"role": "user", "content": prompt},
+        ],
         max_tokens=500,
     )
     return json.loads(_strip_json_fences(response.choices[0].message.content))

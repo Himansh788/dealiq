@@ -176,16 +176,19 @@ async def get_forecast(
                 result.this_month_gap,
             )
 
-            # 2. Rep coaching — all reps in parallel (no arbitrary cap)
-            top_reps = by_rep_dicts
+            # 2. Rep coaching — cap at 5 reps to limit parallel calls
+            top_reps = by_rep_dicts[:5]
             coaching_tasks = [generate_rep_coaching(rep) for rep in top_reps]
 
-            # Fire everything at once
-            all_results = await asyncio.gather(
-                narrative_task,
-                rescue_task,
-                *coaching_tasks,
-                return_exceptions=True,
+            # Fire everything at once with a hard 60s timeout
+            all_results = await asyncio.wait_for(
+                asyncio.gather(
+                    narrative_task,
+                    rescue_task,
+                    *coaching_tasks,
+                    return_exceptions=True,
+                ),
+                timeout=60,
             )
 
             ai["narrative"] = all_results[0] if not isinstance(all_results[0], Exception) else None
@@ -196,6 +199,8 @@ async def get_forecast(
                 if not isinstance(coaching, Exception):
                     ai["rep_coaching"][rep["name"]] = coaching
 
+        except asyncio.TimeoutError:
+            ai["error"] = "AI analysis timed out — pipeline data is accurate, narratives unavailable"
         except Exception as e:
             ai["error"] = str(e)
 

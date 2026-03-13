@@ -1,13 +1,15 @@
 fastapi==0.115.6
+python-multipart==0.0.22
 uvicorn[standard]==0.34.0
 httpx==0.28.1
-groq>=0.11.0
+anthropic>=0.40.0
+# groq>=0.11.0  # kept for reference; replaced by Anthropic SDK via services/ai_client.py
 pydantic==2.10.4
 python-dotenv==1.0.1
 sqlalchemy[asyncio]>=2.0
 aiomysql          # async MySQL driver for SQLAlchemy async engine
 pymysql           # sync MySQL driver — used by create_db.py setup script
-cryptography      # required by pymysql for caching_sha2_password auth
+cryptography      # required by pymysql for caching_sha2_password auth  
 asyncpg>=0.29     # async PostgreSQL driver for SQLAlchemy async engine
 psycopg2-binary>=2.9  # sync PostgreSQL driver — used by Alembic
 alembic

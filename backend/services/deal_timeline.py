@@ -5,7 +5,7 @@ Builds a chronological timeline of every significant event on a deal
 and passes it to Groq to generate a narrative summary.
 """
 
-from groq import AsyncGroq
+from services.ai_client import AsyncAnthropicCompat as AsyncGroq
 import os
 import re
 import json
@@ -18,11 +18,11 @@ _client: AsyncGroq | None = None
 def _get_client() -> AsyncGroq:
     global _client
     if _client is None:
-        _client = AsyncGroq(api_key=os.getenv("GROQ_API_KEY"))
+        _client = AsyncGroq(api_key=os.getenv("ANTHROPIC_API_KEY"))
     return _client
 
 
-MODEL = "llama-3.1-8b-instant"  # Speed-optimised for timeline narrative
+MODEL = "claude-haiku-4-5-20251001"  # Speed-optimised for timeline narrative
 
 
 def _parse_dt(s: Optional[str]) -> Optional[datetime]:
@@ -249,7 +249,10 @@ Be direct and specific. Reference the most recent activity accurately. No bullet
             model=MODEL,
             max_tokens=250,
             temperature=0.3,
-            messages=[{"role": "user", "content": prompt}],
+            messages=[
+                {"role": "system", "content": "You are a sales manager analysing deal activity. Write clear, direct narrative text only — no bullet points, no markdown."},
+                {"role": "user", "content": prompt},
+            ],
         )
         return resp.choices[0].message.content.strip()
     except Exception as e:

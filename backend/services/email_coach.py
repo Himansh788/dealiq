@@ -9,10 +9,10 @@ Provides instant feedback on:
 - Specific improvement suggestions
 
 Designed to be called on debounced keystrokes — must be fast.
-Uses llama-3.1-8b-instant for sub-second response.
+Uses claude-haiku-4-5-20251001 for sub-second response.
 """
 
-from groq import AsyncGroq
+from services.ai_client import AsyncAnthropicCompat as AsyncGroq
 import os
 import json
 import re
@@ -24,11 +24,11 @@ _client: AsyncGroq | None = None
 def _get_client() -> AsyncGroq:
     global _client
     if _client is None:
-        _client = AsyncGroq(api_key=os.getenv("GROQ_API_KEY"))
+        _client = AsyncGroq(api_key=os.getenv("ANTHROPIC_API_KEY"))
     return _client
 
 
-MODEL = "llama-3.1-8b-instant"  # Speed-optimised for real-time debounced calls
+MODEL = "claude-haiku-4-5-20251001"  # Speed-optimised for real-time debounced calls
 
 
 def _extract_json(text: str) -> Dict[str, Any]:

@@ -8,7 +8,7 @@ import logging
 import os
 import time
 from datetime import datetime, timezone
-from groq import AsyncGroq
+from services.ai_client import AsyncAnthropicCompat as AsyncGroq
 import httpx
 
 # ── Redis cache layer (falls back to in-memory if Redis unavailable) ──────────
@@ -649,9 +649,9 @@ async def _compute_pipeline_data(access_token: str, is_demo: bool) -> dict:
         "First sentence: overall state. Second sentence: top priority action."
     )
     try:
-        groq_client = AsyncGroq(api_key=os.environ.get("GROQ_API_KEY", ""))
+        groq_client = AsyncGroq(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
         resp = await groq_client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model="claude-sonnet-4-5-20250929",
             messages=[{"role": "user", "content": prompt}],
             max_tokens=120,
             temperature=0.4,
@@ -904,19 +904,24 @@ async def get_deal_health(deal_id: str, authorization: str = Header(...)):
             if outbound_from_outlook > enriched_activity_summary.get("emails_outbound", 0):
                 enriched_activity_summary["emails_outbound"] = outbound_from_outlook
 
-        ai_analysis = await generate_deal_health_analysis(
-            deal_name=raw.get("name", "Unknown"),
-            deal_stage=raw.get("stage", "Unknown"),
-            deal_amount=raw.get("amount"),
-            deal_age_days=deal_age_days,
-            deal_owner=raw.get("owner"),
-            contact_name=raw.get("contact_name"),
-            signals=enriched_signals,
-            health_label=result.health_label,
-            total_score=result.total_score,
-            timeline_analysis=timeline_analysis,
-            activity_summary=enriched_activity_summary,
+        ai_analysis = await asyncio.wait_for(
+            generate_deal_health_analysis(
+                deal_name=raw.get("name", "Unknown"),
+                deal_stage=raw.get("stage", "Unknown"),
+                deal_amount=raw.get("amount"),
+                deal_age_days=deal_age_days,
+                deal_owner=raw.get("owner"),
+                contact_name=raw.get("contact_name"),
+                signals=enriched_signals,
+                health_label=result.health_label,
+                total_score=result.total_score,
+                timeline_analysis=timeline_analysis,
+                activity_summary=enriched_activity_summary,
+            ),
+            timeout=45,
         )
+    except asyncio.TimeoutError:
+        logger.warning("deal_health_ai timed out for %s — skipping AI analysis", deal_id)
     except Exception as e:
         logger.warning("deal_health_ai call failed for %s: %s", deal_id, e)
 

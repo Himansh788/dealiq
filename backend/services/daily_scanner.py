@@ -8,14 +8,14 @@ import json
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from groq import AsyncGroq
+from services.ai_client import AsyncAnthropicCompat as AsyncGroq
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from database.models import EmailExtraction
 
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-_FAST_MODEL = "llama-3.1-8b-instant"
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
+_FAST_MODEL = "claude-haiku-4-5-20251001"
 
 # Days-since-last-activity thresholds
 SILENT_DEAL_DAYS = 14
@@ -29,7 +29,7 @@ Be direct, reference the deal context. Return ONLY the email body — no subject
 async def _generate_draft(action: dict[str, Any], deal: dict[str, Any]) -> str:
     """Generate a short email draft for an action item."""
     try:
-        client = AsyncGroq(api_key=GROQ_API_KEY)
+        client = AsyncGroq(api_key=ANTHROPIC_API_KEY)
         prompt = f"""Deal: {deal.get('name', 'Unknown')} | Stage: {deal.get('stage', '?')} | Amount: ${deal.get('amount', 0):,}
 Action type: {action.get('type', 'follow-up')}
 Context: {action.get('context', '')}
@@ -221,7 +221,7 @@ async def _check_stage_drift_batch(
     Fetches emails for the most recently-active deals, then does ONE batched AI call
     to identify mismatches. Returns up to 3 stage_drift action items.
     """
-    if not deals or not GROQ_API_KEY:
+    if not deals or not ANTHROPIC_API_KEY:
         return []
 
     closed = {"Closed Won", "Closed Lost"}
@@ -288,7 +288,7 @@ Respond with a JSON array — one object per deal, in the same order as the deal
 Return ONLY the JSON array, no markdown fences."""
 
     try:
-        client = AsyncGroq(api_key=GROQ_API_KEY)
+        client = AsyncGroq(api_key=ANTHROPIC_API_KEY)
         resp = await client.chat.completions.create(
             model=_FAST_MODEL,
             max_tokens=600,

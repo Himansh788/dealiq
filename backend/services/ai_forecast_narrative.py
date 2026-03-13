@@ -9,7 +9,7 @@ Five AI-powered intelligence layers:
 5. Forecast Risk Summary — What could go wrong this month, specifically
 """
 
-from groq import AsyncGroq
+from services.ai_client import AsyncAnthropicCompat as AsyncGroq
 import json
 import re
 import os
@@ -22,11 +22,11 @@ _client: AsyncGroq | None = None
 def _get_client() -> AsyncGroq:
     global _client
     if _client is None:
-        _client = AsyncGroq(api_key=os.getenv("GROQ_API_KEY"))
+        _client = AsyncGroq(api_key=os.getenv("ANTHROPIC_API_KEY"))
     return _client
 
 
-MODEL = "llama-3.3-70b-versatile"
+MODEL = "claude-sonnet-4-5-20250929"
 
 
 def _extract_json(text: str) -> Any:
@@ -113,7 +113,10 @@ Return ONLY valid JSON:
             model=MODEL,
             max_tokens=1400,
             temperature=0.3,
-            messages=[{"role": "user", "content": prompt}],
+            messages=[
+                {"role": "system", "content": "You are a B2B SaaS revenue forecasting expert. Return ONLY valid JSON — no markdown, no explanation outside the JSON object."},
+                {"role": "user", "content": prompt},
+            ],
         )
         result = _extract_json(resp.choices[0].message.content)
         result["generated"] = True
@@ -168,7 +171,10 @@ Return ONLY this JSON:
             model=MODEL,
             max_tokens=700,
             temperature=0.3,
-            messages=[{"role": "user", "content": prompt}],
+            messages=[
+                {"role": "system", "content": "You are a B2B sales coach. Return ONLY valid JSON — no markdown, no explanation outside the JSON object."},
+                {"role": "user", "content": prompt},
+            ],
         )
         result = _extract_json(resp.choices[0].message.content)
         result["generated"] = True
@@ -246,7 +252,10 @@ Include ALL deals in the priorities array. Be specific — reference actual deal
             model=MODEL,
             max_tokens=1600,
             temperature=0.2,
-            messages=[{"role": "user", "content": prompt}],
+            messages=[
+                {"role": "system", "content": "You are a B2B SaaS revenue forecasting expert. Return ONLY valid JSON — no markdown, no explanation outside the JSON object."},
+                {"role": "user", "content": prompt},
+            ],
         )
         result = _extract_json(resp.choices[0].message.content)
         result["generated"] = True
@@ -300,7 +309,10 @@ Return ONLY this JSON:
             model=MODEL,
             max_tokens=500,
             temperature=0.3,
-            messages=[{"role": "user", "content": prompt}],
+            messages=[
+                {"role": "system", "content": "You are a B2B sales coach. Return ONLY valid JSON — no markdown, no explanation outside the JSON object."},
+                {"role": "user", "content": prompt},
+            ],
         )
         result = _extract_json(resp.choices[0].message.content)
         result["generated"] = True

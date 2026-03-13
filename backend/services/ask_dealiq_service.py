@@ -179,7 +179,7 @@ async def ask_about_deal(
     """
     if not ai_router.is_configured():
         return {
-            "answer": "AI service not configured. Set GROQ_API_KEY to enable Ask DealIQ.",
+            "answer": "AI service not configured. Set ANTHROPIC_API_KEY to enable Ask DealIQ.",
             "sources_used": [],
             "confidence": "low",
             "deal_risks_detected": [],
@@ -246,7 +246,7 @@ async def ask_meddic_analysis(
     Returns structured 6-element MEDDIC breakdown with evidence quotes.
     """
     if not ai_router.is_configured():
-        return {"error": "AI service not configured. Set GROQ_API_KEY to enable MEDDIC analysis."}
+        return {"error": "AI service not configured. Set ANTHROPIC_API_KEY to enable MEDDIC analysis."}
 
     if not transcript:
         return {
@@ -294,7 +294,7 @@ async def generate_deal_brief(
     Generate a comprehensive deal brief (all sources, structured for manager review).
     """
     if not ai_router.is_configured():
-        return {"error": "AI service not configured. Set GROQ_API_KEY to enable deal briefs."}
+        return {"error": "AI service not configured. Set ANTHROPIC_API_KEY to enable deal briefs."}
 
     start = time.monotonic()
 
@@ -326,7 +326,7 @@ async def suggest_follow_up_email(
     Transcript is optional — falls back to CRM metadata and recent email thread.
     """
     if not ai_router.is_configured():
-        return {"error": "AI service not configured. Set GROQ_API_KEY to enable email suggestions."}
+        return {"error": "AI service not configured. Set ANTHROPIC_API_KEY to enable email suggestions."}
 
     start = time.monotonic()
 
@@ -382,7 +382,7 @@ async def ask_across_deals(
     """
     if not ai_router.is_configured():
         return {
-            "answer": "AI service not configured. Set GROQ_API_KEY to enable pipeline Q&A.",
+            "answer": "AI service not configured. Set ANTHROPIC_API_KEY to enable pipeline Q&A.",
             "deals_referenced": [],
             "confidence": "low",
         }

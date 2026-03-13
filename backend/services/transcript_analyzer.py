@@ -13,7 +13,7 @@ Speaker detection: parses "Speaker: text" labels. Falls back to
 first-speaker-is-rep heuristic when role words are absent.
 """
 
-from groq import AsyncGroq
+from services.ai_client import AsyncAnthropicCompat as AsyncGroq
 import os
 import json
 import re
@@ -23,7 +23,7 @@ from datetime import datetime, timezone
 from models.coaching_schemas import ConversationMetrics, TopicSegment, KeyMoment
 
 _client: AsyncGroq | None = None
-MODEL = "llama-3.3-70b-versatile"
+MODEL = "claude-sonnet-4-5-20250929"
 WORDS_PER_MINUTE = 130  # average speaking rate used for duration estimates
 
 REP_ROLE_WORDS    = {"rep", "sales", "ae", "sdr", "bdr", "se", "csm", "executive", "manager", "account"}
@@ -48,7 +48,7 @@ TIMESTAMP_RE = re.compile(r"^\[\d{2}:\d{2}(?::\d{2})?\]$")
 def _get_client() -> AsyncGroq:
     global _client
     if _client is None:
-        _client = AsyncGroq(api_key=os.getenv("GROQ_API_KEY"))
+        _client = AsyncGroq(api_key=os.getenv("ANTHROPIC_API_KEY"))
     return _client
 
 

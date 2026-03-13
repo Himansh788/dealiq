@@ -12,15 +12,15 @@ import json
 from datetime import datetime, timezone
 from typing import Any
 
-from groq import AsyncGroq
+from services.ai_client import AsyncAnthropicCompat as AsyncGroq
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from database.models import MeetingLog, PendingCrmUpdate, EmailExtraction
 
 
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-_AI_MODEL = "llama-3.3-70b-versatile"
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
+_AI_MODEL = "claude-sonnet-4-5-20250929"
 
 _SYSTEM_PROMPT = """You are a CRM intelligence engine. Given a meeting summary and deal context, produce a structured JSON response.
 
@@ -44,7 +44,7 @@ field_name must be valid Zoho CRM Deals field names."""
 
 
 async def _call_ai(prompt: str) -> dict[str, Any]:
-    client = AsyncGroq(api_key=GROQ_API_KEY)
+    client = AsyncGroq(api_key=ANTHROPIC_API_KEY)
     resp = await client.chat.completions.create(
         model=_AI_MODEL,
         messages=[

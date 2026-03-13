@@ -11,19 +11,19 @@ import logging
 import os
 from typing import Optional, List
 
-from groq import AsyncGroq
+from services.ai_client import AsyncAnthropicCompat as AsyncGroq
 
 logger = logging.getLogger(__name__)
 
 _client: AsyncGroq | None = None
 
-MODEL = "llama-3.3-70b-versatile"
+MODEL = "claude-sonnet-4-5-20250929"
 
 
 def _get_client() -> AsyncGroq:
     global _client
     if _client is None:
-        _client = AsyncGroq(api_key=os.getenv("GROQ_API_KEY"))
+        _client = AsyncGroq(api_key=os.getenv("ANTHROPIC_API_KEY"))
     return _client
 
 
@@ -152,7 +152,10 @@ Respond ONLY with valid JSON (no markdown fences, no explanation outside the JSO
             model=MODEL,
             max_tokens=800,
             temperature=0.2,
-            messages=[{"role": "user", "content": prompt}],
+            messages=[
+                {"role": "system", "content": "You are a B2B SaaS deal health analyst. Return ONLY valid JSON — no markdown, no explanation outside the JSON object."},
+                {"role": "user", "content": prompt},
+            ],
         )
         text = resp.choices[0].message.content.strip()
 

@@ -166,7 +166,7 @@ export const api = {
   },
 
   getDealHealth: (id: string, signal?: AbortSignal) =>
-    fetchWithTimeout(`${API_URL}/deals/${id}/health`, { headers: authHeaders(), signal }).then(handleResponse),
+    fetchWithTimeout(`${API_URL}/deals/${id}/health`, { headers: authHeaders(), signal, timeoutMs: 60_000 }).then(handleResponse),
 
   updateDealField: (dealId: string, field: string, value: string | number | null) =>
     fetchWithTimeout(`${API_URL}/deals/${dealId}/update`, {
@@ -181,6 +181,7 @@ export const api = {
       method: "POST",
       headers: authHeaders(),
       body: JSON.stringify({ deal_id: dealId, meeting_context: meetingContext ?? "" }),
+      timeoutMs: 90_000,
     }).then(handleResponse),
 
   clearBattleCardCache: (dealId: string) =>
@@ -205,6 +206,7 @@ export const api = {
       method: "POST",
       headers: authHeaders(),
       body: JSON.stringify({ transcript, email_draft }),
+      timeoutMs: 60_000,
     }).then(handleResponse),
 
   generateNBA: (dealId: string, repName: string) =>
@@ -212,6 +214,7 @@ export const api = {
       method: "POST",
       headers: authHeaders(),
       body: JSON.stringify({ deal_id: dealId, rep_name: repName }),
+      timeoutMs: 60_000,
     }).then(handleResponse),
 
   approveActionPlan: (dealId: string, actionPlan: any, approved: boolean, feedback?: string) =>
@@ -231,6 +234,7 @@ export const api = {
         email_objective: "Re-engage buyer and establish a clear next step",
         action_context: actionContext || "",
       }),
+      timeoutMs: 60_000,
     }).then(handleResponse),
 
   approveEmail: (dealId: string, subject: string, body: string, repName: string, approved: boolean, edits?: string) =>
@@ -245,6 +249,7 @@ export const api = {
       method: "POST",
       headers: authHeaders(),
       body: JSON.stringify({ deal_id: dealId, objection, rep_name: repName }),
+      timeoutMs: 60_000,
     }).then(handleResponse),
 
   // ── Timeline ──────────────────────────────────────────────────────────────
@@ -252,7 +257,7 @@ export const api = {
   // request cleanly.  Each call gets its own AbortController via fetchWithTimeout
   // — no shared controller, no cross-request cancellation.
   getDealTimeline: (dealId: string, signal?: AbortSignal, forceRefresh = false) =>
-    fetchWithTimeout(`${API_URL}/deals/${dealId}/timeline${forceRefresh ? "?force_refresh=true" : ""}`, { headers: authHeaders(), signal }).then(handleResponse),
+    fetchWithTimeout(`${API_URL}/deals/${dealId}/timeline${forceRefresh ? "?force_refresh=true" : ""}`, { headers: authHeaders(), signal, timeoutMs: 60_000 }).then(handleResponse),
 
   // ── Live Email Coach ───────────────────────────────────────────────────────
   emailCoach: (emailDraft: string, dealId?: string, dealContext?: any) =>
@@ -268,6 +273,7 @@ export const api = {
       method: "POST",
       headers: authHeaders(),
       body: JSON.stringify({ deal_id: dealId, kill_reason: killReason }),
+      timeoutMs: 60_000,
     }).then(handleResponse),
 
   // ── Pre-Call Intelligence Brief ────────────────────────────────────────────
@@ -276,6 +282,7 @@ export const api = {
       method: "POST",
       headers: authHeaders(),
       body: JSON.stringify({ deal_id: dealId, rep_name: repName || "the sales rep" }),
+      timeoutMs: 60_000,
     }).then(handleResponse),
 
   // ── Alerts Digest ──────────────────────────────────────────────────────────
@@ -284,7 +291,7 @@ export const api = {
 
   // ── Forecast ──────────────────────────────────────────────────────────────
   getForecast: () =>
-    fetchWithTimeout(`${API_URL}/forecast`, { headers: authHeaders() }).then(handleResponse),
+    fetchWithTimeout(`${API_URL}/forecast`, { headers: authHeaders(), timeoutMs: 90_000 }).then(handleResponse),
 
   // ── Buying Signal Detector ─────────────────────────────────────────────────
   detectSignals: (transcript: string, researcherName?: string, companyContext?: string) =>
@@ -386,8 +393,14 @@ export const api = {
     }).then(handleResponse),
 
   // ── Actions (Today's AI action queue) ─────────────────────────────────────
+  startActionScan: () =>
+    fetchWithTimeout(`${API_URL}/actions/scan`, { method: "POST", headers: authHeaders() }).then(handleResponse),
+
+  pollActionScan: (scanId: string, signal?: AbortSignal) =>
+    fetchWithTimeout(`${API_URL}/actions/scan/${scanId}`, { headers: authHeaders(), signal }).then(handleResponse),
+
   getTodayActions: (signal?: AbortSignal) =>
-    fetchWithTimeout(`${API_URL}/actions/today`, { headers: authHeaders(), signal }).then(handleResponse),
+    fetchWithTimeout(`${API_URL}/actions/today`, { headers: authHeaders(), signal, timeoutMs: 45_000 }).then(handleResponse),
 
   executeAction: (id: string, payload: Record<string, any>) =>
     fetchWithTimeout(`${API_URL}/actions/${id}/execute`, {
@@ -568,5 +581,34 @@ export const api = {
       method: "POST",
       headers: { ...authHeaders(), "Content-Type": "application/json" },
       body: JSON.stringify({ email, status, name, role }),
+    }).then(handleResponse),
+
+  // ── Regional Analytics ──────────────────────────────────────────────────────
+  getRegionalSummary: (quarter?: string, fy?: number) => {
+    const params = new URLSearchParams();
+    if (quarter) params.set("quarter", quarter);
+    if (fy) params.set("fy", String(fy));
+    return fetchWithTimeout(`${API_URL}/analytics/regional-summary?${params}`, { headers: authHeaders() }).then(handleResponse);
+  },
+
+  getRegionalSummaryByRegion: (region: string, quarter?: string, fy?: number) => {
+    const params = new URLSearchParams({ region });
+    if (quarter) params.set("quarter", quarter);
+    if (fy) params.set("fy", String(fy));
+    return fetchWithTimeout(`${API_URL}/analytics/region-deals?${params}`, { headers: authHeaders() }).then(handleResponse);
+  },
+
+  getGapDeals: (quarter?: string, fy?: number) => {
+    const params = new URLSearchParams();
+    if (quarter) params.set("quarter", quarter);
+    if (fy) params.set("fy", String(fy));
+    return fetchWithTimeout(`${API_URL}/analytics/gap-deals?${params}`, { headers: authHeaders() }).then(handleResponse);
+  },
+
+  upsertRegionalTarget: (body: { region: string; quarter: string; fiscal_year: number; target_amount: number }) =>
+    fetchWithTimeout(`${API_URL}/analytics/targets`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify(body),
     }).then(handleResponse),
 };

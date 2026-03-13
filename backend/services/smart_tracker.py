@@ -10,7 +10,7 @@ All 6 default trackers + support for custom trackers created at runtime.
 Single Groq prompt per analysis — all trackers evaluated in one call.
 """
 
-from groq import AsyncGroq
+from services.ai_client import AsyncAnthropicCompat as AsyncGroq
 import os
 import json
 import re
@@ -20,13 +20,13 @@ from models.tracker_schemas import TrackerMatch, TrackerResponse
 
 _client: AsyncGroq | None = None
 
-MODEL = "llama-3.3-70b-versatile"
+MODEL = "claude-sonnet-4-5-20250929"
 
 
 def _get_client() -> AsyncGroq:
     global _client
     if _client is None:
-        _client = AsyncGroq(api_key=os.getenv("GROQ_API_KEY"))
+        _client = AsyncGroq(api_key=os.getenv("ANTHROPIC_API_KEY"))
     return _client
 
 

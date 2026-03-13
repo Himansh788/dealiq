@@ -5,7 +5,7 @@ import os
 from datetime import datetime, timezone
 from typing import Optional
 
-from groq import AsyncGroq
+from services.ai_client import AsyncAnthropicCompat as AsyncGroq
 from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel
 from services.cache import cache_get, cache_set, cache_delete, cache_key as _bck
@@ -169,7 +169,7 @@ CONTACTS & STAKEHOLDERS:
 
 
 async def _call_groq(deal_context: str) -> dict:
-    client = AsyncGroq(api_key=os.getenv("GROQ_API_KEY"))
+    client = AsyncGroq(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
     system_prompt = """You are a brutally honest sales coach preparing a rep for a live call. You have 90 seconds to brief them.
 
@@ -221,19 +221,24 @@ Rules:
 - watch_out: 2-3 items. Each must name the actual pattern, not a generic risk category.
 - email_intelligence: always populate — even if email_context says "no emails", state that explicitly."""
 
-    response = await client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
-        max_tokens=1024,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": deal_context},
-        ],
-    )
-
     try:
-        return json.loads(response.choices[0].message.content.strip())
-    except json.JSONDecodeError:
-        logger.warning("Battle card: Groq returned non-JSON, using fallback")
+        response = await client.chat.completions.create(
+            model="claude-sonnet-4-5-20250929",
+            max_tokens=1500,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": deal_context},
+            ],
+        )
+        raw = response.choices[0].message.content.strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+            raw = raw.strip()
+        return json.loads(raw)
+    except Exception as e:
+        logger.warning("Battle card: Claude call failed: %s", e)
         return {
             "situation": "Unable to generate summary. Review deal manually in Zoho.",
             "last_interaction": "No recent activity data available.",
@@ -247,6 +252,7 @@ Rules:
             ],
             "watch_out": ["Review deal warnings before call"],
             "one_liner": "Establish clear next steps with a specific date.",
+            "email_intelligence": {"last_buyer_reply": "unavailable", "buyer_tone": "neutral", "crm_gap": "unknown", "key_commitment": "none"},
         }
 
 
@@ -335,9 +341,23 @@ async def generate_battlecard(
             "  • Mike Torres <mike.torres@techcorp.com> | 3 email(s) | Last seen: 2026-03-08"
         )
 
-    # Build context and call Groq
+    # Build context and call Claude
+    import asyncio
     context_str = _build_deal_context(deal, warnings, health_result, body.meeting_context, email_context, contacts_block)
-    sections = await _call_groq(context_str)
+    try:
+        sections = await asyncio.wait_for(_call_groq(context_str), timeout=55)
+    except asyncio.TimeoutError:
+        logger.warning("battlecard: Claude timed out for deal=%s", deal_id)
+        sections = {
+            "situation": "AI analysis timed out — deal data loaded successfully, retry to generate full battle card.",
+            "last_interaction": "Check CRM for latest activity.",
+            "open_loops": [],
+            "key_contacts": [],
+            "talk_track": ["Review deal status", "Confirm next steps", "Address blockers", "Get commitment on timeline"],
+            "watch_out": ["AI analysis unavailable — review warnings manually"],
+            "one_liner": "AI timed out — retry to generate full battle card.",
+            "email_intelligence": {"last_buyer_reply": "unavailable", "buyer_tone": "neutral", "crm_gap": "unknown", "key_commitment": "none"},
+        }
 
     response_data = {
         "deal_id": deal_id,

@@ -7,6 +7,8 @@ import {
   Sparkles,
   Trophy,
   Target,
+  Globe,
+  FileText,
   Settings,
   LogOut,
 } from "lucide-react";
@@ -28,6 +30,8 @@ const TOP_NAV = [
   { icon: Mail, label: "Email", path: "/emails", dot: true },
   { icon: Sparkles, label: "Ask AI", path: "/ask", dot: false },
   { icon: Trophy, label: "Win/Loss", path: "/winloss", dot: false },
+  { icon: Globe, label: "Regional Analytics", path: "/analytics", dot: false },
+  { icon: FileText, label: "Contract Intelligence", path: "/contracts", dot: false },
 ] as const;
 
 // ── Nav Item ─────────────────────────────────────────────────────────────────

@@ -171,23 +171,56 @@ export default function Home() {
     const controller = new AbortController();
     let cancelled = false;
 
-    Promise.all([
-      api.getTodayActions(controller.signal),
-      api.getPendingCrmUpdates(controller.signal),
-    ])
-      .then(([actionsData, updatesData]) => {
+    // Start the slow scan in background immediately, then poll for results.
+    // CRM updates fetch is fast — load it in parallel without waiting for scan.
+    async function load() {
+      try {
+        // Kick off scan + CRM updates simultaneously
+        const [scanData, updatesData] = await Promise.all([
+          api.startActionScan(),
+          api.getPendingCrmUpdates(controller.signal),
+        ]);
         if (cancelled) return;
-        setActions(actionsData.actions ?? []);
         setPendingUpdates(updatesData.updates ?? []);
-      })
-      .catch((err: unknown) => {
+
+        // If demo or scan already resolved synchronously, we're done
+        if (scanData.status === "completed") {
+          setActions(scanData.actions ?? []);
+          setLoading(false);
+          return;
+        }
+
+        // Poll every 2s until completed or failed (max 60s)
+        const scanId: string = scanData.scan_id;
+        const deadline = Date.now() + 60_000;
+        while (!cancelled && Date.now() < deadline) {
+          await new Promise((res) => setTimeout(res, 2000));
+          if (cancelled) return;
+          const poll = await api.pollActionScan(scanId, controller.signal);
+          if (poll.status === "completed") {
+            if (!cancelled) {
+              setActions(poll.actions ?? []);
+              setLoading(false);
+            }
+            return;
+          }
+          if (poll.status === "failed") {
+            throw new Error(poll.error ?? "Scan failed");
+          }
+          // still pending — keep polling
+        }
+        // Timed out
+        if (!cancelled) setLoading(false);
+      } catch (err: unknown) {
         if (cancelled) return;
         if (err instanceof DOMException && err.name === "AbortError") return;
         if (err instanceof Error && err.name === "AbortError") return;
         toast({ title: "Couldn't load your day", description: "Please refresh to try again.", variant: "destructive" });
-      })
-      .finally(() => { if (!cancelled) setLoading(false); });
+        if (!cancelled) setLoading(false);
+      }
+    }
 
+    load();
     return () => { cancelled = true; controller.abort(); };
   }, []);
 

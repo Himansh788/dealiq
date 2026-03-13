@@ -20,6 +20,8 @@ import TrendsPage from "./pages/TrendsPage";
 import EmailTimelinePage from "./pages/EmailTimelinePage";
 import SettingsPage from "./pages/SettingsPage";
 import WinLossPage from "./pages/WinLossPage";
+import RegionalAnalytics from "./pages/RegionalAnalytics";
+import ContractIntelligence from "./pages/ContractIntelligence";
 
 const queryClient = new QueryClient();
 
@@ -57,6 +59,8 @@ const App = () => (
               <Route path="/emails" element={<AppLayout><EmailTimelinePage /></AppLayout>} />
               <Route path="/settings" element={<AppLayout><SettingsPage /></AppLayout>} />
               <Route path="/winloss" element={<AppLayout><WinLossPage /></AppLayout>} />
+              <Route path="/analytics" element={<AppLayout><RegionalAnalytics /></AppLayout>} />
+              <Route path="/contracts" element={<AppLayout><ContractIntelligence /></AppLayout>} />
 
               <Route path="*" element={<NotFound />} />
             </Routes>

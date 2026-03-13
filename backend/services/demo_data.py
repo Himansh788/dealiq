@@ -29,6 +29,7 @@ SIMULATED_DEALS = [
         "discount_mention_count": 2,
         "activity_count_30d": 7,
         "description": "Send revised contract by Thursday, March 6",
+        "region": "North America",
     },
     {
         "id": "sim_002",
@@ -47,6 +48,7 @@ SIMULATED_DEALS = [
         "discount_mention_count": 0,
         "activity_count_30d": 2,
         "description": None,
+        "region": "APAC",
     },
     {
         "id": "sim_003",
@@ -65,6 +67,7 @@ SIMULATED_DEALS = [
         "discount_mention_count": 0,
         "activity_count_30d": 4,
         "description": "Discovery call scheduled for March 5, 2PM IST",
+        "region": "APAC",
     },
     {
         "id": "sim_004",
@@ -83,6 +86,7 @@ SIMULATED_DEALS = [
         "discount_mention_count": 5,
         "activity_count_30d": 0,
         "description": None,
+        "region": "EMEA",
     },
     {
         "id": "sim_005",
@@ -101,6 +105,7 @@ SIMULATED_DEALS = [
         "discount_mention_count": 0,
         "activity_count_30d": 8,
         "description": "Send ROI calculator and case study by EOD Friday",
+        "region": "North America",
     },
     {
         "id": "sim_006",
@@ -119,6 +124,7 @@ SIMULATED_DEALS = [
         "discount_mention_count": 3,
         "activity_count_30d": 3,
         "description": "Follow up on proposal",
+        "region": "EMEA",
     },
 ]
 
@@ -1241,3 +1247,221 @@ DEMO_FORECAST_SUBMISSIONS = [
     {"week_of": "2025-02-03", "commit_amount": 71000, "best_case_amount": 94000, "pipeline_amount": 115000, "notes": "Acme Corp moved to commit", "submitted_at": "2025-02-03T09:00:00"},
     {"week_of": "2025-02-10", "commit_amount": 68000, "best_case_amount": 91000, "pipeline_amount": 112000, "notes": "FinanceFlow stalled - moved back to best case", "submitted_at": "2025-02-10T09:00:00"},
 ]
+
+# ── Regional Targets Demo Data ─────────────────────────────────────────────────
+
+DEMO_REGIONAL_TARGETS = [
+    # Americas — real Q1 2026 data from Zoho Analytics gauge
+    {"region": "Americas",     "quarter": "Q1", "fiscal_year": 2026, "target_amount": 125000},
+    {"region": "Americas",     "quarter": "Q2", "fiscal_year": 2026, "target_amount": 140000},
+    {"region": "Americas",     "quarter": "Q3", "fiscal_year": 2026, "target_amount": 155000},
+    {"region": "Americas",     "quarter": "Q4", "fiscal_year": 2026, "target_amount": 170000},
+    # MENA — real Q1 2026 data
+    {"region": "MENA",         "quarter": "Q1", "fiscal_year": 2026, "target_amount": 75000},
+    {"region": "MENA",         "quarter": "Q2", "fiscal_year": 2026, "target_amount": 85000},
+    {"region": "MENA",         "quarter": "Q3", "fiscal_year": 2026, "target_amount": 95000},
+    {"region": "MENA",         "quarter": "Q4", "fiscal_year": 2026, "target_amount": 105000},
+    # SEA/Oceania — real Q1 2026 data (confirmed component 202252000056117004)
+    {"region": "SEA/Oceania",  "quarter": "Q1", "fiscal_year": 2026, "target_amount": 45000},
+    {"region": "SEA/Oceania",  "quarter": "Q2", "fiscal_year": 2026, "target_amount": 52000},
+    {"region": "SEA/Oceania",  "quarter": "Q3", "fiscal_year": 2026, "target_amount": 60000},
+    {"region": "SEA/Oceania",  "quarter": "Q4", "fiscal_year": 2026, "target_amount": 68000},
+    # EU — real Q1 2026 data
+    {"region": "EU",           "quarter": "Q1", "fiscal_year": 2026, "target_amount": 15000},
+    {"region": "EU",           "quarter": "Q2", "fiscal_year": 2026, "target_amount": 20000},
+    {"region": "EU",           "quarter": "Q3", "fiscal_year": 2026, "target_amount": 25000},
+    {"region": "EU",           "quarter": "Q4", "fiscal_year": 2026, "target_amount": 30000},
+    # ASIA — real Q1 2026 data
+    {"region": "ASIA",         "quarter": "Q1", "fiscal_year": 2026, "target_amount": 50000},
+    {"region": "ASIA",         "quarter": "Q2", "fiscal_year": 2026, "target_amount": 60000},
+    {"region": "ASIA",         "quarter": "Q3", "fiscal_year": 2026, "target_amount": 70000},
+    {"region": "ASIA",         "quarter": "Q4", "fiscal_year": 2026, "target_amount": 80000},
+]
+
+# Real Q1 2026 achieved values from Zoho Analytics (used by demo mode)
+DEMO_ZOHO_ACHIEVED: dict[str, float] = {
+    "Americas":    20160.0,
+    "MENA":        20120.0,
+    "SEA/Oceania": 29572.0,
+    "EU":          10800.0,
+    "ASIA":        48900.0,
+}
+
+# Pre-built gap deals for demo mode — one representative deal per region
+DEMO_GAP_DEALS = [
+    {
+        "id": "gap_001", "name": "GlobalTech Expansion", "stage": "Negotiation/Review",
+        "amount": 45000, "health_score": 72, "health_label": "at_risk",
+        "recovery_potential": 32400, "region": "Americas",
+        "owner": "Sarah Chen", "account_name": "GlobalTech Inc",
+        "closing_date": "2026-03-31",
+    },
+    {
+        "id": "gap_002", "name": "MENA Platform Deal", "stage": "Value Proposition",
+        "amount": 28000, "health_score": 55, "health_label": "at_risk",
+        "recovery_potential": 15400, "region": "MENA",
+        "owner": "Omar Hassan", "account_name": "Gulf Systems",
+        "closing_date": "2026-03-25",
+    },
+    {
+        "id": "gap_003", "name": "Singapore Logistics Suite", "stage": "Proposal/Price Quote",
+        "amount": 12000, "health_score": 80, "health_label": "healthy",
+        "recovery_potential": 9600, "region": "SEA/Oceania",
+        "owner": "Wei Lin", "account_name": "SG Logistics",
+        "closing_date": "2026-03-28",
+    },
+]
+
+
+def get_demo_regional_targets(quarter: str | None = None, fiscal_year: int = 2026) -> list:
+    targets = [t for t in DEMO_REGIONAL_TARGETS if t["fiscal_year"] == fiscal_year]
+    if quarter:
+        targets = [t for t in targets if t["quarter"] == quarter]
+    return targets
+
+
+# ── Contract Intelligence demo data ────────────────────────────────────────────
+
+DEMO_STANDARD_CLAUSES = [
+    {
+        "category": "payment_terms",
+        "clause_name": "Payment terms",
+        "clause_text": "Client shall pay all invoices within thirty (30) days of invoice date.",
+        "key_values": {"payment_days": 30}
+    },
+    {
+        "category": "discount_pricing",
+        "clause_name": "Volume discount",
+        "clause_text": "A discount of 10% shall apply for annual commitments exceeding $50,000.",
+        "key_values": {"discount_pct": 10, "threshold": 50000}
+    },
+    {
+        "category": "liability",
+        "clause_name": "Limitation of liability",
+        "clause_text": "Total liability shall not exceed the fees paid in the 12 months preceding the claim.",
+        "key_values": {"liability_cap": "12 months of fees"}
+    },
+    {
+        "category": "sla",
+        "clause_name": "Service level agreement",
+        "clause_text": "Provider guarantees 99.9% uptime measured monthly, excluding scheduled maintenance.",
+        "key_values": {"sla_uptime": 99.9}
+    },
+    {
+        "category": "termination",
+        "clause_name": "Termination for convenience",
+        "clause_text": "Either party may terminate with 90 days written notice.",
+        "key_values": {"termination_notice_days": 90}
+    },
+    {
+        "category": "ip_ownership",
+        "clause_name": "Intellectual property",
+        "clause_text": "All IP developed by Provider remains the exclusive property of Provider.",
+        "key_values": {"ip_ownership": "provider"}
+    },
+    {
+        "category": "data_protection",
+        "clause_name": "Data handling",
+        "clause_text": "Provider shall process Client data in accordance with GDPR and SOC 2 Type II.",
+        "key_values": {"compliance": ["GDPR", "SOC2"]}
+    },
+    {
+        "category": "indemnity",
+        "clause_name": "Indemnification",
+        "clause_text": "Provider shall indemnify Client against third-party IP infringement claims.",
+        "key_values": {"indemnity_scope": "ip_infringement"}
+    }
+]
+
+DEMO_DEVIATIONS = [
+    {
+        "clause_category": "payment_terms",
+        "clause_name": "Payment terms",
+        "standard_value": "Net-30 days from invoice date",
+        "prospect_value": "Net-90 days from acceptance and satisfactory delivery",
+        "deviation_type": "modified",
+        "severity": "critical",
+        "risk_score": 88,
+        "explanation": "Tripling payment window from 30 to 90 days creates significant cash flow pressure. 'Acceptance' condition adds subjective delay risk. On a $45K deal this means ~$11K in delayed revenue per quarter.",
+        "counter_suggestion": "Counter with Net-45 from invoice date. If they insist on acceptance-based, offer Net-30 from acceptance with a clear 5-business-day acceptance window.",
+        "is_discount_related": False,
+        "discount_standard_pct": None,
+        "discount_prospect_pct": None
+    },
+    {
+        "clause_category": "discount_pricing",
+        "clause_name": "Volume discount",
+        "standard_value": "10% discount for annual commitments over $50,000",
+        "prospect_value": "35% discount on all line items with no minimum commitment",
+        "deviation_type": "modified",
+        "severity": "critical",
+        "risk_score": 92,
+        "explanation": "Prospect is asking for 3.5x your standard discount while removing the commitment threshold. This is the steepest discount in your pipeline. Only 8% of 30%+ discounts have been accepted historically.",
+        "counter_suggestion": "Counter with 15% discount with 2-year commitment + $75K minimum, or 20% with 3-year commitment. The no-commitment ask is a non-starter.",
+        "is_discount_related": True,
+        "discount_standard_pct": 10,
+        "discount_prospect_pct": 35
+    },
+    {
+        "clause_category": "liability",
+        "clause_name": "Limitation of liability",
+        "standard_value": "Capped at 12 months of fees paid",
+        "prospect_value": "Capped at 24 months of fees paid, with carve-outs for data breach (unlimited)",
+        "deviation_type": "modified",
+        "severity": "major",
+        "risk_score": 72,
+        "explanation": "Doubling the liability cap is significant. The unlimited carve-out for data breach is the real risk — this could expose you to claims far exceeding the contract value.",
+        "counter_suggestion": "Accept 18 months cap. For data breach carve-out, counter with a fixed cap of 2x annual fees rather than unlimited.",
+        "is_discount_related": False,
+        "discount_standard_pct": None,
+        "discount_prospect_pct": None
+    },
+    {
+        "clause_category": "termination",
+        "clause_name": "Termination for convenience",
+        "standard_value": "90 days written notice by either party",
+        "prospect_value": "30 days written notice by Client, 90 days by Provider",
+        "deviation_type": "modified",
+        "severity": "major",
+        "risk_score": 65,
+        "explanation": "Asymmetric termination rights — client can leave in 30 days but you need 90. This limits revenue forecast accuracy and creates churn risk.",
+        "counter_suggestion": "Counter with 60 days for both parties, or accept 30-day client termination only with a 6-month minimum term.",
+        "is_discount_related": False,
+        "discount_standard_pct": None,
+        "discount_prospect_pct": None
+    },
+    {
+        "clause_category": "sla",
+        "clause_name": "Service level agreement",
+        "standard_value": "99.9% uptime, measured monthly",
+        "prospect_value": "99.95% uptime, measured daily, with financial penalties of 5% per 0.01% below target",
+        "deviation_type": "modified",
+        "severity": "minor",
+        "risk_score": 45,
+        "explanation": "Tightening SLA from 99.9% to 99.95% with daily measurement and financial penalties. Daily measurement is more punitive than monthly averages.",
+        "counter_suggestion": "Accept 99.95% but keep monthly measurement. Cap total SLA credits at 15% of monthly fees.",
+        "is_discount_related": False,
+        "discount_standard_pct": None,
+        "discount_prospect_pct": None
+    }
+]
+
+DEMO_DISCOUNT_INSIGHTS = {
+    "this_deal_discount_pct": 35,
+    "company_avg_discount_pct": 12,
+    "region_avg_discount_pct": 15,
+    "is_steep": True,
+    "steepness_label": "critical",
+    "historical_acceptance_rate": 0.08,
+    "recommendation": "This discount is 2.9x your company average and 2.3x the APAC regional average. Counter with 15% + volume commitment or walk away.",
+    "all_deals_discounts": [
+        {"deal_name": "TechCorp Platform", "discount_pct": 12, "accepted": True, "region": "APAC"},
+        {"deal_name": "GlobalTech Suite", "discount_pct": 8, "accepted": True, "region": "Americas"},
+        {"deal_name": "FinanceFlow CRM", "discount_pct": 25, "accepted": False, "region": "EMEA"},
+        {"deal_name": "DataWave Analytics", "discount_pct": 15, "accepted": True, "region": "MENA"},
+        {"deal_name": "NovaPay Integration", "discount_pct": 30, "accepted": False, "region": "Americas"},
+        {"deal_name": "EuroFinance Rollout", "discount_pct": 10, "accepted": True, "region": "EU"},
+        {"deal_name": "MedTech Migration", "discount_pct": 18, "accepted": True, "region": "EMEA"},
+        {"deal_name": "AusTech Cloud", "discount_pct": 35, "accepted": False, "region": "APAC"},
+    ]
+}

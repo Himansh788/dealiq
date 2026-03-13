@@ -59,7 +59,7 @@ def get_authorization_url(state: str = "") -> str:
         "scope": "ZohoCRM.modules.deals.READ,ZohoCRM.modules.contacts.READ,"
                  "ZohoCRM.modules.activities.READ,ZohoCRM.modules.notes.READ,"
                  "ZohoCRM.modules.calls.READ,ZohoCRM.users.READ,"
-                 "ZohoCRM.modules.emails.READ",
+                 "ZohoCRM.modules.emails.READ,ZohoCRM.modules.dashboards.READ",
         "client_id": ZOHO_CLIENT_ID,
         "response_type": "code",
         "access_type": "offline",
