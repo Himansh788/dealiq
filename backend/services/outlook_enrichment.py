@@ -60,15 +60,21 @@ async def get_enriched_emails(
         return []
 
     # ── Redis cache — user + deal scoped ──────────────────────────────────
+    _cache_key = None
     try:
         from services.cache import cache_get, cache_set, cache_key as _ck, TTL_EMAIL_ENRICHMENT
         _safe_user = (user_key or "anon").replace(":", "_")
         _cache_key = _ck("emails", _safe_user, deal_id)
         _cached = await cache_get(_cache_key)
-        if _cached is not None:
-            logger.debug("outlook_enrichment: cache hit user=%s deal=%s", _safe_user, deal_id)
+        # Only return cached result if it's non-empty — empty cache means a previous
+        # failed fetch was stored; re-try so we don't silently return [] forever.
+        if _cached:
+            logger.info("outlook_enrichment: cache hit user=%s deal=%s count=%d", _safe_user, deal_id, len(_cached))
             return _cached[:limit]
-    except Exception:
+        elif _cached is not None:
+            logger.info("outlook_enrichment: cached empty result for deal=%s — bypassing cache to retry", deal_id)
+    except Exception as e:
+        logger.warning("outlook_enrichment: cache read error deal=%s: %s", deal_id, e)
         _cache_key = None
 
     # ── Step 1: build deal context for the attribution engine ──────────────
@@ -183,13 +189,18 @@ async def get_enriched_emails(
     merged.sort(key=lambda e: e.get("date") or e.get("sent_at") or "", reverse=True)
     result = merged[:limit]
 
-    # ── Step 5: write to Redis cache ───────────────────────────────────────
+    # ── Step 5: write to Redis cache (only cache non-empty results) ───────
+    logger.info("outlook_enrichment: deal=%s final merged_count=%d (outlook=%d zoho=%d)",
+        deal_id, len(result),
+        sum(1 for e in result if e.get("source") == "outlook"),
+        sum(1 for e in result if e.get("source") == "zoho"),
+    )
     try:
-        if _cache_key:
+        if _cache_key and result:
             from services.cache import cache_set, TTL_EMAIL_ENRICHMENT
             await cache_set(_cache_key, result, ttl=TTL_EMAIL_ENRICHMENT)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("outlook_enrichment: cache write error deal=%s: %s", deal_id, e)
 
     return result
 

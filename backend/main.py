@@ -1,7 +1,14 @@
 from dotenv import load_dotenv
 load_dotenv(override=True)  # override=True ensures .env wins over any OS-level env vars
 
+import logging
 import os
+
+# Ensure our application loggers emit INFO+ even when uvicorn defaults to WARNING.
+logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
+# Keep noisy third-party loggers at WARNING to avoid log spam.
+for _noisy in ("httpx", "httpcore", "hpack", "urllib3", "botocore", "boto3"):
+    logging.getLogger(_noisy).setLevel(logging.WARNING)
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from routers import auth, deals, analysis, ai_rep, forecast, alerts, signals, trackers, coaching, activities, health

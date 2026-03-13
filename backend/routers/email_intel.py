@@ -451,11 +451,13 @@ async def get_email_thread(
             from services.cache import cache_get, cache_key as _ck
             _cache_key = _ck("email_intel", user_key, deal_id)
             cached = await cache_get(_cache_key)
-            if cached:
-                logger.debug("email_intel: cache hit user=%s deal=%s", user_key, deal_id)
+            if cached and cached.get("thread_count", 0) > 0:
+                logger.info("email_intel: cache hit user=%s deal=%s thread_count=%d", user_key, deal_id, cached.get("thread_count"))
                 return cached
+            elif cached is not None:
+                logger.info("email_intel: cached empty result for deal=%s — bypassing to retry", deal_id)
         except Exception as _ce:
-            logger.debug("email_intel: cache_get error: %s", _ce)
+            logger.warning("email_intel: cache_get error deal=%s: %s", deal_id, _ce)
 
     # ── Demo ──────────────────────────────────────────────────────────────────
     if _is_demo(session) or deal_id.startswith("sim_"):
