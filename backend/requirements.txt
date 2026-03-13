@@ -18,3 +18,5 @@ apscheduler>=3.10.0  # daily morning scan scheduler
 beautifulsoup4>=4.12.0  # HTML parsing for Zoho email bodies
 redis>=5.0        # async Redis client for caching layer
 celery[redis]>=5.3  # background task queue (Celery + Redis broker)
+python-docx>=1.1  # DOCX contract parsing
+pypdf>=4.0        # PDF contract text extraction

@@ -4,6 +4,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import {
   Brain, Clock, Phone, Activity, GitMerge, Layers, ScanSearch,
   GraduationCap, Zap, Sparkles, Trophy, Loader2, Check, X, Users2, AlertTriangle, ArrowRight,
+  ScrollText, ListChecks,
 } from "lucide-react";
 import BattleCardPanel from "./deal/BattleCardPanel";
 import { cn } from "@/lib/utils";
@@ -21,6 +22,8 @@ import ActivityFeedPanel from "./deal/ActivityFeedPanel";
 import AskDealIQPanel from "./deal/AskDealIQPanel";
 import MarkOutcomeSection from "./deal/MarkOutcomeSection";
 import ContactsPanel from "./deal/ContactsPanel";
+import ContractReviewPanel from "./deal/ContractReviewPanel";
+import NextStepsPanel from "./deal/NextStepsPanel";
 
 type PanelTab = "Overview" | "Battle Card";
 
@@ -123,13 +126,14 @@ function IntelRing({ score }: { score: number }) {
 // ── Section tier config ────────────────────────────────────────────────────────
 
 const EVIDENCE_SECTIONS = ["timeline", "health", "activity", "contacts"] as const;
-const TOOLS_SECTIONS = ["ai-rep", "call-brief", "mismatch", "trackers", "ack", "coaching", "ask", "outcome"] as const;
+const TOOLS_SECTIONS = ["next-steps", "ai-rep", "call-brief", "mismatch", "trackers", "ack", "coaching", "ask", "outcome", "contract"] as const;
 
 const SECTION_STYLES = {
   timeline:    { icon: Clock,          label: "Deal Timeline",                   iconColor: "text-slate-400" },
   health:      { icon: Activity,       label: "Health Score Breakdown",           iconColor: "text-slate-400" },
   activity:    { icon: Zap,            label: "Activity Feed",                    iconColor: "text-slate-400" },
   contacts:    { icon: Users2,         label: "Contacts & Personas",              iconColor: "text-slate-400" },
+  "next-steps":{ icon: ListChecks,      label: "Next Steps",                       iconColor: "text-slate-400" },
   "ai-rep":    { icon: Brain,          label: "AI Sales Rep",                     iconColor: "text-slate-400" },
   "call-brief":{ icon: Phone,          label: "Pre-Call Intelligence Brief",      iconColor: "text-slate-400" },
   mismatch:    { icon: GitMerge,       label: "Narrative Check + Email Coach",    iconColor: "text-slate-400" },
@@ -138,6 +142,7 @@ const SECTION_STYLES = {
   coaching:    { icon: GraduationCap,  label: "Call Coaching",                    iconColor: "text-slate-400" },
   ask:         { icon: Sparkles,       label: "Ask DealIQ",                       iconColor: "text-slate-400" },
   outcome:     { icon: Trophy,         label: "Mark Outcome",                     iconColor: "text-slate-400" },
+  contract:    { icon: ScrollText,     label: "Contract Review",                  iconColor: "text-slate-400" },
 } as const;
 
 type SectionKey = keyof typeof SECTION_STYLES;
@@ -628,6 +633,7 @@ export default function DealDetailPanel({
                         </div>
                       </AccordionTrigger>
                       <AccordionContent className="px-4 pb-4 pt-0">
+                        {openedSections.has(key) && key === "next-steps" && <NextStepsPanel dealId={dealId} />}
                         {openedSections.has(key) && key === "ai-rep"     && <AIRepPanel dealId={dealId} dealName={dealName} repName={repName} />}
                         {openedSections.has(key) && key === "call-brief" && <CallBriefPanel dealId={dealId} repName={repName} />}
                         {openedSections.has(key) && key === "mismatch"   && <MismatchChecker dealId={dealId} />}
@@ -636,6 +642,7 @@ export default function DealDetailPanel({
                         {openedSections.has(key) && key === "coaching"   && <CoachingPanel dealId={dealId} repName={repName} />}
                         {openedSections.has(key) && key === "ask"        && <AskDealIQPanel dealId={dealId} dealName={dealName} />}
                         {openedSections.has(key) && key === "outcome"    && <MarkOutcomeSection dealId={dealId} dealName={dealName} />}
+                        {openedSections.has(key) && key === "contract"   && <ContractReviewPanel dealId={dealId} dealName={dealName} region="" amount={amount} stage={stage} />}
                       </AccordionContent>
                     </AccordionItem>
                   );

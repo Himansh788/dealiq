@@ -301,11 +301,10 @@ async def get_filter_options(
                 logger.error("_fetch_all_zoho_deals failed for user=%s: %s", session.get("email"), e)
                 raw_deals = SIMULATED_DEALS
 
-    # Use the same set of deals the dashboard table shows — exclude only truly
-    # terminal stages. The quarter-date filter is intentionally NOT applied here
-    # because it was silently dropping real prod deals with future closing dates,
-    # resulting in empty owner/stage dropdowns.
-    visible_raw = [r for r in raw_deals if r.get("stage") not in EXCLUDED_STAGES]
+    # Use exactly the same filter as the dashboard table so every owner/stage
+    # in the dropdown is guaranteed to have at least one visible deal.
+    quarter_start, quarter_end = get_current_quarter_range()
+    visible_raw = [r for r in raw_deals if is_active_deal(r, quarter_start, quarter_end)]
 
     owners = sorted({str(r.get("owner") or "") for r in visible_raw if r.get("owner")})
     stages = sorted({str(r.get("stage") or "") for r in visible_raw if r.get("stage")})
@@ -383,12 +382,22 @@ async def list_deals(
             bool(token), search, page, simulated,
         )
 
+        def _prefix_match(text: str, query: str) -> bool:
+            """Return True if every word in query prefix-matches at least one word in text."""
+            q_words = query.lower().split()
+            if not q_words:
+                return True
+            t_words = text.lower().split()
+            return all(
+                any(t.startswith(q) for t in t_words)
+                for q in q_words
+            )
+
         if simulated:
-            term = search.lower()
             raw_deals = [
                 r for r in SIMULATED_DEALS
-                if term in (r.get("name") or "").lower()
-                or term in (r.get("account_name") or "").lower()
+                if _prefix_match(r.get("name") or "", search)
+                or _prefix_match(r.get("account_name") or "", search)
             ]
         else:
             try:
@@ -396,7 +405,14 @@ async def list_deals(
                     token, search, page=page, per_page=per_page
                 )
                 raw_deals = [map_zoho_deal(r) for r in records]
-                logger.info("list_deals search: zoho returned %d records more_records=%s", len(raw_deals), more_records_from_zoho)
+                # Post-filter: Zoho's `word` param can return mid-word matches;
+                # keep only deals where the query prefix-matches a word in the name.
+                raw_deals = [
+                    r for r in raw_deals
+                    if _prefix_match(r.get("name") or "", search)
+                    or _prefix_match(r.get("account_name") or "", search)
+                ]
+                logger.info("list_deals search: zoho returned %d records (after prefix filter) more_records=%s", len(raw_deals), more_records_from_zoho)
             except httpx.HTTPStatusError as exc:
                 logger.warning("list_deals search: zoho %s — %s", exc.response.status_code, exc.response.text[:300])
                 if exc.response.status_code == 400:

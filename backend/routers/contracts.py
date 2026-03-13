@@ -74,7 +74,7 @@ async def demo_contract_analysis():
         "deal_name": "Acme Corp — Enterprise Plan",
         "prospect_name": "Acme Corporation",
         "region": "APAC",
-        "standard_contract_name": "SaaS Master Agreement v3.2",
+        "standard_contract_name": "Vervotech Subscriber Agreement v1.0",
         "standard_clauses": DEMO_STANDARD_CLAUSES,
         "standard_clause_count": len(DEMO_STANDARD_CLAUSES),
         "deviations": sorted(DEMO_DEVIATIONS, key=lambda d: _severity_order(d.get("severity", "acceptable"))),
@@ -160,7 +160,7 @@ async def list_standard_contracts(
 ):
     session = _decode_session(authorization)
     if _is_demo(session):
-        return [{"id": "std_demo", "name": "SaaS Master Agreement v3.2", "version": "3.2", "is_active": True, "clause_count": len(DEMO_STANDARD_CLAUSES)}]
+        return [{"id": "std_demo", "name": "Vervotech Subscriber Agreement", "version": "1.0", "is_active": True, "clause_count": len(DEMO_STANDARD_CLAUSES)}]
 
     if not db:
         return []
@@ -206,10 +206,15 @@ async def upload_prospect_contract(
     file_bytes = await file.read()
     _validate_file(file.filename or "file.pdf", len(file_bytes))
 
-    from services.contract_processor import extract_text_from_bytes, extract_clauses, compare_contracts
+    from services.contract_processor import extract_text_from_bytes, analyze_redline
 
-    raw_text = await extract_text_from_bytes(file_bytes, file.filename or "contract.pdf")
-    prospect_clauses = await extract_clauses(raw_text)
+    try:
+        raw_text = await extract_text_from_bytes(file_bytes, file.filename or "contract.pdf")
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    if not raw_text or not raw_text.strip():
+        raise HTTPException(status_code=400, detail="Could not extract text from the uploaded file. Ensure it is a valid PDF, DOCX, or TXT.")
 
     # Load standard contract clauses
     std_clauses = DEMO_STANDARD_CLAUSES  # default fallback
@@ -225,7 +230,8 @@ async def upload_prospect_contract(
             logger.warning("Failed to load standard contract %s: %s", standard_contract_id, e)
 
     deal_context = {"name": deal_name, "amount": deal_amount, "region": region, "stage": deal_stage}
-    deviations = await compare_contracts(std_clauses, prospect_clauses, deal_context)
+    # Single AI call: extract prospect clauses + compare against standard in one pass
+    deviations = await analyze_redline(std_clauses, raw_text, deal_context)
 
     # Persist
     prospect_contract_id = "temp_" + str(datetime.now(timezone.utc).timestamp())

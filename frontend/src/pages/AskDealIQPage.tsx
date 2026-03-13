@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -43,41 +43,52 @@ const HEALTH_DOT: Record<string, string> = {
 
 export default function AskDealIQPage() {
   const { toast } = useToast();
+
+  // Search-driven deal selector — no upfront bulk fetch (mirrors EmailTimelinePage pattern)
   const [deals,          setDeals]          = useState<Deal[]>([]);
-  const [selectedDealId, setSelectedDealId] = useState<string>("");
-  const [loading,        setLoading]        = useState(true);
+  const [dealsLoading,   setDealsLoading]   = useState(false);
+  const [dealSearch,     setDealSearch]     = useState("");
   const [open,           setOpen]           = useState(false);
+  const [selectedDealId, setSelectedDealId] = useState<string>("");
+  const [selectedDeal,   setSelectedDeal]   = useState<Deal | null>(null);
+  const dealSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Debounced search: query backend when user types 2+ chars
   useEffect(() => {
-    let cancelled = false;
-
-    api.getAllDeals()
-      .then((data) => {
-        if (cancelled) return;
-        const list = Array.isArray(data) ? data : [];
-        const mapped: Deal[] = list.map((d: any) => ({
-          id:           d.id,
-          name:         d.name ?? d.deal_name ?? "Unnamed Deal",
-          company:      d.account_name ?? d.company ?? "—",
-          stage:        d.stage ?? "Unknown",
-          amount:       d.amount ?? 0,
-          health_score: d.health_score ?? 0,
-          health_label: d.health_label ?? "critical",
-        }));
-        setDeals(mapped);
-      })
-      .catch((err: unknown) => {
-        if (cancelled) return;
-        if (err instanceof DOMException && err.name === "AbortError") return;
-        if (err instanceof Error && err.name === "AbortError") return;
-        toast({ title: "Couldn't load deals", description: "Please refresh to try again.", variant: "destructive" });
-      })
-      .finally(() => { if (!cancelled) setLoading(false); });
-
-    return () => { cancelled = true; };
-  }, [toast]);
-
-  const selectedDeal = deals.find((d) => d.id === selectedDealId);
+    if (dealSearchTimer.current) clearTimeout(dealSearchTimer.current);
+    const term = dealSearch.trim();
+    if (term.length < 2) {
+      setDeals([]);
+      return;
+    }
+    setDealsLoading(true);
+    dealSearchTimer.current = setTimeout(() => {
+      let cancelled = false;
+      api.getDealsPage(1, 20, term)
+        .then((data: any) => {
+          if (cancelled) return;
+          const list: Deal[] = (Array.isArray(data) ? data : data?.deals ?? []).map((d: any) => ({
+            id:           d.id,
+            name:         d.name ?? d.deal_name ?? "Unnamed Deal",
+            company:      d.account_name ?? d.company ?? "—",
+            stage:        d.stage ?? "Unknown",
+            amount:       d.amount ?? 0,
+            health_score: d.health_score ?? 0,
+            health_label: d.health_label ?? "critical",
+          }));
+          setDeals(list);
+        })
+        .catch((err: unknown) => {
+          if (cancelled) return;
+          if (err instanceof DOMException && err.name === "AbortError") return;
+          if (err instanceof Error && err.name === "AbortError") return;
+          toast({ title: "Search failed", description: "Couldn't search deals. Try again.", variant: "destructive" });
+        })
+        .finally(() => { if (!cancelled) setDealsLoading(false); });
+      return () => { cancelled = true; };
+    }, 350);
+    return () => { if (dealSearchTimer.current) clearTimeout(dealSearchTimer.current); };
+  }, [dealSearch]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -112,59 +123,66 @@ export default function AskDealIQPage() {
               Deal Q&amp;A
             </p>
 
-            {/* Deal selector */}
+            {/* Deal selector — search-as-you-type (no upfront bulk fetch) */}
             <div>
-              {loading ? (
-                <Skeleton className="h-8 w-56 rounded-lg" />
-              ) : (
-                <Popover open={open} onOpenChange={setOpen}>
-                  <PopoverTrigger asChild>
-                    <Button
-                      variant="outline"
-                      role="combobox"
-                      aria-expanded={open}
-                      className="h-8 min-w-[220px] max-w-xs justify-between text-xs border-border/50 font-normal"
-                    >
-                      {selectedDeal
-                        ? <span className="flex items-center gap-2 truncate">
-                            <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", HEALTH_DOT[selectedDeal.health_label] ?? "bg-muted-foreground")} />
-                            <span className="truncate">{selectedDeal.name}</span>
-                          </span>
-                        : <span className="text-muted-foreground">Select a deal…</span>
+              <Popover open={open} onOpenChange={setOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={open}
+                    className="h-8 min-w-[220px] max-w-xs justify-between text-xs border-border/50 font-normal"
+                  >
+                    {selectedDeal
+                      ? <span className="flex items-center gap-2 truncate">
+                          <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", HEALTH_DOT[selectedDeal.health_label] ?? "bg-muted-foreground")} />
+                          <span className="truncate">{selectedDeal.name}</span>
+                        </span>
+                      : <span className="text-muted-foreground">Search deals…</span>
+                    }
+                    <ChevronsUpDown className="ml-2 h-3 w-3 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[320px] p-0" align="start">
+                  <Command shouldFilter={false}>
+                    <CommandInput
+                      placeholder="Type to search deals…"
+                      className="h-8 text-xs"
+                      value={dealSearch}
+                      onValueChange={setDealSearch}
+                    />
+                    <CommandList>
+                      {dealsLoading
+                        ? <div className="py-3 text-center text-xs text-muted-foreground">Searching…</div>
+                        : dealSearch.trim().length < 2
+                        ? <div className="py-3 text-center text-xs text-muted-foreground">Type 2+ characters to search</div>
+                        : deals.length === 0
+                        ? <CommandEmpty className="py-4 text-center text-xs text-muted-foreground">No deals found.</CommandEmpty>
+                        : <CommandGroup>
+                            {deals.map((d) => (
+                              <CommandItem
+                                key={d.id}
+                                value={d.id}
+                                onSelect={() => {
+                                  setSelectedDealId(d.id);
+                                  setSelectedDeal(d);
+                                  setDealSearch("");
+                                  setOpen(false);
+                                }}
+                                className="text-xs"
+                              >
+                                <span className={cn("mr-2 h-1.5 w-1.5 rounded-full shrink-0", HEALTH_DOT[d.health_label] ?? "bg-muted-foreground")} />
+                                <span className="flex-1 truncate">{d.name}</span>
+                                {d.stage && <span className="ml-2 text-muted-foreground/60 shrink-0">{d.stage}</span>}
+                                <Check className={cn("ml-2 h-3 w-3 shrink-0", d.id === selectedDealId ? "opacity-100" : "opacity-0")} />
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
                       }
-                      <ChevronsUpDown className="ml-2 h-3 w-3 shrink-0 opacity-50" />
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-[320px] p-0" align="start">
-                    <Command>
-                      <CommandInput placeholder="Search deals…" className="h-8 text-xs" />
-                      <CommandList>
-                        <CommandEmpty className="py-4 text-center text-xs text-muted-foreground">
-                          No deals found.
-                        </CommandEmpty>
-                        <CommandGroup>
-                          {deals.map((d) => (
-                            <CommandItem
-                              key={d.id}
-                              value={`${d.name} ${d.stage}`}
-                              onSelect={() => {
-                                setSelectedDealId(d.id === selectedDealId ? "" : d.id);
-                                setOpen(false);
-                              }}
-                              className="text-xs"
-                            >
-                              <span className={cn("mr-2 h-1.5 w-1.5 rounded-full shrink-0", HEALTH_DOT[d.health_label] ?? "bg-muted-foreground")} />
-                              <span className="flex-1 truncate">{d.name}</span>
-                              {d.stage && <span className="ml-2 text-muted-foreground/60 shrink-0">{d.stage}</span>}
-                              <Check className={cn("ml-2 h-3 w-3 shrink-0", d.id === selectedDealId ? "opacity-100" : "opacity-0")} />
-                            </CommandItem>
-                          ))}
-                        </CommandGroup>
-                      </CommandList>
-                    </Command>
-                  </PopoverContent>
-                </Popover>
-              )}
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
             </div>
 
             {selectedDeal && (

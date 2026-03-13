@@ -18,6 +18,7 @@ from routers.auth_crm import router as auth_crm_router
 from routers.contacts import router as contacts_router
 from routers.regional_analytics import router as regional_analytics_router
 from routers.contracts import router as contracts_router
+from routers.next_steps import router as next_steps_router
 import uvicorn
 
 app = FastAPI(
@@ -61,6 +62,64 @@ app.include_router(auth_crm_router)  # /auth/{provider}/login + /auth/{provider}
 app.include_router(contacts_router, prefix="", tags=["Contact Intelligence"])
 app.include_router(regional_analytics_router, prefix="/analytics", tags=["Regional Analytics"])
 app.include_router(contracts_router, prefix="/contracts", tags=["Contract Intelligence"])
+app.include_router(next_steps_router, tags=["Next Steps"])
+
+
+_SEED_DOCX = os.path.join(os.path.dirname(__file__), "seeds", "vervotech_standard.docx")
+_SEED_CONTRACT_NAME = "Vervotech Subscriber Agreement"
+_SEED_CONTRACT_VERSION = "1.0"
+
+
+async def _seed_standard_contract(logger) -> None:
+    """On first startup, extract clauses from the bundled DOCX and store as the default standard contract."""
+    import logging, json
+    from database.connection import get_db
+
+    if not os.path.exists(_SEED_DOCX):
+        logger.warning("Seed DOCX not found at %s — skipping standard contract seed", _SEED_DOCX)
+        return
+
+    async for db in get_db():
+        if db is None:
+            logger.info("No DB — standard contract seed skipped (demo mode)")
+            return
+        try:
+            from database.models import StandardContract
+            from sqlalchemy import select
+            result = await db.execute(select(StandardContract).limit(1))
+            existing = result.scalar_one_or_none()
+            if existing:
+                logger.info("Standard contract already seeded (%s v%s) — skipping", existing.name, existing.version)
+                return
+
+            logger.info("Seeding standard contract from %s …", _SEED_DOCX)
+            with open(_SEED_DOCX, "rb") as f:
+                file_bytes = f.read()
+
+            from services.contract_processor import extract_text_from_bytes, extract_clauses
+            raw_text = await extract_text_from_bytes(file_bytes, "vervotech_standard.docx")
+            clauses = await extract_clauses(raw_text)
+
+            import shutil
+            from routers.contracts import UPLOAD_DIR
+            os.makedirs(UPLOAD_DIR, exist_ok=True)
+            dest = os.path.join(UPLOAD_DIR, "vervotech_standard.docx")
+            shutil.copy2(_SEED_DOCX, dest)
+
+            contract = StandardContract(
+                name=_SEED_CONTRACT_NAME,
+                version=_SEED_CONTRACT_VERSION,
+                file_path=dest,
+                raw_text=raw_text[:50000],
+                is_active=True,
+                clauses_json=json.dumps(clauses),
+            )
+            db.add(contract)
+            await db.flush()
+            logger.info("✓ Standard contract seeded: %s clauses extracted", len(clauses))
+        except Exception as e:
+            logger.warning("Contract seed DB write failed: %s", e)
+        return  # only need first iteration of get_db()
 
 
 @app.on_event("startup")
@@ -80,6 +139,12 @@ async def startup_event():
         logger.warning("  MySQL hint:      mysql+aiomysql://root:PASSWORD@localhost:3306/dealiq")
         logger.warning("  PostgreSQL hint: postgresql+asyncpg://user:pass@localhost:5432/dealiq")
         logger.warning("  App will run in stateless / demo mode")
+
+    # ── Seed default standard contract from bundled DOCX ───────────────────────
+    try:
+        await _seed_standard_contract(logger)
+    except Exception as e:
+        logger.warning("Contract seed skipped: %s", e)
 
     try:
         from apscheduler.schedulers.asyncio import AsyncIOScheduler

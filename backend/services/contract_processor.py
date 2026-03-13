@@ -1,11 +1,13 @@
 """
 Contract Intelligence — text extraction, clause parsing, deviation analysis.
 """
+import asyncio
 import json
 import logging
 import os
 import re
 from typing import Any
+
 from services.ai_client import AsyncAnthropicCompat as AsyncGroq
 
 logger = logging.getLogger(__name__)
@@ -19,7 +21,9 @@ def _get_client() -> AsyncGroq:
     return _client
 
 MODEL_QUALITY = "claude-sonnet-4-5-20250929"
-MAX_TEXT_CHARS = 12000  # safe context window slice
+MAX_TEXT_CHARS = 14000   # prospect contract text slice
+MAX_STD_CHARS  = 6000    # standard clauses JSON slice
+AI_TIMEOUT_S   = 70      # hard timeout per AI call — stays under 90s frontend timeout
 
 
 def _extract_json(text: str) -> Any:
@@ -38,13 +42,9 @@ async def extract_text_from_bytes(file_bytes: bytes, filename: str) -> str:
             import pypdf
             import io
             reader = pypdf.PdfReader(io.BytesIO(file_bytes))
-            pages = []
-            for page in reader.pages:
-                pages.append(page.extract_text() or "")
-            return "\n".join(pages)
+            return "\n".join(page.extract_text() or "" for page in reader.pages)
         except ImportError:
-            logger.warning("pypdf not installed — returning raw text placeholder")
-            return file_bytes.decode("utf-8", errors="replace")
+            raise RuntimeError("pypdf not installed. Run: pip install pypdf>=4.0")
     elif ext == "docx":
         try:
             import docx
@@ -52,8 +52,7 @@ async def extract_text_from_bytes(file_bytes: bytes, filename: str) -> str:
             doc = docx.Document(io.BytesIO(file_bytes))
             return "\n".join(p.text for p in doc.paragraphs if p.text.strip())
         except ImportError:
-            logger.warning("python-docx not installed — returning raw text placeholder")
-            return file_bytes.decode("utf-8", errors="replace")
+            raise RuntimeError("python-docx not installed. Run: pip install python-docx>=1.1")
     elif ext == "txt":
         return file_bytes.decode("utf-8", errors="replace")
     else:
@@ -61,103 +60,149 @@ async def extract_text_from_bytes(file_bytes: bytes, filename: str) -> str:
 
 
 async def extract_clauses(raw_text: str) -> list[dict]:
-    """Use Groq LLM to extract structured clauses from contract text."""
+    """Extract structured clauses from a contract (used for standard template upload)."""
     sliced = raw_text[:MAX_TEXT_CHARS]
-    prompt = f"""You are a contract analysis AI. Extract all contractual clauses from the following document into a structured JSON array. For each clause identify:
+    prompt = f"""You are a contract analysis AI. Extract all contractual clauses from the following document.
 
+Return a JSON array. Each item:
 {{
-  "category": "payment_terms|liability|sla|termination|ip_ownership|indemnity|confidentiality|warranty|discount_pricing|data_protection|force_majeure|dispute_resolution|renewal|support_response|other",
-  "clause_name": "Human-readable clause title",
-  "clause_text": "Exact text or close paraphrase from the contract",
+  "category": "payment_terms|liability|sla|termination|ip_ownership|indemnity|confidentiality|warranty|discount_pricing|data_protection|force_majeure|dispute_resolution|renewal|support_response|jurisdiction|auto_renewal|audit_rights|non_compete|warranty|other",
+  "clause_name": "Human-readable title",
+  "clause_text": "Exact or close paraphrase of the clause",
   "key_values": {{}}
 }}
 
-Extract between 5 and 20 clauses. Skip preambles, recitals, definitions, and signature blocks.
-Return ONLY a valid JSON array. No markdown, no explanation, no backticks.
+Extract 5–25 clauses. Skip preamble, recitals, definitions, and signature blocks.
+Return ONLY a valid JSON array. No markdown.
 
 CONTRACT TEXT:
 {sliced}"""
 
     try:
-        resp = await _get_client().chat.completions.create(
-            model=MODEL_QUALITY,
-            max_tokens=3000,
-            temperature=0.1,
-            messages=[{"role": "user", "content": prompt}],
+        resp = await asyncio.wait_for(
+            _get_client().chat.completions.create(
+                model=MODEL_QUALITY,
+                max_tokens=3000,
+                temperature=0.1,
+                messages=[{"role": "user", "content": prompt}],
+            ),
+            timeout=AI_TIMEOUT_S,
         )
         result = _extract_json(resp.choices[0].message.content)
         return result if isinstance(result, list) else []
+    except asyncio.TimeoutError:
+        logger.warning("extract_clauses timed out after %ss", AI_TIMEOUT_S)
+        return []
     except Exception as e:
         logger.warning("extract_clauses failed: %s", e)
         return []
 
 
-async def compare_contracts(
+async def analyze_redline(
     standard_clauses: list[dict],
-    prospect_clauses: list[dict],
+    prospect_raw_text: str,
     deal_context: dict,
 ) -> list[dict]:
-    """Use Groq LLM to compare clause sets and generate deviations with severity + counter-suggestions."""
+    """
+    Single-pass analysis: reads the prospect's raw contract text, compares every clause
+    against the standard template, and returns deviations with severity + counter-proposals.
+
+    This replaces the old two-call pattern (extract_clauses → compare_contracts) with a
+    single Claude call, cutting latency in half and avoiding timeout on prospect upload.
+    """
     deal_amount = deal_context.get("amount", 0) or 0
-    region = deal_context.get("region", "Unknown")
-    stage = deal_context.get("stage", "Unknown")
-    deal_name = deal_context.get("name", "Unknown Deal")
+    region      = deal_context.get("region", "Unknown")
+    stage       = deal_context.get("stage", "Unknown")
+    deal_name   = deal_context.get("name", "Unknown Deal")
 
-    std_json = json.dumps(standard_clauses, indent=2)[:4000]
-    pro_json = json.dumps(prospect_clauses, indent=2)[:4000]
+    std_json   = json.dumps(standard_clauses, indent=2)[:MAX_STD_CHARS]
+    pro_text   = prospect_raw_text[:MAX_TEXT_CHARS]
 
-    prompt = f"""You are a contract negotiation expert. Compare these two contract clause sets and identify every meaningful deviation.
+    leniency_rules = """\
+Vervotech Leniency Matrix (apply when scoring severity):
+- Jurisdiction / Governing Law: HIGH leniency — prospect's preferred jurisdiction is acceptable
+- Communication Language: HIGH leniency — bilingual correspondence acceptable
+- Auto-Renewal → Opt-in: HIGH leniency — acceptable
+- Audit Rights (annual): HIGH leniency — generally acceptable
+- Force Majeure (expanded): HIGH leniency — usually acceptable
+- Invoice Payment Terms: MEDIUM — Net-30 standard; Net-45 acceptable; Net-60+ needs CFO approval
+- Liability Cap: MEDIUM — 12-month standard; 6-month needs review; unlimited = critical
+- Data Hosting Location: MEDIUM — specific region acceptable if infra supports it
+- Confidentiality Period extension: MEDIUM — usually acceptable beyond 2 years
+- Termination for Convenience <30 days: MEDIUM — financial risk, review needed
+- Non-Compete / Exclusivity added by prospect: LOW leniency — flag as critical
+- IP Ownership of custom/Vervotech-built work claimed by prospect: LOW — unacceptable
+- Indemnification scope broadened: MEDIUM — needs legal review
+- Uncapped SLA penalties: LOW — critical financial risk"""
 
-The STANDARD contract is the seller's baseline.
-The PROSPECT contract is the buyer's modified/redlined version.
+    prompt = f"""You are a contract negotiation expert for Vervotech, a B2B SaaS company.
 
-For each deviation found, return a JSON object:
+Your task: read the prospect's FULL contract text and compare it clause-by-clause against Vervotech's STANDARD CLAUSES below. Identify every meaningful deviation.
+
+{leniency_rules}
+
+For each deviation return a JSON object:
 {{
   "clause_category": "payment_terms",
   "clause_name": "Payment terms",
-  "standard_value": "Brief description of standard position",
-  "prospect_value": "Brief description of prospect's modified position",
-  "deviation_type": "modified",
-  "severity": "critical",
+  "standard_value": "One-sentence description of Vervotech's standard position",
+  "prospect_value": "One-sentence description of what the prospect is asking for",
+  "deviation_type": "modified | removed | added",
+  "severity": "critical | major | minor | acceptable",
   "risk_score": 85,
-  "explanation": "Why this matters for the seller",
-  "counter_suggestion": "Specific counter-proposal",
+  "explanation": "Why this matters for Vervotech — financial, legal, or operational impact",
+  "counter_suggestion": "Specific counter-proposal Vervotech should offer",
   "is_discount_related": false,
   "discount_standard_pct": null,
   "discount_prospect_pct": null
 }}
 
-deviation_type: modified | removed | added
-severity: critical | major | minor | acceptable
-risk_score: 0-100 (how risky this is for the seller)
+Severity:
+- critical: deal-breaker (IP grab, unlimited liability, uncapped SLA penalties, exclusivity, >30% discount)
+- major: significant risk (payment >60 days, asymmetric termination, broadened indemnity, 15–30% discount)
+- minor: manageable (small shifts, 5–15% discount, minor wording)
+- acceptable: normal negotiation per leniency matrix above
 
-Severity guide:
-- critical: Deal-breaking (liability removal, unlimited indemnity, >30% discount, missing data protection)
-- major: Significant risk (payment >60 days, SLA below 99%, discount 15-30%, asymmetric termination)
-- minor: Manageable (small timeline shifts, minor wording changes, 5-15% discount)
-- acceptable: Normal negotiation (clarifications, reasonable adjustments, <5% discount)
+Deal context: "{deal_name}", ${deal_amount:,}, region: {region}, stage: {stage}.
 
-Context: Deal "{deal_name}", worth ${deal_amount:,}, region: {region}, stage: {stage}. Factor deal size into severity.
+If no deviation is found for a category, do not include it.
+Return ONLY a valid JSON array. No markdown, no explanation.
 
-For discount deviations, set is_discount_related=true and populate discount_standard_pct and discount_prospect_pct as numbers.
-
-STANDARD CLAUSES:
+--- VERVOTECH STANDARD CLAUSES (JSON) ---
 {std_json}
 
-PROSPECT CLAUSES:
-{pro_json}
-
-Return ONLY a valid JSON array of deviations. No markdown, no explanation, no backticks."""
+--- PROSPECT CONTRACT TEXT ---
+{pro_text}"""
 
     try:
-        resp = await _get_client().chat.completions.create(
-            model=MODEL_QUALITY,
-            max_tokens=4000,
-            temperature=0.1,
-            messages=[{"role": "user", "content": prompt}],
+        resp = await asyncio.wait_for(
+            _get_client().chat.completions.create(
+                model=MODEL_QUALITY,
+                max_tokens=4000,
+                temperature=0.1,
+                messages=[{"role": "user", "content": prompt}],
+            ),
+            timeout=AI_TIMEOUT_S,
         )
         result = _extract_json(resp.choices[0].message.content)
         return result if isinstance(result, list) else []
-    except Exception as e:
-        logger.warning("compare_contracts failed: %s", e)
+    except asyncio.TimeoutError:
+        logger.warning("analyze_redline timed out after %ss", AI_TIMEOUT_S)
         return []
+    except Exception as e:
+        logger.warning("analyze_redline failed: %s", e)
+        return []
+
+
+# ── Backwards-compat shim — kept so the seed path still works ─────────────────
+async def compare_contracts(
+    standard_clauses: list[dict],
+    prospect_clauses: list[dict],
+    deal_context: dict,
+) -> list[dict]:
+    """Legacy two-arg compare. Converts prospect_clauses back to text and delegates to analyze_redline."""
+    prospect_text = "\n\n".join(
+        f"{c.get('clause_name', '')}: {c.get('clause_text', '')}"
+        for c in prospect_clauses
+    )
+    return await analyze_redline(standard_clauses, prospect_text, deal_context)

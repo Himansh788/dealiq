@@ -116,7 +116,10 @@ export const api = {
     fetchWithTimeout(`${API_URL}/auth/login`, { timeoutMs: 60_000 }).then(handleResponse),
 
   getCrmLoginUrl: (provider: "zoho" | "salesforce" | "hubspot") =>
-    fetchWithTimeout(`${API_URL}/auth/${provider}/login`, { timeoutMs: 60_000 }).then(handleResponse),
+    fetchWithTimeout(
+      `${API_URL}${provider === "zoho" ? "/auth/login" : `/auth/${provider}/login`}`,
+      { timeoutMs: 60_000 }
+    ).then(handleResponse),
 
   getDemoSession: () =>
     fetchWithTimeout(`${API_URL}/auth/demo-session`, { timeoutMs: 60_000 }).then(handleResponse),
@@ -610,5 +613,79 @@ export const api = {
       method: "POST",
       headers: authHeaders(),
       body: JSON.stringify(body),
+    }).then(handleResponse),
+
+  // ── Contract Intelligence ──────────────────────────────────────────────────
+  uploadStandardContract: (params: { file: File; name: string; version: string }) => {
+    const form = new FormData();
+    form.append("file", params.file);
+    form.append("name", params.name);
+    form.append("version", params.version);
+    const raw = localStorage.getItem("dealiq_session");
+    return fetchWithTimeout(`${API_URL}/contracts/standard/upload`, {
+      method: "POST",
+      headers: raw ? { Authorization: `Bearer ${raw}` } : {},
+      body: form,
+      timeoutMs: 60_000,
+    }).then(handleResponse);
+  },
+
+  listStandardContracts: (): Promise<any[]> =>
+    fetchWithTimeout(`${API_URL}/contracts/standard/list`, { headers: authHeaders() }).then(handleResponse),
+
+  uploadProspectContract: (params: {
+    file: File;
+    dealId: string;
+    dealName?: string;
+    prospectName?: string;
+    region?: string;
+    dealAmount?: number;
+    dealStage?: string;
+    standardContractId?: string;
+  }) => {
+    const form = new FormData();
+    form.append("file", params.file);
+    form.append("deal_id", params.dealId);
+    if (params.dealName)         form.append("deal_name", params.dealName);
+    if (params.prospectName)     form.append("prospect_name", params.prospectName);
+    if (params.region)           form.append("region", params.region);
+    if (params.dealAmount != null) form.append("deal_amount", String(params.dealAmount));
+    if (params.dealStage)        form.append("deal_stage", params.dealStage);
+    form.append("standard_contract_id", params.standardContractId ?? "std_demo");
+    const raw = localStorage.getItem("dealiq_session");
+    return fetchWithTimeout(`${API_URL}/contracts/prospect/upload`, {
+      method: "POST",
+      headers: raw ? { Authorization: `Bearer ${raw}` } : {},
+      body: form,
+      timeoutMs: 90_000,
+    }).then(handleResponse);
+  },
+
+  updateDeviationStatus: (contractId: string, deviationId: string, accepted: boolean) =>
+    fetchWithTimeout(`${API_URL}/contracts/prospect/${contractId}/deviations/${deviationId}`, {
+      method: "PATCH",
+      headers: authHeaders(),
+      body: JSON.stringify({ accepted }),
+    }).then(handleResponse),
+
+  getDemoContractAnalysis: () =>
+    fetchWithTimeout(`${API_URL}/contracts/demo/analysis`).then(handleResponse),
+
+  getContractRisk: (dealId: string) =>
+    fetchWithTimeout(`${API_URL}/contracts/insights/deal/${dealId}`, { headers: authHeaders() }).then(handleResponse),
+
+  // ── Next Steps ─────────────────────────────────────────────────────────────
+  generateNextSteps: (dealId: string, meetingContext?: string) =>
+    fetchWithTimeout(`${API_URL}/next-steps/generate`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ deal_id: dealId, meeting_context: meetingContext ?? "" }),
+      timeoutMs: 90_000,
+    }).then(handleResponse),
+
+  clearNextStepsCache: (dealId: string) =>
+    fetchWithTimeout(`${API_URL}/next-steps/cache/${dealId}`, {
+      method: "DELETE",
+      headers: authHeaders(),
     }).then(handleResponse),
 };
