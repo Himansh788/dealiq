@@ -24,47 +24,77 @@ async def sync_emails_for_deal(
     Fetch Outlook messages matching the given contact emails via Microsoft Graph.
     Returns [] if Microsoft OAuth is not configured or token is absent.
     """
-    if not MICROSOFT_CLIENT_ID or not access_token:
+    if not MICROSOFT_CLIENT_ID:
+        logger.warning("outlook_client [deal=%s]: MICROSOFT_CLIENT_ID not set — Outlook fetch disabled", deal_id)
+        return []
+    if not access_token:
+        logger.warning("outlook_client [deal=%s]: no access_token — skipping Graph call", deal_id)
         return []
 
     import httpx
 
-    # Use $search with email addresses — more reliable than OData filter for recipients
-    # Graph search syntax: "from:email OR to:email"
-    # Guard: ensure all items are strings before building the search query
-    safe_emails = [e if isinstance(e, str) else str(e.get("address", "")) for e in contact_emails]
-    safe_emails = [e.strip().lower() for e in safe_emails if e and isinstance(e, str)]
-    if not safe_emails:
-        logger.warning("outlook_client: contact_emails resolved to empty after sanitisation (original=%s)", contact_emails)
+    # Sanitise contact_emails — ensure every entry is a plain string
+    safe_emails = []
+    for e in contact_emails:
+        if isinstance(e, dict):
+            e = e.get("address") or e.get("email") or ""
+        if isinstance(e, str) and e.strip():
+            safe_emails.append(e.strip().lower())
+
+    logger.info(
+        "outlook_client [deal=%s]: input contact_emails=%s → safe_emails=%s",
+        deal_id, contact_emails, safe_emails,
+    )
+
     search_query = " OR ".join(
         f"from:{e} to:{e}" for e in safe_emails
     ) if safe_emails else None
 
-    # NOTE: Graph API rejects requests that combine $search with $orderby.
-    # Use one or the other — $search when we have contact emails, $orderby otherwise.
+    # NOTE: Graph API rejects $search combined with $orderby — use one or the other.
     params: dict[str, Any] = {
         "$top": 25,
         "$select": "id,subject,from,toRecipients,receivedDateTime,bodyPreview,isRead",
     }
     if search_query:
         params["$search"] = f'"{search_query}"'
+        logger.info("outlook_client [deal=%s]: using $search query (contact emails present)", deal_id)
     else:
         params["$orderby"] = "receivedDateTime desc"
+        logger.info("outlook_client [deal=%s]: no contact emails — fetching last 25 messages unfiltered", deal_id)
 
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            f"{GRAPH_API_BASE}/me/messages",
-            headers={"Authorization": f"Bearer {access_token}"},
-            params=params,
-            timeout=10,
-        )
-        logger.info(
-            "outlook_client: Graph API status=%d deal=%s params=%s body=%s",
-            resp.status_code, deal_id, params, resp.text[:500],
-        )
-        if resp.status_code != 200:
-            return []
-        return resp.json().get("value", [])
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                f"{GRAPH_API_BASE}/me/messages",
+                headers={"Authorization": f"Bearer {access_token}"},
+                params=params,
+                timeout=10,
+            )
+    except Exception as e:
+        logger.warning("outlook_client [deal=%s]: Graph API request EXCEPTION: %s", deal_id, e)
+        return []
+
+    logger.info(
+        "outlook_client [deal=%s]: Graph API status=%d body_preview=%s",
+        deal_id, resp.status_code, resp.text[:600],
+    )
+
+    if resp.status_code == 401:
+        logger.warning("outlook_client [deal=%s]: 401 UNAUTHORIZED — token expired or revoked", deal_id)
+        return []
+    if resp.status_code == 403:
+        logger.warning("outlook_client [deal=%s]: 403 FORBIDDEN — token is missing Mail.Read scope, user must re-auth", deal_id)
+        return []
+    if resp.status_code == 400:
+        logger.warning("outlook_client [deal=%s]: 400 BAD REQUEST — search query rejected. body=%s", deal_id, resp.text[:400])
+        return []
+    if resp.status_code != 200:
+        logger.warning("outlook_client [deal=%s]: unexpected status=%d body=%s", deal_id, resp.status_code, resp.text[:400])
+        return []
+
+    messages = resp.json().get("value", [])
+    logger.info("outlook_client [deal=%s]: Graph returned %d messages", deal_id, len(messages))
+    return messages
 
 
 async def get_messages_for_deal(

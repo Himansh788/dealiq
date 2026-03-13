@@ -240,7 +240,13 @@ def match_outlook_emails(
           is_internal  bool       True if thread has no external participants
           post_close   bool       True if email is after deal closed
     """
+    logger.info(
+        "email_matcher [deal=%s]: called with %d outlook_emails internal_domain=%r",
+        deal_context.get("deal_id"), len(outlook_emails), internal_domain,
+    )
+
     if not outlook_emails:
+        logger.warning("email_matcher [deal=%s]: no outlook_emails passed in — returning []", deal_context.get("deal_id"))
         return []
 
     contacts = deal_context.get("contacts") or []

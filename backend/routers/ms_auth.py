@@ -257,20 +257,41 @@ async def get_user_token(user_key: str) -> dict | None:
     """
     # L1 cache hit
     tokens = _token_cache.get(user_key)
+    if tokens:
+        logger.info("ms_auth.get_user_token: L1 cache hit user_key=%s", user_key)
+    else:
+        logger.info("ms_auth.get_user_token: L1 cache miss user_key=%s — checking DB", user_key)
 
     # L1 miss → try DB
     if not tokens:
         tokens = await _load_token_from_db(user_key)
         if tokens:
+            logger.info("ms_auth.get_user_token: DB hit user_key=%s ms_email=%s", user_key, tokens.get("ms_email"))
             _token_cache[user_key] = tokens
+        else:
+            logger.warning("ms_auth.get_user_token: NO TOKEN FOUND user_key=%s — user has not connected Outlook", user_key)
 
     if not tokens:
         return None
 
+    expires_at = tokens.get("expires_at", "unknown")
+    has_access = bool(tokens.get("access_token"))
+    has_refresh = bool(tokens.get("refresh_token"))
+    logger.info(
+        "ms_auth.get_user_token: token found user_key=%s has_access_token=%s has_refresh_token=%s expires_at=%s",
+        user_key, has_access, has_refresh, expires_at,
+    )
+
     # Auto-refresh if expiring
     if _is_expired(tokens):
+        logger.warning("ms_auth.get_user_token: token EXPIRED for user_key=%s expires_at=%s — attempting refresh", user_key, expires_at)
         refreshed = await _refresh_access_token(user_key, tokens)
-        return refreshed if refreshed else tokens  # return stale if refresh fails
+        if refreshed:
+            logger.info("ms_auth.get_user_token: token refreshed successfully user_key=%s", user_key)
+            return refreshed
+        else:
+            logger.warning("ms_auth.get_user_token: token refresh FAILED user_key=%s — returning stale token", user_key)
+            return tokens
 
     return tokens
 

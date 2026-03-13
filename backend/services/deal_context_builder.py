@@ -33,6 +33,7 @@ async def build_deal_context(zoho_token: str, deal_id: str) -> dict:
     Returns {} if the deal cannot be fetched (callers must guard).
     """
     if not zoho_token or not deal_id:
+        logger.warning("deal_context_builder [deal=%s]: missing zoho_token=%s or deal_id — returning {}", deal_id, bool(zoho_token))
         return {}
 
     cache_key = f"dealiq:deal_ctx:{deal_id}"
@@ -42,13 +43,18 @@ async def build_deal_context(zoho_token: str, deal_id: str) -> dict:
         from services.cache import cache_get, cache_set
         cached = await cache_get(cache_key)
         if cached:
-            return json.loads(cached)
-    except Exception:
-        pass
+            parsed = json.loads(cached)
+            logger.info("deal_context_builder [deal=%s]: cache hit contacts=%d", deal_id, len(parsed.get("contacts", [])))
+            return parsed
+    except Exception as e:
+        logger.warning("deal_context_builder [deal=%s]: cache read error: %s", deal_id, e)
+
+    logger.info("deal_context_builder [deal=%s]: cache miss — fetching from Zoho", deal_id)
 
     # L2: Zoho API
     ctx = await _fetch_from_zoho(zoho_token, deal_id)
     if not ctx:
+        logger.warning("deal_context_builder [deal=%s]: Zoho fetch returned nothing — no deal context", deal_id)
         return {}
 
     # Write to cache
@@ -89,6 +95,15 @@ async def _fetch_from_zoho(zoho_token: str, deal_id: str) -> Optional[dict]:
         # Fetch contacts in parallel via Contact_Roles (most reliable for email matching)
         contacts = await get_contacts_for_deal(zoho_token, deal_id)
 
+        logger.info(
+            "deal_context_builder [deal=%s]: fetched deal_name=%r account_name=%r contacts=%d contact_emails=%s",
+            deal_id,
+            data.get("Deal_Name"),
+            data.get("Account_Name"),
+            len(contacts),
+            [c.get("email") for c in contacts],
+        )
+
         return {
             "deal_id":       deal_id,
             "deal_name":     data.get("Deal_Name") or "",
@@ -101,5 +116,5 @@ async def _fetch_from_zoho(zoho_token: str, deal_id: str) -> Optional[dict]:
         }
 
     except Exception as e:
-        logger.warning("deal_context_builder: deal=%s error: %s", deal_id, e)
+        logger.warning("deal_context_builder [deal=%s]: EXCEPTION during Zoho fetch: %s", deal_id, e)
         return None
