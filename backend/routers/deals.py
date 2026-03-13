@@ -775,7 +775,7 @@ async def _compute_pipeline_data(access_token: str, is_demo: bool) -> dict:
     try:
         groq_client = AsyncGroq(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
         resp = await groq_client.chat.completions.create(
-            model="claude-sonnet-4-5-20250929",
+            model="claude-sonnet-4-6",
             messages=[{"role": "user", "content": prompt}],
             max_tokens=120,
             temperature=0.4,

@@ -29,7 +29,7 @@ def _get_client() -> AsyncGroq:
     return _client
 
 
-MODEL = "claude-sonnet-4-5-20250929"
+MODEL = "claude-sonnet-4-6"
 
 
 def _extract_json(text: str) -> Dict[str, Any]:

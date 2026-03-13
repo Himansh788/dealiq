@@ -181,7 +181,7 @@ Return ONLY valid JSON — no markdown, no explanation:
 }}"""
 
     response = await client.chat.completions.create(
-        model="claude-sonnet-4-5-20250929",
+        model="claude-sonnet-4-6",
         messages=[
             {"role": "system", "content": "You are a B2B sales win/loss analyst. Return ONLY valid JSON — no markdown, no explanation outside the JSON object."},
             {"role": "user", "content": prompt},
@@ -229,7 +229,7 @@ Return ONLY valid JSON — no markdown:
 }}"""
 
     response = await client.chat.completions.create(
-        model="claude-sonnet-4-5-20250929",  # same model for quality
+        model="claude-sonnet-4-6",  # same model for quality
         messages=[
             {"role": "system", "content": "You are a B2B sales win/loss analyst. Return ONLY valid JSON — no markdown, no explanation outside the JSON object."},
             {"role": "user", "content": prompt},

@@ -28,7 +28,7 @@ def _get_client() -> AsyncGroq:
     return _client
 
 
-MODEL = "claude-sonnet-4-5-20250929"
+MODEL = "claude-sonnet-4-6"
 
 
 def _strip_html(text: str) -> str:

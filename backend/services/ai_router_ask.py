@@ -29,7 +29,7 @@ def is_configured() -> bool:
 
 
 # Model selection — quality tasks use the larger model
-MODEL_QUALITY = "claude-sonnet-4-5-20250929"   # deal Q&A, MEDDIC, brief
+MODEL_QUALITY = "claude-sonnet-4-6"   # deal Q&A, MEDDIC, brief
 MODEL_FAST = "claude-haiku-4-5-20251001"        # cross-deal summaries, follow-up email
 
 

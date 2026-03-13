@@ -235,7 +235,7 @@ Rules:
 
     try:
         response = await client.chat.completions.create(
-            model="claude-sonnet-4-5-20250929",
+            model="claude-sonnet-4-6",
             max_tokens=2500,
             messages=[
                 {"role": "system", "content": system_prompt},

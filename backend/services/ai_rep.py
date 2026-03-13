@@ -26,7 +26,7 @@ def _get_client() -> AsyncGroq:
     return _client
 
 
-MODEL = "claude-sonnet-4-5-20250929"
+MODEL = "claude-sonnet-4-6"
 
 
 def _extract_json(text: str) -> Dict[str, Any]:
@@ -280,6 +280,15 @@ async def generate_next_best_action(
 
     email_context_text = email_context or "No email thread available — analysis based on CRM data only"
 
+    # Hard cap on email context to prevent Anthropic 500s from oversized prompts
+    MAX_EMAIL_CHARS = 3000
+    if len(email_context_text) > MAX_EMAIL_CHARS:
+        email_context_text = email_context_text[:MAX_EMAIL_CHARS] + "\n\n[... earlier emails truncated for length ...]"
+
+    # Cap deal_context and contacts_block too
+    deal_context_capped = (deal_context or "No additional deal context available.")[:1500]
+    contacts_block_capped = (contacts_block or "No contact data available.")[:800]
+
     prompt = NBA_PROMPT.format(
         rep_persona=_build_rep_persona(rep_name),
         rep_name=rep_name,
@@ -292,15 +301,25 @@ async def generate_next_best_action(
         next_step=deal.get("next_step") or "None set",
         contact_count=deal.get("contact_count", 1),
         economic_buyer_engaged=deal.get("economic_buyer_engaged", False),
-        contacts_block=contacts_block or "No contact data available.",
+        contacts_block=contacts_block_capped,
         discount_mention_count=deal.get("discount_mention_count", 0),
         activity_count_30d=deal.get("activity_count_30d", 0),
         health_score=deal.get("health_score", 0),
         health_label=deal.get("health_label", "unknown"),
-        deal_context=deal_context or "No additional deal context available.",
+        deal_context=deal_context_capped,
         signals_text=signals_text,
         email_context=email_context_text,
     )
+
+    # Final safety cap — Anthropic 500s when prompt + max_tokens exceeds model limit
+    MAX_PROMPT_CHARS = 28_000
+    if len(prompt) > MAX_PROMPT_CHARS:
+        # Trim from the email context section which is the most variable part
+        overflow = len(prompt) - MAX_PROMPT_CHARS
+        if len(email_context_text) > overflow + 200:
+            trimmed = email_context_text[:len(email_context_text) - overflow - 200]
+            trimmed += "\n\n[... emails truncated to fit context limit ...]"
+            prompt = prompt.replace(email_context_text, trimmed)
 
     try:
         resp = await _get_client().chat.completions.create(

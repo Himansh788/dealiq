@@ -20,7 +20,7 @@ def _get_client() -> AsyncGroq:
         _client = AsyncGroq(api_key=os.getenv("ANTHROPIC_API_KEY"))
     return _client
 
-MODEL_QUALITY = "claude-sonnet-4-5-20250929"
+MODEL_QUALITY = "claude-sonnet-4-6"
 MAX_TEXT_CHARS = 14000   # prospect contract text slice
 MAX_STD_CHARS  = 6000    # standard clauses JSON slice
 AI_TIMEOUT_S   = 70      # hard timeout per AI call — stays under 90s frontend timeout

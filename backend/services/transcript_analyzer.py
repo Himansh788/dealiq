@@ -23,7 +23,7 @@ from datetime import datetime, timezone
 from models.coaching_schemas import ConversationMetrics, TopicSegment, KeyMoment
 
 _client: AsyncGroq | None = None
-MODEL = "claude-sonnet-4-5-20250929"
+MODEL = "claude-sonnet-4-6"
 WORDS_PER_MINUTE = 130  # average speaking rate used for duration estimates
 
 REP_ROLE_WORDS    = {"rep", "sales", "ae", "sdr", "bdr", "se", "csm", "executive", "manager", "account"}

@@ -20,7 +20,7 @@ from database.models import MeetingLog, PendingCrmUpdate, EmailExtraction
 
 
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
-_AI_MODEL = "claude-sonnet-4-5-20250929"
+_AI_MODEL = "claude-sonnet-4-6"
 
 _SYSTEM_PROMPT = """You are a CRM intelligence engine. Given a meeting summary and deal context, produce a structured JSON response.
 

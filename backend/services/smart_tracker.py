@@ -20,7 +20,7 @@ from models.tracker_schemas import TrackerMatch, TrackerResponse
 
 _client: AsyncGroq | None = None
 
-MODEL = "claude-sonnet-4-5-20250929"
+MODEL = "claude-sonnet-4-6"
 
 
 def _get_client() -> AsyncGroq:

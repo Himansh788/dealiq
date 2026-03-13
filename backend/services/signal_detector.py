@@ -30,7 +30,7 @@ def _get_client() -> AsyncGroq:
     return _client
 
 
-MODEL = "claude-sonnet-4-5-20250929"
+MODEL = "claude-sonnet-4-6"
 
 SIGNAL_SYSTEM = """You are an elite revenue intelligence analyst embedded on a research team.
 Your job: read transcripts of non-sales calls (advisory, research, CS, user interviews)

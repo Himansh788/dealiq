@@ -6,7 +6,7 @@ Usage: from services.ai_client import AsyncAnthropicCompat as AsyncGroq
 import os
 from anthropic import AsyncAnthropic
 
-MODEL_COMPLEX = "claude-sonnet-4-5-20250929"
+MODEL_COMPLEX = "claude-sonnet-4-6"
 MODEL_FAST = "claude-haiku-4-5-20251001"
 
 # Map old Groq model names to Anthropic equivalents

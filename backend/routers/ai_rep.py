@@ -227,7 +227,7 @@ async def get_next_best_action(request: NBARequest, authorization: str = Header(
     # Use the enriched email context — Outlook primary, Zoho supplementary, with
     # recent/historical split and proper date normalization. This is the ONLY email
     # path for NBA — do not use _emails_raw which bypasses all of that logic.
-    email_context = await _fetch_email_context(request.deal_id, session, limit=8)
+    email_context = await _fetch_email_context(request.deal_id, session, limit=5)
 
     contacts_block = ""
     if not _is_demo(session):
@@ -391,7 +391,7 @@ async def get_call_brief(request: CallBriefRequest, authorization: str = Header(
     deal_with_health = {**deal, "health_score": health_result.total_score, "health_label": health_result.health_label}
     signals = _get_health_signals(deal)
 
-    email_context = await _fetch_email_context(request.deal_id, session, limit=8)
+    email_context = await _fetch_email_context(request.deal_id, session, limit=5)
     activity_context = _build_activity_context(deal_with_health)
 
     contacts_block = ""
