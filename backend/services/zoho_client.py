@@ -471,9 +471,17 @@ async def _fetch_email_body_v8(
     return html, plain
 
 
+_EMAIL_LIST_LIMIT = 20  # max emails fetched per record — prevents token bloat in AI pipeline
+
+
 async def _fetch_emails_for_record(module: str, record_id: str, access_token: str) -> list:
     """
-    Fetch ALL emails for a Zoho CRM record with full bodies.
+    Fetch the most recent emails for a Zoho CRM record with full bodies.
+
+    Capped at _EMAIL_LIST_LIMIT (20) emails newest-first. Zoho v8 returns emails in
+    reverse-chronological order, so the first page gives us the most recent emails — we
+    stop paginating once we have enough. This prevents token bloat in the AI pipeline
+    when a deal has dozens of emails.
 
     Step 1 — paginate GET /crm/v8/{module}/{record_id}/Emails (metadata list)
     Step 2 — fetch content for each email:
@@ -516,6 +524,15 @@ async def _fetch_emails_for_record(module: str, record_id: str, access_token: st
                 all_emails.extend(page_emails)
                 logger.debug("v8 email list: %s/%s page count=%d", module, record_id, len(page_emails))
 
+            # Stop as soon as we have enough — avoids fetching hundreds of emails
+            if len(all_emails) >= _EMAIL_LIST_LIMIT:
+                all_emails = all_emails[:_EMAIL_LIST_LIMIT]
+                logger.info(
+                    "v8 email list: %s/%s hit limit=%d — stopping pagination",
+                    module, record_id, _EMAIL_LIST_LIMIT,
+                )
+                break
+
             info = body.get("info", {})
             if info.get("more_records"):
                 index = info.get("next_index")
@@ -531,7 +548,7 @@ async def _fetch_emails_for_record(module: str, record_id: str, access_token: st
             resp = await client.get(
                 f"{ZOHO_API_BASE}/{module}/{record_id}/Emails",
                 headers={"Authorization": f"Zoho-oauthtoken {access_token}"},
-                params={"sort_by": "sent_time", "sort_order": "desc", "per_page": 200},
+                params={"sort_by": "sent_time", "sort_order": "desc", "per_page": _EMAIL_LIST_LIMIT},
             )
             if resp.is_success and resp.status_code != 204:
                 b = resp.json()
@@ -543,7 +560,7 @@ async def _fetch_emails_for_record(module: str, record_id: str, access_token: st
     logger.info("Zoho email list: %s/%s total=%d — fetching bodies", module, record_id, len(all_emails))
 
     # Sort newest-first so we fetch the most content-rich email first
-    all_emails.sort(key=lambda e: e.get("sent_time") or e.get("date") or "", reverse=True)
+    all_emails.sort(key=lambda e: e.get("sent_time") or e.get("time") or e.get("date") or "", reverse=True)
 
     # ── Phase 1: batch cache read — one session, one SELECT, before any gather ─
     keys_meta = [
@@ -576,14 +593,17 @@ async def _fetch_emails_for_record(module: str, record_id: str, access_token: st
         cached = cache_hits.get(message_id)
         if cached is not None:
             if cached:
+                # Cached body was already stored capped at 2500 chars — apply same cap
+                # defensively in case an older (uncapped) value is in cache.
+                cached_ai = cached[:2500]
                 result.append({
                     **email,
-                    "content": cached,
-                    "body_preview": cached[:200],
-                    "body_full": cached,
-                    "snippet": cached[:200],
-                    "date": email.get("sent_time") or email.get("date") or "",
-                    "sent_at": email.get("sent_time") or email.get("date") or "",
+                    "content": cached_ai,
+                    "body_preview": cached_ai[:300],
+                    "body_full": cached_ai,
+                    "snippet": cached_ai[:300],
+                    "date": email.get("sent_time") or email.get("time") or email.get("date") or "",
+                    "sent_at": email.get("sent_time") or email.get("time") or email.get("date") or "",
                     "_from_cache": True,
                 })
             else:
@@ -613,36 +633,42 @@ async def _fetch_emails_for_record(module: str, record_id: str, access_token: st
 
         if html or plain:
             body_full = plain if plain else _strip_html(html)
+            # Cap body_full at 2500 chars for AI pipeline / Redis cache efficiency.
+            # The raw plain text (31K+) is only needed for the email viewer, which
+            # fetches html_content separately. AI prompts never need more than 500 chars
+            # (fmt_emails_for_ai caps at 500) so 2500 is generous headroom.
+            body_ai = body_full[:2500]
             logger.info(
-                "email_enrich: got body via v8 mid=%s body_full_len=%d",
-                str(message_id)[:30], len(body_full),
+                "email_enrich: got body via v8 mid=%s plain_len=%d stored_len=%d",
+                str(message_id)[:30], len(body_full), len(body_ai),
             )
             return {
                 **email,
-                "html_content": html,
-                "content": body_full,
-                "body_preview": body_full[:200],
-                "body_full": body_full,
-                "snippet": body_full[:200],
-                "date": email.get("sent_time") or email.get("date") or "",
-                "sent_at": email.get("sent_time") or email.get("date") or "",
-            }, body_full
+                "html_content": html,   # full HTML kept for the email timeline viewer
+                "content": body_ai,
+                "body_preview": body_ai[:300],
+                "body_full": body_ai,
+                "snippet": body_ai[:300],
+                "date": email.get("sent_time") or email.get("time") or email.get("date") or "",
+                "sent_at": email.get("sent_time") or email.get("time") or email.get("date") or "",
+            }, body_ai
 
         plain_v2 = await _fetch_email_body(module, record_id, message_id, access_token)
         if plain_v2:
+            plain_v2_ai = plain_v2[:2500]
             logger.info(
-                "email_enrich: got body via v2 fallback mid=%s body_full_len=%d",
-                str(message_id)[:30], len(plain_v2),
+                "email_enrich: got body via v2 fallback mid=%s plain_len=%d stored_len=%d",
+                str(message_id)[:30], len(plain_v2), len(plain_v2_ai),
             )
             return {
                 **email,
-                "content": plain_v2,
-                "body_preview": plain_v2[:200],
-                "body_full": plain_v2,
-                "snippet": plain_v2[:200],
-                "date": email.get("sent_time") or email.get("date") or "",
-                "sent_at": email.get("sent_time") or email.get("date") or "",
-            }, plain_v2
+                "content": plain_v2_ai,
+                "body_preview": plain_v2_ai[:300],
+                "body_full": plain_v2_ai,
+                "snippet": plain_v2_ai[:300],
+                "date": email.get("sent_time") or email.get("time") or email.get("date") or "",
+                "sent_at": email.get("sent_time") or email.get("time") or email.get("date") or "",
+            }, plain_v2_ai
 
         logger.warning(
             "email_enrich: NO body found for mid=%s subject=%s",

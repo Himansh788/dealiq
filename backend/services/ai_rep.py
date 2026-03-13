@@ -86,18 +86,24 @@ Health score: {health_score}/100 ({health_label})
 ═══ HEALTH SIGNAL BREAKDOWN ═══
 {signals_text}
 
-═══ ACTUAL EMAIL THREAD (most recent first) ═══
+═══ ACTUAL EMAIL THREAD ═══
+IMPORTANT: The section labelled "MOST RECENT EMAILS" contains the latest conversation.
+Your situation_read and primary_action MUST be based on these recent emails.
+The "HISTORICAL CONTEXT" section is background only — do not use it to drive the next step.
+When referencing emails in your analysis, always cite the specific date (e.g. "per the buyer's email on 2025-03-08").
+
 {email_context}
 
 Think step by step:
-1. What does the email thread reveal about the buyer's TRUE sentiment and where they are in their decision process?
-2. What was promised but not delivered? What open loop is causing the stall?
-3. What is the single highest-leverage action to take TODAY based on what you actually see in the emails?
-4. What specific language from the buyer's emails should you reference or respond to?
+1. What is the DATE of the most recent email? What does it say? (cite it explicitly)
+2. What does the most recent email thread reveal about the buyer's TRUE current sentiment?
+3. What was promised but not delivered? What open loop is causing the stall?
+4. What is the single highest-leverage action to take TODAY based on the MOST RECENT emails only?
+5. What specific language from the buyer's most recent email should you reference or respond to?
 
 Return ONLY this JSON:
 {{
-  "situation_read": "2-3 sentence honest assessment based on the ACTUAL email evidence — what the thread reveals about deal status",
+  "situation_read": "2-3 sentence honest assessment based on the MOST RECENT emails — cite the date of the last email (e.g. 'As of [date]...') so the rep knows you are working from current information",
   "urgency_level": "low|medium|high|critical",
   "email_insight": "The single most important thing the email thread reveals that the CRM data doesn't show",
   "primary_action": {{

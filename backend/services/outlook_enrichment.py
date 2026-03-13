@@ -26,6 +26,7 @@ Edge cases handled
 
 import logging
 import re
+from datetime import datetime, timezone
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -186,7 +187,23 @@ async def get_enriched_emails(
 
     # ── Step 4: merge, sort, cap ───────────────────────────────────────────
     merged = outlook_matched + zoho_emails
-    merged.sort(key=lambda e: e.get("date") or e.get("sent_at") or "", reverse=True)
+
+    # Normalise every email to a single canonical date field before sorting.
+    # Different sources use different field names (date, sent_at, sent_time, time).
+    # Without this, emails with the "wrong" field name sort as empty strings and
+    # appear at the wrong position in the timeline.
+    for _e in merged:
+        _canonical = (
+            _e.get("date")
+            or _e.get("sent_at")
+            or _e.get("sent_time")
+            or _e.get("time")
+            or ""
+        )
+        _e["date"] = _canonical
+        _e["sent_at"] = _canonical
+
+    merged.sort(key=lambda e: e.get("date") or "", reverse=True)
     result = merged[:limit]
 
     # ── Step 5: write to Redis cache (only cache non-empty results) ───────
@@ -207,74 +224,133 @@ async def get_enriched_emails(
 
 # ── AI prompt formatter ────────────────────────────────────────────────────────
 
+_HISTORICAL_DAYS = 90  # emails older than this are "historical context only"
+_RECENT_COUNT = 3      # top N newest emails are the "base your analysis on these" block
+
+
+def _fmt_single_email(e: dict) -> str:
+    """Return a single formatted email string for AI context."""
+    match_meta = e.get("_outlook_match") or {}
+    direction_raw = (e.get("direction") or e.get("status") or "").lower()
+    is_buyer = direction_raw in ("delivered", "received", "inbound", "incoming")
+    arrow = "← BUYER" if is_buyer else "→ REP"
+
+    source = e.get("source", "zoho")
+    source_tag = " [Outlook — not in CRM]" if (source == "outlook" and match_meta.get("in_zoho") is False) else ""
+
+    # Canonical date — normalised at merge time so always populated in date field
+    date_raw = e.get("date") or e.get("sent_at") or ""
+    date_str = date_raw[:16].replace("T", " ") if date_raw else "unknown date"
+
+    subject = e.get("subject") or "(no subject)"
+    sender = e.get("from") or ""
+
+    body = (
+        e.get("body_full")
+        or e.get("body_preview")
+        or e.get("snippet")
+        or ""
+    )
+    if body and "<" in body:
+        body = re.sub(r"<[^>]+>", " ", body)
+        body = re.sub(r"\s+", " ", body).strip()
+    body = body[:500] if body else "(no body)"
+
+    header = f"[{arrow}] DATE: {date_str}{source_tag}"
+    if sender:
+        header += f" | From: {sender}"
+    header += f" | Subject: {subject}"
+
+    return f"{header}\n  {body}"
+
+
 def fmt_emails_for_ai(emails: list[dict], limit: int = 8) -> str:
     """
     Format merged emails into a rich context string for AI prompts.
 
-    Shows direction, source, date, subject, and body.
-    Skips internal-only threads (is_internal=True) — they're not buyer communication.
-    Annotates Outlook-only emails so the AI knows they weren't in CRM.
+    Structure:
+      - Section 1: MOST RECENT EMAILS (top 3, newest first) — AI bases next steps on these
+      - Section 2: HISTORICAL CONTEXT (remaining emails up to limit, or >90 days old)
+
+    Rules:
+    - Emails are assumed to be pre-sorted newest-first (get_enriched_emails guarantees this).
+    - Internal-only threads are skipped — not buyer communication.
+    - Each email shows a visible DATE label so the AI can cite it explicitly.
     """
     if not emails:
         return "No email history available — analysis based on CRM metadata only."
 
-    lines: list[str] = []
-    count = 0
+    now = datetime.now(timezone.utc)
 
-    for e in emails:
-        if count >= limit:
-            break
+    # Filter out internal-only threads
+    buyer_emails = [
+        e for e in emails
+        if not (e.get("_outlook_match") or {}).get("is_internal")
+    ]
 
-        # Skip internal-only Outlook emails — not buyer communication
-        match_meta = e.get("_outlook_match") or {}
-        if match_meta.get("is_internal"):
-            continue
-
-        direction_raw = (e.get("direction") or e.get("status") or "").lower()
-        is_buyer = direction_raw in ("delivered", "received", "inbound", "incoming")
-        arrow = "← BUYER" if is_buyer else "→ REP"
-
-        source = e.get("source", "zoho")
-        source_tag = "[Outlook — not in CRM]" if (source == "outlook" and match_meta.get("in_zoho") is False) else ""
-
-        date_str = (e.get("date") or e.get("sent_at") or "")[:16].replace("T", " ")
-        subject = e.get("subject") or "(no subject)"
-        sender = e.get("from") or ""
-
-        # Prefer full body, then preview, then snippet
-        body = (
-            e.get("body_full")
-            or e.get("body_preview")
-            or e.get("snippet")
-            or ""
-        )
-        # Strip HTML tags
-        if body and "<" in body:
-            body = re.sub(r"<[^>]+>", " ", body)
-            body = re.sub(r"\s+", " ", body).strip()
-        body = body[:500] if body else "(no body)"
-
-        header = f"[{arrow}] {date_str} {source_tag}"
-        if sender:
-            header += f" | From: {sender}"
-        header += f" | Subject: {subject}"
-
-        lines.append(f"{header}\n  {body}")
-        count += 1
-
-    if not lines:
+    if not buyer_emails:
         return "No buyer email communication found."
 
-    n_outlook = sum(1 for e in emails[:limit] if e.get("source") == "outlook")
+    # Cap to limit
+    buyer_emails = buyer_emails[:limit]
+
+    # Split into recent (top _RECENT_COUNT) and historical (the rest)
+    recent_emails = buyer_emails[:_RECENT_COUNT]
+    historical_emails = buyer_emails[_RECENT_COUNT:]
+
+    # Also move emails older than _HISTORICAL_DAYS from recent into historical
+    # (edge case: deal has no email in 90 days — the "recent" block should say so)
+    def _is_old(e: dict) -> bool:
+        date_raw = e.get("date") or e.get("sent_at") or ""
+        if not date_raw:
+            return False
+        try:
+            dt = datetime.fromisoformat(date_raw.replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return (now - dt).days > _HISTORICAL_DAYS
+        except Exception:
+            return False
+
+    truly_recent = [e for e in recent_emails if not _is_old(e)]
+    old_from_recent = [e for e in recent_emails if _is_old(e)]
+    historical_emails = old_from_recent + historical_emails
+
+    # ── Build output sections ─────────────────────────────────────────────────
+    sections: list[str] = []
+
     n_crm_gap = sum(
-        1 for e in emails[:limit]
+        1 for e in buyer_emails
         if e.get("source") == "outlook"
         and (e.get("_outlook_match") or {}).get("in_zoho") is False
     )
-
-    header_note = f"[{len(lines)} emails shown"
+    header_note = f"[{len(buyer_emails)} emails shown"
     if n_crm_gap:
         header_note += f" — {n_crm_gap} from Outlook not captured in CRM (rep did not BCC)"
     header_note += "]"
+    sections.append(header_note)
 
-    return header_note + "\n\n" + "\n\n---\n\n".join(lines)
+    if truly_recent:
+        most_recent_date = (truly_recent[0].get("date") or truly_recent[0].get("sent_at") or "")[:10]
+        sections.append(
+            f"╔══════════════════════════════════════════════════════════════╗\n"
+            f"║  MOST RECENT EMAILS — BASE YOUR ANALYSIS ON THESE           ║\n"
+            f"║  Most recent: {most_recent_date:<48}║\n"
+            f"╚══════════════════════════════════════════════════════════════╝"
+        )
+        sections.append("\n\n---\n\n".join(_fmt_single_email(e) for e in truly_recent))
+    else:
+        sections.append(
+            "⚠ NO EMAILS IN THE LAST 90 DAYS — the most recent email is over 3 months old. "
+            "This deal may have gone cold. Treat all email history below as background context only."
+        )
+
+    if historical_emails:
+        sections.append(
+            "┌──────────────────────────────────────────────────────────────┐\n"
+            "│  HISTORICAL CONTEXT ONLY — do not base next steps on these  │\n"
+            "└──────────────────────────────────────────────────────────────┘"
+        )
+        sections.append("\n\n---\n\n".join(_fmt_single_email(e) for e in historical_emails))
+
+    return "\n\n".join(sections)

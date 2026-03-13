@@ -257,12 +257,15 @@ def _map_zoho_activity_to_item(raw: dict, act_type: str) -> ActivityItem:
     else:
         direction = "internal"
 
-    # Date field varies by Zoho endpoint (priority order — broader list catches edge cases)
+    # Date field varies by Zoho endpoint + normalisation layer (check all known names)
     date = (
-        raw.get("sent_time")          # emails (email_related_list)
-        or raw.get("Sent_Time")       # emails capitalised variant
+        raw.get("sent_time")          # Zoho v2 email_related_list primary field
+        or raw.get("Sent_Time")       # capitalised variant
+        or raw.get("time")            # Zoho v2 email list (lowercase) — from enriched body
+        or raw.get("sent_at")         # normalised shape produced by _normalise_zoho_email
+        or raw.get("receivedDateTime") # Outlook / Graph API shape
         or raw.get("Date")            # some Zoho email records
-        or raw.get("date")
+        or raw.get("date")            # normalised shape
         or raw.get("Call_Start_Time") # calls
         or raw.get("Start_DateTime")  # meetings/events
         or raw.get("activity_time")
