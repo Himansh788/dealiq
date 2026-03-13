@@ -273,13 +273,16 @@ def _auto_bucket(stage: str) -> str:
     # Closed deals — omit from board
     if any(kw in s for kw in ("closed won", "won", "closed lost", "lost", "churned")):
         return "omit"
-    # High-intent stages → best_case (rep can promote to commit manually)
+    # Commit: contract-level stages — very high intent
+    if any(kw in s for kw in ("contract review", "contract sent")):
+        return "commit"
+    # Best case: negotiation and commercial proposal — confirmed buying intent
     if any(kw in s for kw in (
-        "contract sent", "negotiations", "negotiation",
-        "proposal", "price quote", "value proposition", "commercials",
+        "negotiation", "negotiations", "negotiation/review",
+        "commercial proposal", "proposal", "price quote", "value proposition", "commercials",
     )):
         return "best_case"
-    # Everything else (Followup, Demo Done, Evaluation, Qualification, Sales Approved, etc.)
+    # Everything else (Demo Done, Evaluation, Sales Approved Deal, Qualification, etc.)
     return "pipeline"
 
 

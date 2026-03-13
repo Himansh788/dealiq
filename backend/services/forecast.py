@@ -33,17 +33,23 @@ HEALTH_CONFIDENCE: Dict[str, float] = {
 
 # Stage maturity weight — later stages should close sooner
 STAGE_MATURITY: Dict[str, float] = {
-    "Negotiation/Review":     1.0,
-    "Contract sent":          1.0,
-    "Commercials - Proposal": 0.85,
-    "Proposal/Price Quote":   0.80,
-    "Sales Approved Deal":    0.75,
-    "Demo Done":              0.55,
-    "Evaluation":             0.50,
-    "Followup":               0.40,
+    # DealIQ custom pipeline
+    "Contract Review":        1.0,
+    "Contract Sent":          0.95,
+    "Negotiation":            0.90,
+    "Negotiation/Review":     0.90,   # legacy name
+    "Commercial Proposal":    0.75,
+    "Evaluation":             0.60,
+    "Demo Done":              0.50,
+    "Sales Approved Deal":    0.35,
+    # Legacy / generic stage names
+    "Contract sent":          0.95,
+    "Commercials - Proposal": 0.75,
+    "Proposal/Price Quote":   0.70,
     "Value Proposition":      0.45,
     "Needs Analysis":         0.30,
     "Qualification":          0.20,
+    "Followup":               0.40,
 }
 
 

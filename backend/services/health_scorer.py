@@ -6,33 +6,48 @@ from models.activity_schemas import ActivityItem
 
 # Stage order for calculating "going backward" detection
 STAGE_ORDER = [
+    "Sales Approved Deal",
+    "Demo Done",
+    "Commercial Proposal",
+    "Evaluation",
+    "Negotiation",
+    "Negotiation/Review",
+    "Contract Sent",
+    "Contract Review",
+    "Closed Won",
+    "Closed Lost",
+    # Legacy / generic stage names kept for backwards compatibility
     "Qualification",
     "Needs Analysis",
     "Value Proposition",
     "Id. Decision Makers",
     "Perception Analysis",
     "Proposal/Price Quote",
-    "Negotiation/Review",
-    "Closed Won",
-    "Closed Lost",
 ]
 
-# Average days per stage benchmark (simulated from typical SaaS data)
+# Average days per stage benchmark — driven by stage_intelligence.py.
+# Duplicated here as a lookup table so scoring is fast without importing the dataclass.
 STAGE_BENCHMARKS: Dict[str, int] = {
+    # ── DealIQ custom pipeline ──────────────────────────────────────────────
+    "Sales Approved Deal": 10,
+    "Demo Done": 14,
+    "Commercial Proposal": 21,
+    "Evaluation": 30,
+    "Negotiation": 14,
+    "Negotiation/Review": 14,   # legacy Zoho name — same position
+    "Contract Sent": 14,
+    "Contract Review": 14,
+    "Closed Won": 0,
+    "Closed Lost": 0,
+    # ── Legacy / generic stage names ───────────────────────────────────────
     "Qualification": 7,
     "Needs Analysis": 10,
     "Value Proposition": 7,
     "Id. Decision Makers": 14,
     "Perception Analysis": 10,
     "Proposal/Price Quote": 14,
-    "Negotiation/Review": 21,
-    # Additional real-world stages
-    "Demo Done": 14,
     "Demo Scheduled": 7,
     "Demo": 14,
-    "Evaluation": 21,
-    "Contract Sent": 14,
-    "Sales Approved Deal": 10,
     "Closed - Won": 0,
     "Closed - Lost": 0,
 }
@@ -78,8 +93,13 @@ def score_next_step(next_step: Optional[str]) -> HealthSignal:
         )
 
 
-LATE_STAGE_LENIENT = {"Negotiation/Review", "Value Proposition", "Id. Decision Makers",
-                      "Contract Sent", "Evaluation", "Sales Approved Deal"}
+LATE_STAGE_LENIENT = {
+    # DealIQ custom pipeline — later stages tolerate longer buyer response gaps
+    "Commercial Proposal", "Evaluation", "Negotiation", "Negotiation/Review",
+    "Contract Sent", "Contract Review", "Sales Approved Deal",
+    # Legacy stage names
+    "Value Proposition", "Id. Decision Makers",
+}
 
 
 def score_response_recency(
@@ -163,28 +183,55 @@ def score_discount_pattern(discount_mention_count: int) -> HealthSignal:
                             detail=f"Discount mentioned {discount_mention_count} times. Commercial pressure is elevated.")
 
 
-def score_stage_age(stage: str, days_in_stage: Optional[int], stage_history: Optional[list] = None) -> HealthSignal:
-    """Signal 5: How long has deal been at current stage vs. benchmark?"""
+def score_stage_age(
+    stage: str,
+    days_in_stage: Optional[int],
+    stage_history: Optional[list] = None,
+    days_since_activity: Optional[int] = None,
+    discount_mention_count: int = 0,
+) -> HealthSignal:
+    """Signal 5: How long has deal been at current stage vs. benchmark?
+    Uses stage_intelligence thresholds for DealIQ custom stages, with
+    plain-language flag messages specific to each stage.
+    """
     if stage_history is not None and len(stage_history) == 0:
         return HealthSignal(name="Stage Velocity", score=0, max_score=15, label="insufficient_data",
                             detail="No stage history available. Stage movement cannot be assessed.")
     if days_in_stage is None:
         return HealthSignal(name="Stage Velocity", score=8, max_score=15, label="warn",
                             detail="Stage entry date unavailable. Cannot benchmark velocity.")
+
     benchmark = STAGE_BENCHMARKS.get(stage, 14)
     ratio = days_in_stage / benchmark if benchmark > 0 else 1
+
     if ratio <= 1.0:
         return HealthSignal(name="Stage Velocity", score=15, max_score=15, label="good",
                             detail=f"{days_in_stage} days in '{stage}' — on track (benchmark: {benchmark} days).")
     elif ratio <= 1.5:
         return HealthSignal(name="Stage Velocity", score=8, max_score=15, label="warn",
                             detail=f"{days_in_stage} days in '{stage}' — slightly over benchmark of {benchmark} days.")
-    elif ratio <= 2.5:
-        return HealthSignal(name="Stage Velocity", score=3, max_score=15, label="critical",
-                            detail=f"{days_in_stage} days in '{stage}' — {days_in_stage - benchmark} days over benchmark.")
+
+    # For critical / stuck — use stage-specific flag message when available
+    from services.stage_intelligence import get_stage_flags
+    flags = get_stage_flags(stage, days_in_stage, days_since_activity, discount_mention_count)
+    overdue_flag = next(
+        (f for f in flags if f.flag_type in ("no_movement", "negotiation_too_long",
+                                              "review_too_long", "evaluation_too_long")),
+        None,
+    )
+
+    if ratio <= 2.5:
+        detail = (
+            overdue_flag.message if overdue_flag
+            else f"{days_in_stage} days in '{stage}' — {days_in_stage - benchmark} days over benchmark."
+        )
+        return HealthSignal(name="Stage Velocity", score=3, max_score=15, label="critical", detail=detail)
     else:
-        return HealthSignal(name="Stage Velocity", score=0, max_score=15, label="critical",
-                            detail=f"Deal stuck in '{stage}' for {days_in_stage} days. {int(ratio)}x over benchmark.")
+        detail = (
+            overdue_flag.message if overdue_flag
+            else f"Deal stuck in '{stage}' for {days_in_stage} days. {int(ratio)}x over benchmark."
+        )
+        return HealthSignal(name="Stage Velocity", score=0, max_score=15, label="critical", detail=detail)
 
 
 def score_activity_velocity(activities: Optional[List[ActivityItem]] = None) -> HealthSignal:

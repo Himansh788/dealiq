@@ -42,7 +42,7 @@ def _fmt_emails(emails: List[Dict], limit: int = 5) -> str:
     if not emails:
         return "No email history available — analysis based on CRM data only."
     lines = []
-    for e in emails[-limit:]:
+    for e in emails[:limit]:
         # Zoho CRM v2 uses "incoming" for received and "outgoing" for sent/BCC Dropbox.
         # Also handle legacy values: "received", "inbound", "sent".
         direction_val = (e.get("direction") or e.get("type") or "").lower()
@@ -467,11 +467,7 @@ async def run_deal_autopsy(
         for s in health.signals
     ]
 
-    emails = (
-        SIMULATED_EMAILS.get(request.deal_id, []) if simulated
-        else raw.get("_emails_raw", [])
-    )
-    email_context = _fmt_emails(emails)
+    email_context = await _fetch_email_context(request.deal_id, session, limit=8)
     activity_context = _build_activity_context(deal_with_health)
 
     autopsy = await generate_deal_autopsy(
@@ -511,6 +507,17 @@ async def demo_autopsy():
 # ── Stage Drift Detection ─────────────────────────────────────────────────────
 
 ZOHO_STAGES = [
+    # DealIQ custom pipeline (primary)
+    "Sales Approved Deal",
+    "Demo Done",
+    "Commercial Proposal",
+    "Evaluation",
+    "Negotiation",
+    "Contract Sent",
+    "Contract Review",
+    "Closed Won",
+    "Closed Lost",
+    # Legacy / generic stage names (kept for backwards compatibility)
     "Qualification",
     "Needs Analysis",
     "Value Proposition",
@@ -525,6 +532,19 @@ ZOHO_STAGES = [
 
 # Stage keywords: if these phrases appear in emails/context, the deal is likely at that stage
 _STAGE_SIGNALS: dict[str, list[str]] = {
+    # DealIQ custom pipeline
+    "Sales Approved Deal":  ["met at event", "met at conference", "event follow-up", "schedule a demo", "book a demo"],
+    "Demo Done":            ["follow up on the demo", "demo follow-up", "showed the product", "product walkthrough",
+                             "demo questions", "as we showed in the demo"],
+    "Commercial Proposal":  ["commercial proposal", "pricing document", "pricing breakdown", "sandbox credentials",
+                             "api documentation", "api docs", "evaluate the product"],
+    "Evaluation":           ["api integration", "sandbox testing", "technical evaluation", "proof of concept",
+                             "poc", "developer questions", "testing the api", "integration questions"],
+    "Negotiation":          ["negotiation", "negotiate", "revised pricing", "discount", "payment terms",
+                             "annual contract value", "price adjustment", "commercial terms"],
+    "Contract Review":      ["redlines", "clause", "legal team", "revised contract", "amended contract",
+                             "contract markup", "track changes", "legal review"],
+    # Shared / legacy
     "Qualification":        ["intro call", "discovery call", "initial meeting", "first call", "qualify", "qualification"],
     "Needs Analysis":       ["requirements", "use case", "pain points", "needs analysis", "scoping", "current process"],
     "Value Proposition":    ["demo", "product demo", "demo done", "showed the product", "walkthrough", "product walk"],

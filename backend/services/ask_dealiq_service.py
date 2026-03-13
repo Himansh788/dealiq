@@ -80,7 +80,7 @@ def _fmt_emails(emails: list, limit: int = 10) -> str:
     if not emails:
         return "No email history available."
     lines = []
-    for e in emails[-limit:]:
+    for e in emails[:limit]:
         direction_val = (e.get("direction") or e.get("type") or "").lower()
         is_buyer = direction_val in ("incoming", "received", "inbound")
         direction = "← BUYER" if is_buyer else "→ REP"
@@ -139,7 +139,12 @@ def _assemble_deal_context(
 
     # 3. Emails — standard and deep
     email_limit = 5 if depth == "standard" else 10
-    sections.append(f"=== EMAIL HISTORY (last {email_limit}) ===\n" + _fmt_emails(emails, email_limit))
+    try:
+        from services.outlook_enrichment import fmt_emails_for_ai
+        email_str = fmt_emails_for_ai(emails, limit=email_limit)
+    except Exception:
+        email_str = _fmt_emails(emails, email_limit)
+    sections.append(f"=== EMAIL HISTORY (last {email_limit}) ===\n" + email_str)
 
     # 4. Transcript — standard: most recent (truncated), deep: full
     if transcript:
@@ -264,7 +269,7 @@ async def ask_meddic_analysis(
         "\n=== CONTACTS ===",
         _fmt_contacts(deal.get("contacts") or deal.get("contact_roles") or []),
         "\n=== RECENT EMAILS (last 3) ===",
-        _fmt_emails(emails, 3),
+        _fmt_emails(emails[:3], 3),
         "\n=== CALL TRANSCRIPT TO ANALYSE ===",
         transcript[:MAX_TRANSCRIPT_CHARS * 2],  # More generous for MEDDIC
     ]
@@ -338,7 +343,7 @@ async def suggest_follow_up_email(
         "\n=== KEY CONTACTS ===",
         _fmt_contacts(deal.get("contacts") or deal.get("contact_roles") or []),
         "\n=== PREVIOUS EMAILS (rep tone reference — last 3 outbound) ===",
-        _fmt_emails(outbound[-3:], 3),
+        _fmt_emails(outbound[:3], 3),
     ]
 
     if transcript:
@@ -347,7 +352,7 @@ async def suggest_follow_up_email(
         instruction = "Draft a follow-up email based on this call transcript and deal context:"
     else:
         context_parts.append("\n=== RECENT EMAIL THREAD (last 5) ===")
-        context_parts.append(_fmt_emails(emails[-5:], 5))
+        context_parts.append(_fmt_emails(emails[:5], 5))
         instruction = (
             "No call transcript is available. Draft a context-appropriate re-engagement email "
             "based on the deal stage, health score, and email history. "

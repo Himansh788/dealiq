@@ -85,8 +85,14 @@ async def generate_deal_health_analysis(
     critical_count = sum(1 for s in signals if s.label == "critical")
     amount_str = f"${deal_amount:,.0f}" if deal_amount else "Unknown"
 
+    # Inject stage-specific context so the AI knows what should be happening now
+    from services.stage_intelligence import get_stage_context_for_ai
+    stage_context = get_stage_context_for_ai(deal_stage, deal_age_days)
+
     prompt = f"""You are a senior sales strategist analyzing CRM deal data for a B2B sales rep.
 Be SPECIFIC — reference the contact name, email subject, stage name, and silence duration exactly as given.
+
+{stage_context}
 
 ## Deal
 - Name: {deal_name}

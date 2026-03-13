@@ -119,30 +119,39 @@ async def _fetch_real_deal(access_token: str, deal_id: str) -> dict:
         raise HTTPException(status_code=500, detail=f"Failed to fetch deal: {exc}")
 
 
-async def _fetch_real_emails(access_token: str, deal_id: str) -> list:
+async def _fetch_real_emails(session: dict, deal_id: str) -> list:
     """
-    Fetch and normalise emails for a deal.
-
-    Uses _normalise_zoho_email (from email_intel router) so that:
-      - direction is computed from the 'from' email domain (not Zoho's unreliable direction field)
-      - body_full / body_preview / snippet are all populated
-      - from/to fields are plain strings, not nested dicts
-    This gives the ContextEngine clean data it can directly use for the email thread section.
+    Fetch enriched emails for a deal — Outlook primary, Zoho supplementary.
+    Returns merged, normalised, newest-first list via outlook_enrichment pipeline.
+    Falls back to Zoho-only on error.
     """
     cached = _EMAIL_CACHE.get(deal_id)
     if cached and time.monotonic() < cached[0]:
         _log.debug("Email cache hit for deal=%s count=%d", deal_id, len(cached[1]))
         return cached[1]
     try:
-        from services.zoho_client import fetch_deal_emails
-        from routers.email_intel import _normalise_zoho_email
-        raw = await fetch_deal_emails(access_token, deal_id)
-        emails = [_normalise_zoho_email(e) for e in raw]
-        _log.info("Email fetch for deal=%s: %d emails normalised", deal_id, len(emails))
+        from services.outlook_enrichment import get_enriched_emails
+        user_key = session.get("email") or session.get("user_id") or "default"
+        emails = await get_enriched_emails(
+            deal_id=deal_id,
+            zoho_token=session["access_token"],
+            user_key=user_key,
+            limit=10,
+        )
+        _log.info("Email fetch for deal=%s: %d enriched emails", deal_id, len(emails))
         _EMAIL_CACHE[deal_id] = (time.monotonic() + _EMAIL_CACHE_TTL, emails)
         return emails
     except Exception as exc:
-        _log.warning("Email fetch failed for deal=%s: %s", deal_id, exc)
+        _log.warning("Enriched email fetch failed for deal=%s: %s — falling back to Zoho", deal_id, exc)
+    try:
+        from services.zoho_client import fetch_deal_emails
+        from routers.email_intel import _normalise_zoho_email
+        raw = await fetch_deal_emails(session["access_token"], deal_id)
+        emails = [_normalise_zoho_email(e) for e in raw]
+        _EMAIL_CACHE[deal_id] = (time.monotonic() + _EMAIL_CACHE_TTL, emails)
+        return emails
+    except Exception as exc2:
+        _log.warning("Zoho email fetch failed for deal=%s: %s", deal_id, exc2)
         return []
 
 
@@ -255,7 +264,7 @@ async def ask_deal(
         transcript = _get_demo_transcript(request.deal_id)
     else:
         deal = await _fetch_real_deal(session["access_token"], request.deal_id)
-        emails = await _fetch_real_emails(session["access_token"], request.deal_id)
+        emails = await _fetch_real_emails(session, request.deal_id)
         transcript = deal.get("_latest_transcript")  # populated by enriched deal if available
 
     result = await ask_about_deal(
@@ -293,7 +302,7 @@ async def deal_meddic_analysis(
         transcript = _get_demo_transcript(request.deal_id)
     else:
         deal = await _fetch_real_deal(session["access_token"], request.deal_id)
-        emails = await _fetch_real_emails(session["access_token"], request.deal_id)
+        emails = await _fetch_real_emails(session, request.deal_id)
         transcript = deal.get("_latest_transcript")
 
     result = await ask_meddic_analysis(
@@ -329,7 +338,7 @@ async def deal_brief(
         transcript = _get_demo_transcript(request.deal_id)
     else:
         deal = await _fetch_real_deal(session["access_token"], request.deal_id)
-        emails = await _fetch_real_emails(session["access_token"], request.deal_id)
+        emails = await _fetch_real_emails(session, request.deal_id)
         transcript = deal.get("_latest_transcript")
 
     result = await generate_deal_brief(
@@ -374,7 +383,7 @@ async def deal_follow_up_email(
         transcript = _get_demo_transcript(request.deal_id)
     else:
         deal = await _fetch_real_deal(session["access_token"], request.deal_id)
-        emails = await _fetch_real_emails(session["access_token"], request.deal_id)
+        emails = await _fetch_real_emails(session, request.deal_id)
         transcript = deal.get("_latest_transcript")
 
     result = await EmailGenerator().generate(

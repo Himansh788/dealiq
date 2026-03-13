@@ -312,6 +312,114 @@ async def get_filter_options(
     return {"owners": owners, "stages": stages}
 
 
+@router.get("/stage-distribution")
+async def get_stage_distribution(
+    authorization: str = Header(...),
+    db=Depends(get_db),
+):
+    """
+    Returns deal counts per pipeline stage, overdue flags, and the current bottleneck stage.
+    Used by the Dashboard stage distribution strip.
+    """
+    from services.stage_intelligence import PIPELINE_DISPLAY_STAGES, get_stage_flags
+    from datetime import datetime, timezone
+
+    session = _decode_session(authorization)
+    simulated = _is_demo(session)
+
+    if simulated:
+        raw_deals = SIMULATED_DEALS
+    else:
+        from services.deal_db import get_cached_deals
+        user_email = session.get("email", "")
+        cached, _ = await get_cached_deals(db, user_email)
+        if cached is not None:
+            raw_deals = cached
+        else:
+            try:
+                raw_deals = await _fetch_all_zoho_deals(session["access_token"])
+            except Exception:
+                raw_deals = SIMULATED_DEALS
+
+    quarter_start, quarter_end = get_current_quarter_range()
+    active_raw = [r for r in raw_deals if is_active_deal(r, quarter_start, quarter_end)]
+
+    def _days_since_dt(dt_str):
+        if not dt_str:
+            return None
+        try:
+            dt = datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return (datetime.now(timezone.utc) - dt).days
+        except Exception:
+            return None
+
+    # Count deals per stage and track overdue counts
+    stage_counts: dict = {}
+    stage_overdue: dict = {}
+    stage_values: dict = {}
+
+    for raw in active_raw:
+        stage = raw.get("stage", "Unknown")
+        if stage not in stage_counts:
+            stage_counts[stage] = 0
+            stage_overdue[stage] = 0
+            stage_values[stage] = 0.0
+
+        stage_counts[stage] += 1
+        amount = raw.get("amount") or 0
+        stage_values[stage] += float(amount)
+
+        days_in_stage = (
+            raw.get("days_in_stage") or
+            _days_since_dt(raw.get("modified_time")) or
+            _days_since_dt(raw.get("created_time"))
+        )
+        days_since_activity = _days_since_dt(raw.get("last_activity_time"))
+
+        flags = get_stage_flags(
+            stage=stage,
+            days_in_stage=days_in_stage,
+            days_since_activity=days_since_activity,
+            discount_mention_count=raw.get("discount_mention_count", 0),
+        )
+        if flags:
+            stage_overdue[stage] += 1
+
+    # Build ordered result using display stage order
+    result_stages = []
+    seen = set()
+    ordered = PIPELINE_DISPLAY_STAGES + [s for s in stage_counts if s not in PIPELINE_DISPLAY_STAGES]
+
+    for stage in ordered:
+        if stage in seen or stage_counts.get(stage, 0) == 0:
+            continue
+        seen.add(stage)
+        count = stage_counts.get(stage, 0)
+        overdue = stage_overdue.get(stage, 0)
+        result_stages.append({
+            "stage": stage,
+            "count": count,
+            "overdue_count": overdue,
+            "pipeline_value": round(stage_values.get(stage, 0)),
+            "overdue_pct": round((overdue / count * 100) if count > 0 else 0),
+        })
+
+    # Bottleneck = stage with the highest deal count (excluding Contract Review/final stages)
+    active_for_bottleneck = [
+        s for s in result_stages
+        if s["stage"] not in ("Closed Won", "Closed Lost", "Contract Review")
+    ]
+    bottleneck = max(active_for_bottleneck, key=lambda s: s["count"]) if active_for_bottleneck else None
+
+    return {
+        "stages": result_stages,
+        "bottleneck_stage": bottleneck["stage"] if bottleneck else None,
+        "total_active": sum(s["count"] for s in result_stages),
+    }
+
+
 @router.get("/debug/zoho-test")
 async def debug_zoho_test(
     authorization: str = Header(default=""),

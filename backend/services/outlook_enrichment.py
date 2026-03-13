@@ -9,7 +9,8 @@ list without duplicating fetch or attribution logic.
 
 Usage
 -----
-    from services.outlook_enrichment import get_enriched_emails, fmt_emails_for_ai
+    from services.outlook_enrichment import get_enri
+    ched_emails, fmt_emails_for_ai
 
     emails = await get_enriched_emails(deal_id, zoho_token, user_key)
     context_str = fmt_emails_for_ai(emails, limit=8)
@@ -224,7 +225,7 @@ async def get_enriched_emails(
 
 # ── AI prompt formatter ────────────────────────────────────────────────────────
 
-_HISTORICAL_DAYS = 90  # emails older than this are "historical context only"
+_HISTORICAL_DAYS = 60  # emails older than this are "historical context only"
 _RECENT_COUNT = 3      # top N newest emails are the "base your analysis on these" block
 
 

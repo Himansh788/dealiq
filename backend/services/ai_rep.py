@@ -269,7 +269,7 @@ async def generate_next_best_action(
     deal: Dict[str, Any],
     health_signals: List[Dict[str, Any]],
     rep_name: str,
-    email_thread: Optional[List[Dict[str, Any]]] = None,
+    email_context: str = "",
     deal_context: str = "",
     contacts_block: str = "",
 ) -> Dict[str, Any]:
@@ -278,18 +278,7 @@ async def generate_next_best_action(
         for s in health_signals
     ]) or "No signals available"
 
-    # Build email context from thread
-    if email_thread:
-        formatted_emails = []
-        for e in email_thread[-5:]:  # last 5 emails for context
-            direction = "← BUYER" if e.get("direction") in ("received", "inbound") else "→ REP"
-            formatted_emails.append(
-                f"  [{direction}] {e.get('sent_time', 'Unknown date')} | Subject: {e.get('subject', 'No subject')}\n"
-                f"  {(e.get('content') or e.get('summary') or '')[:400]}"
-            )
-        email_context_text = "\n\n".join(formatted_emails) if formatted_emails else "No email content available"
-    else:
-        email_context_text = "No email thread available — analysis based on CRM data only"
+    email_context_text = email_context or "No email thread available — analysis based on CRM data only"
 
     prompt = NBA_PROMPT.format(
         rep_persona=_build_rep_persona(rep_name),

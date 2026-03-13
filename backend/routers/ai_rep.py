@@ -224,11 +224,10 @@ async def get_next_best_action(request: NBARequest, authorization: str = Header(
     health_result = score_deal_from_zoho(deal)
     deal_with_health = {**deal, "health_score": health_result.total_score, "health_label": health_result.health_label}
 
-    # Emails already fetched by get_fully_enriched_deal — no second API call needed
-    email_thread: List[Dict] = (
-        SIMULATED_EMAILS.get(request.deal_id, []) if _is_demo(session)
-        else deal.get("_emails_raw", [])
-    )
+    # Use the enriched email context — Outlook primary, Zoho supplementary, with
+    # recent/historical split and proper date normalization. This is the ONLY email
+    # path for NBA — do not use _emails_raw which bypasses all of that logic.
+    email_context = await _fetch_email_context(request.deal_id, session, limit=8)
 
     contacts_block = ""
     if not _is_demo(session):
@@ -254,7 +253,7 @@ async def get_next_best_action(request: NBARequest, authorization: str = Header(
         deal=deal_with_health,
         health_signals=signals,
         rep_name=rep_name,
-        email_thread=email_thread,
+        email_context=email_context,
         deal_context=build_deal_context(deal_with_health),
         contacts_block=contacts_block,
     )
@@ -291,11 +290,7 @@ async def draft_email(request: EmailDraftRequest, authorization: str = Header(..
     health_result = score_deal_from_zoho(deal)
     deal_with_health = {**deal, "health_score": health_result.total_score, "health_label": health_result.health_label}
 
-    emails = (
-        SIMULATED_EMAILS.get(request.deal_id, []) if _is_demo(session)
-        else deal.get("_emails_raw", [])
-    )
-    email_context = _fmt_emails(emails)
+    email_context = await _fetch_email_context(request.deal_id, session, limit=5)
 
     contacts_block = ""
     if not _is_demo(session):
@@ -360,11 +355,7 @@ async def handle_objection_endpoint(request: ObjectionRequest, authorization: st
     deal = await _get_deal(request.deal_id, session)
     rep_name = _rep_name_from(request.rep_name, session, deal)
 
-    emails = (
-        SIMULATED_EMAILS.get(request.deal_id, []) if _is_demo(session)
-        else deal.get("_emails_raw", [])
-    )
-    email_context = _fmt_emails(emails)
+    email_context = await _fetch_email_context(request.deal_id, session, limit=5)
 
     response = await handle_objection(
         deal=deal,
@@ -400,11 +391,7 @@ async def get_call_brief(request: CallBriefRequest, authorization: str = Header(
     deal_with_health = {**deal, "health_score": health_result.total_score, "health_label": health_result.health_label}
     signals = _get_health_signals(deal)
 
-    emails = (
-        SIMULATED_EMAILS.get(request.deal_id, []) if _is_demo(session)
-        else deal.get("_emails_raw", [])
-    )
-    email_context = _fmt_emails(emails)
+    email_context = await _fetch_email_context(request.deal_id, session, limit=8)
     activity_context = _build_activity_context(deal_with_health)
 
     contacts_block = ""

@@ -196,6 +196,13 @@ export const api = {
   getDealFilterOptions: (): Promise<{ owners: string[]; stages: string[] }> =>
     fetchWithTimeout(`${API_URL}/deals/filter-options`, { headers: authHeaders() }).then(handleResponse),
 
+  getStageDistribution: (): Promise<{
+    stages: { stage: string; count: number; overdue_count: number; pipeline_value: number; overdue_pct: number }[];
+    bottleneck_stage: string | null;
+    total_active: number;
+  }> =>
+    fetchWithTimeout(`${API_URL}/deals/stage-distribution`, { headers: authHeaders() }).then(handleResponse),
+
   // Fetches a capped first page of deals for deal-selector dropdowns.
   // Uses dedup so concurrent callers (e.g. EmailTimelinePage + AskDealIQPage
   // both mounted during a route transition) share the same in-flight request.

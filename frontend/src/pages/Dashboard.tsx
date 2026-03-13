@@ -378,6 +378,10 @@ export default function Dashboard() {
   const [dealWarnings, setDealWarnings] = useState<Record<string, DealWarningInfo>>({});
   const [pipelineSummary, setPipelineSummary] = useState<string | null>(null);
   const [loadingSummary, setLoadingSummary] = useState(false);
+  const [stageDistribution, setStageDistribution] = useState<{
+    stage: string; count: number; overdue_count: number; pipeline_value: number; overdue_pct: number;
+  }[] | null>(null);
+  const [bottleneckStage, setBottleneckStage] = useState<string | null>(null);
   const [ownerOptions, setOwnerOptions] = useState<string[]>([]);
   const [stageOptions, setStageOptions] = useState<string[]>([]);
 
@@ -448,6 +452,17 @@ export default function Dashboard() {
 
     return () => { cancelled = true; controller.abort(); };
   }, [sessionToken, navigate]);
+
+  // Fetch stage distribution once on mount
+  useEffect(() => {
+    if (!sessionToken) return;
+    api.getStageDistribution()
+      .then(({ stages, bottleneck_stage }) => {
+        setStageDistribution(stages);
+        setBottleneckStage(bottleneck_stage);
+      })
+      .catch(() => {}); // non-critical
+  }, [sessionToken]);
 
   // Fetch filter options (all owners + stages across all deals) once on mount
   useEffect(() => {
@@ -1017,6 +1032,77 @@ export default function Dashboard() {
                 <X className="h-3 w-3" /> Clear
               </button>
             )}
+          </div>
+        )}
+
+        {/* ── Stage Distribution ── */}
+        {stageDistribution && stageDistribution.length > 0 && (
+          <div className="animate-fade-in space-y-2" style={{ animationDelay: "260ms" }}>
+            <div className="flex items-center justify-between">
+              <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/50">
+                Pipeline by Stage
+              </p>
+              {bottleneckStage && (
+                <span className="flex items-center gap-1.5 text-[11px] text-amber-400/80">
+                  <AlertTriangle className="h-3 w-3" />
+                  Bottleneck: <span className="font-semibold">{bottleneckStage}</span>
+                </span>
+              )}
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-8 gap-2">
+              {stageDistribution.map((s) => {
+                const hasOverdue = s.overdue_count > 0;
+                const allOverdue = s.overdue_pct >= 100;
+                return (
+                  <button
+                    key={s.stage}
+                    onClick={() => {
+                      setFilterStage(filterStage === s.stage ? "all" : s.stage);
+                      setCurrentPage(1);
+                    }}
+                    className={cn(
+                      "relative flex flex-col gap-1 rounded-xl border px-3 py-2.5 text-left transition-all duration-150",
+                      filterStage === s.stage
+                        ? "border-primary/40 bg-primary/10"
+                        : allOverdue
+                          ? "border-rose-500/30 bg-rose-500/5 hover:bg-rose-500/10"
+                          : hasOverdue
+                            ? "border-amber-500/25 bg-amber-500/5 hover:bg-amber-500/10"
+                            : "border-border/30 bg-card/50 hover:bg-muted/40"
+                    )}
+                  >
+                    <span className={cn(
+                      "text-[10px] font-semibold uppercase tracking-wide truncate",
+                      filterStage === s.stage ? "text-primary" : "text-muted-foreground/60"
+                    )}>
+                      {s.stage.replace("Negotiation/Review", "Negotiation")}
+                    </span>
+                    <div className="flex items-end justify-between gap-1">
+                      <span className="font-mono text-xl font-bold tabular-nums text-foreground leading-none">
+                        {s.count}
+                      </span>
+                      {hasOverdue && (
+                        <span className={cn(
+                          "flex items-center gap-0.5 text-[10px] font-semibold pb-0.5",
+                          allOverdue ? "text-rose-400" : "text-amber-400"
+                        )}>
+                          <AlertTriangle className="h-2.5 w-2.5" />
+                          {s.overdue_count} late
+                        </span>
+                      )}
+                    </div>
+                    {hasOverdue && (
+                      <div className="absolute bottom-0 left-0 right-0 h-0.5 rounded-b-xl overflow-hidden">
+                        <div
+                          className={cn("h-full transition-all", allOverdue ? "bg-rose-500" : "bg-amber-500")}
+                          style={{ width: `${Math.min(s.overdue_pct, 100)}%` }}
+                        />
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         )}
 
