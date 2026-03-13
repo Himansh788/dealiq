@@ -10,6 +10,7 @@ import {
   ScrollText,
   Settings,
   LogOut,
+  Clock,
 } from "lucide-react";
 import {
   Tooltip,
@@ -24,6 +25,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 
 const TOP_NAV = [
   { icon: Home, label: "My Day", path: "/home", dot: false },
+  { icon: Clock, label: "Daily Digest", path: "/digest", dot: false },
   { icon: LayoutDashboard, label: "Deals", path: "/dashboard", dot: false },
   { icon: TrendingUp, label: "Forecast & Analytics", path: "/forecast", dot: false },
   { icon: Mail, label: "Email", path: "/emails", dot: true },

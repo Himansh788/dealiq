@@ -462,6 +462,53 @@ class DealPersona(Base):
 # regional_targets
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# user_preferences  (per-user settings — digest, notifications, etc.)
+# ---------------------------------------------------------------------------
+
+class UserPreferences(Base):
+    __tablename__ = "user_preferences"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_new_uuid)
+    # Same pattern as MicrosoftToken — keyed by decoded session user_id / email
+    user_key: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
+    digest_time: Mapped[str] = mapped_column(String(5), nullable=False, default="09:00")  # HH:MM
+    digest_email_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    digest_language: Mapped[str] = mapped_column(String(10), nullable=False, default="en")
+    email_address: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    timezone: Mapped[str] = mapped_column(String(50), nullable=False, default="UTC")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime, onupdate=func.now())
+
+
+# ---------------------------------------------------------------------------
+# digest_tasks  (generated tasks per user per day + completion state)
+# ---------------------------------------------------------------------------
+
+class DigestTask(Base):
+    __tablename__ = "digest_tasks"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_new_uuid)
+    user_key: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    date: Mapped[str] = mapped_column(String(10), nullable=False)  # YYYY-MM-DD
+    deal_id: Mapped[str] = mapped_column(String(50), nullable=False)
+    deal_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    company: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    stage: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    amount: Mapped[float | None] = mapped_column(Numeric(15, 2), nullable=True)
+    task_type: Mapped[str] = mapped_column(String(30), nullable=False)  # email/call/whatsapp/case_study/meeting/contract
+    task_text: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_completed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        Index("ix_digest_tasks_user_date", "user_key", "date"),
+    )
+
+
 class RegionalTarget(Base):
     __tablename__ = "regional_targets"
 

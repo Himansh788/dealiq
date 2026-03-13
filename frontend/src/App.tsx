@@ -23,6 +23,7 @@ import SettingsPage from "./pages/SettingsPage";
 import WinLossPage from "./pages/WinLossPage";
 import RegionalAnalytics from "./pages/RegionalAnalytics";
 import ContractIntelligence from "./pages/ContractIntelligence";
+import DigestPage from "./pages/DigestPage";
 
 const queryClient = new QueryClient();
 
@@ -50,6 +51,7 @@ const App = () => (
 
               {/* Authenticated pages — all wrapped with AppLayout (60px sidebar) */}
               <Route path="/home" element={<AppLayout><Home /></AppLayout>} />
+              <Route path="/digest" element={<AppLayout><DigestPage /></AppLayout>} />
               <Route path="/dashboard" element={<AppLayout><Dashboard /></AppLayout>} />
               <Route path="/forecast" element={<AppLayout><ForecastAnalyticsPage /></AppLayout>} />
               <Route path="/forecast/ai" element={<AppLayout><ForecastPage /></AppLayout>} />

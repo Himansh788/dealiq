@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Settings, Mail, Calendar, Loader2, CheckCircle, XCircle, Palette, PlugZap } from "lucide-react";
+import { Settings, Mail, Calendar, Loader2, CheckCircle, XCircle, Palette, PlugZap, Clock, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
@@ -31,6 +31,53 @@ export default function SettingsPage() {
   const [outlookStatus, setOutlookStatus] = useState<OutlookStatus | null>(null);
   const [loadingOutlook, setLoadingOutlook] = useState(true);
   const [connecting, setConnecting] = useState(false);
+
+  // Digest preferences
+  const [digestPrefs, setDigestPrefs] = useState({
+    digest_time: "09:00",
+    digest_email_enabled: true,
+    digest_language: "en",
+    email_address: "",
+    timezone: "UTC",
+  });
+  const [digestPrefsSaving, setDigestPrefsSaving] = useState(false);
+
+  useEffect(() => {
+    api.getDigestPreferences()
+      .then((p: any) => setDigestPrefs({
+        digest_time: p.digest_time ?? "09:00",
+        digest_email_enabled: p.digest_email_enabled ?? true,
+        digest_language: p.digest_language ?? "en",
+        email_address: p.email_address ?? "",
+        timezone: p.timezone ?? "UTC",
+      }))
+      .catch(() => null);
+  }, []);
+
+  async function saveDigestPrefs() {
+    setDigestPrefsSaving(true);
+    try {
+      await api.updateDigestPreferences(digestPrefs);
+      toast({ title: "Digest preferences saved" });
+    } catch {
+      toast({ title: "Failed to save", variant: "destructive" });
+    } finally {
+      setDigestPrefsSaving(false);
+    }
+  }
+
+  async function sendTestEmail() {
+    try {
+      const result: any = await api.sendDigestEmailNow();
+      if (result.ok) {
+        toast({ title: "Digest email sent", description: `Sent to ${result.sent_to}` });
+      } else {
+        toast({ title: "Email not sent", description: "Check RESEND_API_KEY and email address in settings.", variant: "destructive" });
+      }
+    } catch (e: any) {
+      toast({ title: "Failed", description: e?.message || "Unknown error", variant: "destructive" });
+    }
+  }
 
   useEffect(() => {
     api.getOutlookStatus()
@@ -209,6 +256,103 @@ export default function SettingsPage() {
             </div>
             <div className="shrink-0">
               <ThemeToggle />
+            </div>
+          </div>
+        </div>
+
+        {/* Daily Digest */}
+        <div className="rounded-xl border border-border/30 bg-card/60 p-5">
+          <div className="flex items-start gap-4">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10">
+              <Clock className="h-5 w-5 text-primary" />
+            </div>
+            <div className="flex-1 min-w-0 space-y-4">
+              <div>
+                <p className="text-sm font-semibold text-foreground">Daily Digest</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Configure when and where you receive your personalised daily briefing.
+                </p>
+              </div>
+
+              {/* Email notifications toggle */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-medium text-foreground">Email notifications</p>
+                  <p className="text-[11px] text-muted-foreground">Receive digest by email each morning</p>
+                </div>
+                <button
+                  onClick={() => setDigestPrefs(p => ({ ...p, digest_email_enabled: !p.digest_email_enabled }))}
+                  className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${digestPrefs.digest_email_enabled ? "bg-primary" : "bg-secondary/60"}`}
+                >
+                  <span className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${digestPrefs.digest_email_enabled ? "translate-x-4" : "translate-x-0"}`} />
+                </button>
+              </div>
+
+              {/* Delivery time */}
+              <div className="flex items-center justify-between flex-wrap gap-3">
+                <div>
+                  <p className="text-xs font-medium text-foreground">Delivery time</p>
+                  <p className="text-[11px] text-muted-foreground">When to send your daily digest email</p>
+                </div>
+                <input
+                  type="time"
+                  value={digestPrefs.digest_time}
+                  onChange={e => setDigestPrefs(p => ({ ...p, digest_time: e.target.value }))}
+                  className="h-8 rounded-lg border border-border/40 bg-background px-3 text-xs text-foreground focus:border-primary/50 focus:outline-none"
+                />
+              </div>
+
+              {/* Email address */}
+              <div className="flex items-center justify-between flex-wrap gap-3">
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-medium text-foreground">Digest email address</p>
+                  <p className="text-[11px] text-muted-foreground">Where to deliver the digest email</p>
+                </div>
+                <input
+                  type="email"
+                  value={digestPrefs.email_address}
+                  onChange={e => setDigestPrefs(p => ({ ...p, email_address: e.target.value }))}
+                  placeholder="you@company.com"
+                  className="h-8 w-56 rounded-lg border border-border/40 bg-background px-3 text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none"
+                />
+              </div>
+
+              {/* Language */}
+              <div className="flex items-center justify-between flex-wrap gap-3">
+                <div>
+                  <p className="text-xs font-medium text-foreground">Language</p>
+                  <p className="text-[11px] text-muted-foreground">Digest language preference</p>
+                </div>
+                <select
+                  value={digestPrefs.digest_language}
+                  onChange={e => setDigestPrefs(p => ({ ...p, digest_language: e.target.value }))}
+                  className="h-8 rounded-lg border border-border/40 bg-background px-3 text-xs text-foreground focus:border-primary/50 focus:outline-none"
+                >
+                  <option value="en">English</option>
+                </select>
+              </div>
+
+              {/* Actions */}
+              <div className="flex items-center gap-3 pt-1">
+                <Button
+                  size="sm"
+                  className="h-8 text-xs bg-primary hover:bg-primary/90"
+                  onClick={saveDigestPrefs}
+                  disabled={digestPrefsSaving}
+                >
+                  {digestPrefsSaving && <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />}
+                  Save preferences
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 text-xs hover:border-primary/40 hover:text-primary"
+                  onClick={sendTestEmail}
+                >
+                  <Send className="mr-1.5 h-3 w-3" />
+                  Send test email
+                </Button>
+              </div>
             </div>
           </div>
         </div>

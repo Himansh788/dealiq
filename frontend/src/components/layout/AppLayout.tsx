@@ -1,4 +1,5 @@
 import Sidebar from "./Sidebar";
+import DigestBanner from "@/components/DigestBanner";
 
 interface Props {
   children: React.ReactNode;
@@ -16,6 +17,7 @@ export default function AppLayout({ children }: Props) {
       <main className="flex-1 overflow-y-auto">
         {children}
       </main>
+      <DigestBanner />
     </div>
   );
 }

@@ -732,4 +732,36 @@ export const api = {
       method: "DELETE",
       headers: authHeaders(),
     }).then(handleResponse),
+
+  // ── Daily Digest ─────────────────────────────────────────────────────────
+  getTodayDigest: (signal?: AbortSignal) =>
+    fetchWithTimeout(`${API_URL}/digest/today`, { headers: authHeaders(), signal }).then(handleResponse),
+
+  completeDigestTask: (taskId: string) =>
+    fetchWithTimeout(`${API_URL}/digest/complete/${taskId}`, {
+      method: "POST",
+      headers: authHeaders(),
+    }).then(handleResponse),
+
+  getDigestPreferences: () =>
+    fetchWithTimeout(`${API_URL}/digest/preferences`, { headers: authHeaders() }).then(handleResponse),
+
+  updateDigestPreferences: (prefs: {
+    digest_time?: string;
+    digest_email_enabled?: boolean;
+    digest_language?: string;
+    email_address?: string;
+    timezone?: string;
+  }) =>
+    fetchWithTimeout(`${API_URL}/digest/preferences`, {
+      method: "PUT",
+      headers: authHeaders(),
+      body: JSON.stringify(prefs),
+    }).then(handleResponse),
+
+  sendDigestEmailNow: () =>
+    fetchWithTimeout(`${API_URL}/digest/send-email`, {
+      method: "POST",
+      headers: authHeaders(),
+    }).then(handleResponse),
 };

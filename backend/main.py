@@ -26,6 +26,7 @@ from routers.contacts import router as contacts_router
 from routers.regional_analytics import router as regional_analytics_router
 from routers.contracts import router as contracts_router
 from routers.next_steps import router as next_steps_router
+from routers.digest import router as digest_router
 import uvicorn
 
 app = FastAPI(
@@ -70,6 +71,7 @@ app.include_router(contacts_router, prefix="", tags=["Contact Intelligence"])
 app.include_router(regional_analytics_router, prefix="/analytics", tags=["Regional Analytics"])
 app.include_router(contracts_router, prefix="/contracts", tags=["Contract Intelligence"])
 app.include_router(next_steps_router, tags=["Next Steps"])
+app.include_router(digest_router, prefix="/digest", tags=["Daily Digest"])
 
 
 _SEED_DOCX = os.path.join(os.path.dirname(__file__), "seeds", "vervotech_standard.docx")
@@ -176,9 +178,49 @@ async def startup_event():
             except Exception as e:
                 logger.warning("Cache cleanup job failed: %s", e)
 
+        async def _digest_email_job():
+            """Send daily digest emails to users who have email notifications enabled."""
+            logger.info("Digest email job starting")
+            try:
+                from database.connection import get_db
+                from database.models import UserPreferences
+                from sqlalchemy import select
+                from services.digest_email import send_digest_email
+                async for db in get_db():
+                    if db is None:
+                        break
+                    result = await db.execute(
+                        select(UserPreferences).where(UserPreferences.digest_email_enabled == True)
+                    )
+                    prefs_list = result.scalars().all()
+                    for prefs in prefs_list:
+                        if not prefs.email_address:
+                            continue
+                        try:
+                            # Build a minimal digest for this user using demo data
+                            # (full per-user Zoho fetch would need stored tokens)
+                            from services.demo_data import SIMULATED_DEALS
+                            from services.health_scorer import score_deal_from_zoho
+                            from services.daily_digest_service import build_digest
+                            deals = []
+                            for d in SIMULATED_DEALS:
+                                deal = dict(d)
+                                r = score_deal_from_zoho(deal)
+                                deal["health_score"] = r.total_score
+                                deal["health_label"] = r.health_label
+                                deals.append(deal)
+                            digest = build_digest(deals)
+                            await send_digest_email(prefs.email_address, digest)
+                        except Exception as e:
+                            logger.warning("Digest email failed for %s: %s", prefs.user_key, e)
+                    break
+            except Exception as e:
+                logger.exception("Digest email job failed: %s", e)
+
         scheduler = AsyncIOScheduler()
         scheduler.add_job(_morning_scan_job, CronTrigger(hour=7, minute=0))
         scheduler.add_job(_cache_cleanup_job, CronTrigger(hour="*/1"))  # hourly
+        scheduler.add_job(_digest_email_job, CronTrigger(hour=9, minute=0))  # 9 AM UTC default
         scheduler.start()
         logger.info("Scheduler started")
     except ModuleNotFoundError:
