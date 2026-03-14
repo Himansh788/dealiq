@@ -25,14 +25,13 @@ interface Props {
   onSelectDeal: (id: string) => void;
   onNavigate: (path: string) => void;
   onOpenSignal: () => void;
-  onOpenDigest: () => void;
 }
 
 const NAV_ACTIONS: NavAction[] = [
   { label: "Smart Trackers", path: "/trackers", key: null,     icon: ScanSearch,  desc: "Concept-based call analysis" },
   { label: "AI Forecast",    path: "/forecast", key: null,     icon: TrendingUp,  desc: "Pipeline forecast & scenario planning" },
   { label: "Signal Radar",   path: null,        key: "signal", icon: Radar,       desc: "Detect buying signals from any transcript" },
-  { label: "Daily Digest",   path: null,        key: "digest", icon: Bell,        desc: "Pipeline alerts & daily actions" },
+  { label: "Daily Digest",   path: "/digest",    key: null,     icon: Bell,        desc: "Pipeline alerts & daily actions" },
 ];
 
 function scoreColor(score: number) {
@@ -42,7 +41,7 @@ function scoreColor(score: number) {
 }
 
 export default function CommandPalette({
-  open, onClose, deals, onSelectDeal, onNavigate, onOpenSignal, onOpenDigest,
+  open, onClose, deals, onSelectDeal, onNavigate, onOpenSignal,
 }: Props) {
   const [query, setQuery]       = useState("");
   const [selected, setSelected] = useState(0);
@@ -95,13 +94,12 @@ export default function CommandPalette({
         } else {
           if (item.action.path)                onNavigate(item.action.path);
           else if (item.action.key === "signal") onOpenSignal();
-          else if (item.action.key === "digest") onOpenDigest();
         }
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [open, allItems, selected, onClose, onSelectDeal, onNavigate, onOpenSignal, onOpenDigest]);
+  }, [open, allItems, selected, onClose, onSelectDeal, onNavigate, onOpenSignal]);
 
   if (!open) return null;
 
@@ -187,7 +185,6 @@ export default function CommandPalette({
                 const handleClick = () => {
                   if (action.path)              onNavigate(action.path);
                   else if (action.key === "signal") onOpenSignal();
-                  else if (action.key === "digest") onOpenDigest();
                 };
                 return (
                   <button

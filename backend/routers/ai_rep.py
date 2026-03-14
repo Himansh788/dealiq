@@ -2,6 +2,7 @@ from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 import base64
+import hashlib
 import json
 from services.ai_rep import generate_next_best_action, generate_email_draft, handle_objection, generate_call_brief
 from services.health_scorer import score_deal_from_zoho
@@ -249,13 +250,37 @@ async def get_next_best_action(request: NBARequest, authorization: str = Header(
             import logging
             logging.getLogger(__name__).warning("ai_rep: contacts fetch failed deal=%s: %s", request.deal_id, e)
 
-    action_plan = await generate_next_best_action(
-        deal=deal_with_health,
-        health_signals=signals,
-        rep_name=rep_name,
-        email_context=email_context,
-        deal_context=build_deal_context(deal_with_health),
-        contacts_block=contacts_block,
+    from services.ai_cache import get_or_generate, build_input_hash, build_prior_context
+    cache_input = {
+        "stage": deal_with_health.get("stage"),
+        "amount": deal_with_health.get("amount"),
+        "health_score": health_result.total_score,
+        "health_label": health_result.health_label,
+        "email_hash": hashlib.sha256(email_context.encode()).hexdigest()[:16],
+        "contact_count": deal_with_health.get("contact_count", 1),
+    }
+    input_hash = build_input_hash(cache_input)
+
+    # Compound intelligence: inject prior cached analyses into deal context
+    prior_ctx = await build_prior_context(request.deal_id, ["health_analysis"])
+    deal_context_str = build_deal_context(deal_with_health)
+    if prior_ctx:
+        deal_context_str = f"{prior_ctx}\n\n{deal_context_str}"
+
+    action_plan = await get_or_generate(
+        deal_id=request.deal_id,
+        analysis_type="nba",
+        input_hash=input_hash,
+        generator=lambda: generate_next_best_action(
+            deal=deal_with_health,
+            health_signals=signals,
+            rep_name=rep_name,
+            email_context=email_context,
+            deal_context=deal_context_str,
+            contacts_block=contacts_block,
+        ),
+        result_text_fn=lambda r: r.get("situation_read", ""),
+        model_used="claude-sonnet-4-6",
     )
 
     return {
@@ -414,14 +439,38 @@ async def get_call_brief(request: CallBriefRequest, authorization: str = Header(
             import logging
             logging.getLogger(__name__).warning("ai_rep: contacts fetch failed deal=%s: %s", request.deal_id, e)
 
-    brief = await generate_call_brief(
-        deal=deal_with_health,
-        health_signals=signals,
-        rep_name=rep_name,
-        email_context=email_context,
-        activity_context=activity_context,
-        deal_context=build_deal_context(deal_with_health),
-        contacts_block=contacts_block,
+    from services.ai_cache import get_or_generate, build_input_hash, build_prior_context
+    cache_input = {
+        "stage": deal_with_health.get("stage"),
+        "amount": deal_with_health.get("amount"),
+        "health_score": health_result.total_score,
+        "health_label": health_result.health_label,
+        "email_hash": hashlib.sha256(email_context.encode()).hexdigest()[:16],
+        "activity_hash": hashlib.sha256(activity_context.encode()).hexdigest()[:16],
+    }
+    input_hash = build_input_hash(cache_input)
+
+    # Compound intelligence: inject health + NBA analyses into call brief context
+    prior_ctx = await build_prior_context(request.deal_id, ["health_analysis", "nba"])
+    deal_context_str = build_deal_context(deal_with_health)
+    if prior_ctx:
+        deal_context_str = f"{prior_ctx}\n\n{deal_context_str}"
+
+    brief = await get_or_generate(
+        deal_id=request.deal_id,
+        analysis_type="call_brief",
+        input_hash=input_hash,
+        generator=lambda: generate_call_brief(
+            deal=deal_with_health,
+            health_signals=signals,
+            rep_name=rep_name,
+            email_context=email_context,
+            activity_context=activity_context,
+            deal_context=deal_context_str,
+            contacts_block=contacts_block,
+        ),
+        result_text_fn=lambda r: r.get("situation_summary", ""),
+        model_used="claude-sonnet-4-6",
     )
 
     return {

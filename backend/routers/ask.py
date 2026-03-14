@@ -267,6 +267,12 @@ async def ask_deal(
         emails = await _fetch_real_emails(session, request.deal_id)
         transcript = deal.get("_latest_transcript")  # populated by enriched deal if available
 
+    # Compound intelligence: inject all prior analyses so Q&A has full context
+    from services.ai_cache import build_prior_context
+    prior_ctx = await build_prior_context(request.deal_id)
+    if prior_ctx:
+        deal["_prior_intelligence"] = prior_ctx
+
     result = await ask_about_deal(
         deal=deal,
         emails=emails,
@@ -305,10 +311,29 @@ async def deal_meddic_analysis(
         emails = await _fetch_real_emails(session, request.deal_id)
         transcript = deal.get("_latest_transcript")
 
-    result = await ask_meddic_analysis(
-        deal=deal,
-        emails=emails,
-        transcript=transcript,
+    import hashlib
+    from services.ai_cache import get_or_generate, build_input_hash, build_prior_context
+
+    # Compound intelligence: inject prior health + NBA into context
+    prior_ctx = await build_prior_context(request.deal_id, ["health_analysis", "nba"])
+    if prior_ctx:
+        deal["_prior_intelligence"] = prior_ctx
+
+    cache_input = {
+        "stage": deal.get("stage"),
+        "health_score": deal.get("health_score"),
+        "transcript_hash": hashlib.sha256((transcript or "").encode()).hexdigest()[:16],
+        "email_count": len(emails),
+    }
+    input_hash = build_input_hash(cache_input)
+
+    result = await get_or_generate(
+        deal_id=request.deal_id,
+        analysis_type="ask_meddic",
+        input_hash=input_hash,
+        generator=lambda: ask_meddic_analysis(deal=deal, emails=emails, transcript=transcript),
+        result_text_fn=lambda r: r.get("overall_score", ""),
+        model_used="claude-sonnet-4-6",
     )
 
     return {
@@ -341,10 +366,30 @@ async def deal_brief(
         emails = await _fetch_real_emails(session, request.deal_id)
         transcript = deal.get("_latest_transcript")
 
-    result = await generate_deal_brief(
-        deal=deal,
-        emails=emails,
-        transcript=transcript,
+    import hashlib
+    from services.ai_cache import get_or_generate, build_input_hash, build_prior_context
+
+    # Compound intelligence: inject all prior analyses into brief
+    prior_ctx = await build_prior_context(request.deal_id, ["health_analysis", "nba", "deal_insights"])
+    if prior_ctx:
+        deal["_prior_intelligence"] = prior_ctx
+
+    cache_input = {
+        "stage": deal.get("stage"),
+        "amount": deal.get("amount"),
+        "health_score": deal.get("health_score"),
+        "email_count": len(emails),
+        "has_transcript": bool(transcript),
+    }
+    input_hash = build_input_hash(cache_input)
+
+    result = await get_or_generate(
+        deal_id=request.deal_id,
+        analysis_type="ask_brief",
+        input_hash=input_hash,
+        generator=lambda: generate_deal_brief(deal=deal, emails=emails, transcript=transcript),
+        result_text_fn=lambda r: r.get("executive_summary", r.get("summary", "")),
+        model_used="claude-sonnet-4-6",
     )
 
     return {

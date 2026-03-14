@@ -38,7 +38,9 @@ _token_cache: dict[str, dict] = {}
 MS_SCOPES = [
     "offline_access",
     "Mail.Read",
+    "Mail.Send",
     "Calendars.Read",
+    "Calendars.ReadWrite",
     "User.Read",
 ]
 

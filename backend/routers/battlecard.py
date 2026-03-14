@@ -341,11 +341,36 @@ async def generate_battlecard(
             "  • Mike Torres <mike.torres@techcorp.com> | 3 email(s) | Last seen: 2026-03-08"
         )
 
-    # Build context and call Claude
+    # Build context and call Claude — with compound intelligence + PG cache
     import asyncio
+    import hashlib
+    from services.ai_cache import get_or_generate, build_input_hash, build_prior_context, ANALYSIS_VERSIONS
+
+    # Inject prior intelligence (health + NBA) into deal context
+    prior_ctx = await build_prior_context(deal_id, ["health_analysis", "nba"])
     context_str = _build_deal_context(deal, warnings, health_result, body.meeting_context, email_context, contacts_block)
+    if prior_ctx:
+        context_str = f"{prior_ctx}\n\n{context_str}"
+
+    bc_hash = build_input_hash({
+        "stage": deal.get("stage"),
+        "health_score": health_result.total_score if health_result else 0,
+        "email_hash": hashlib.sha256(email_context.encode()).hexdigest()[:16],
+        "meeting_context": body.meeting_context[:50],
+    })
+
     try:
-        sections = await asyncio.wait_for(_call_groq(context_str), timeout=55)
+        sections = await asyncio.wait_for(
+            get_or_generate(
+                deal_id=deal_id,
+                analysis_type="battlecard",
+                input_hash=bc_hash,
+                generator=lambda: _call_groq(context_str),
+                result_text_fn=lambda r: r.get("one_liner", ""),
+                model_used="claude-sonnet-4-6",
+            ),
+            timeout=55,
+        )
     except asyncio.TimeoutError:
         logger.warning("battlecard: Claude timed out for deal=%s", deal_id)
         sections = {

@@ -382,11 +382,36 @@ async def generate_next_steps(
             "  • Mike Torres <mike.torres@techcorp.com> | 3 email(s) | Last seen: 2026-03-08"
         )
 
-    # Build context and call Claude
+    # Build context and call Claude — with compound intelligence + PG cache
     import asyncio
+    import hashlib
+    from services.ai_cache import get_or_generate, build_input_hash, build_prior_context
+
+    # Inject prior intelligence (health + NBA + deal_insights) into deal context
+    prior_ctx = await build_prior_context(deal_id, ["health_analysis", "nba", "deal_insights"])
     context_str = _build_deal_context(deal, warnings, health_result, body.meeting_context, email_context, contacts_block, zoho_notes_block)
+    if prior_ctx:
+        context_str = f"{prior_ctx}\n\n{context_str}"
+
+    ns_hash = build_input_hash({
+        "stage": deal.get("stage"),
+        "health_score": health_result.total_score if health_result else 0,
+        "email_hash": hashlib.sha256(email_context.encode()).hexdigest()[:16],
+        "notes_hash": hashlib.sha256(zoho_notes_block.encode()).hexdigest()[:16],
+    })
+
     try:
-        sections = await asyncio.wait_for(_call_groq(context_str), timeout=55)
+        sections = await asyncio.wait_for(
+            get_or_generate(
+                deal_id=deal_id,
+                analysis_type="next_steps",
+                input_hash=ns_hash,
+                generator=lambda: _call_groq(context_str),
+                result_text_fn=lambda r: r.get("one_liner", ""),
+                model_used="claude-sonnet-4-6",
+            ),
+            timeout=55,
+        )
     except asyncio.TimeoutError:
         logger.warning("next-steps: Claude timed out for deal=%s", deal_id)
         sections = {

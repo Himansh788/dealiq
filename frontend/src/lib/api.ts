@@ -764,4 +764,52 @@ export const api = {
       method: "POST",
       headers: authHeaders(),
     }).then(handleResponse),
+
+  getTaskExecution: (
+    taskId: string,
+    ctx?: { deal_name?: string; company?: string; stage?: string; task_type?: string; task_text?: string },
+    signal?: AbortSignal,
+  ) => {
+    const params = new URLSearchParams();
+    if (ctx?.deal_name)  params.set("deal_name",  ctx.deal_name);
+    if (ctx?.company)    params.set("company",    ctx.company);
+    if (ctx?.stage)      params.set("stage",      ctx.stage);
+    if (ctx?.task_type)  params.set("task_type",  ctx.task_type);
+    if (ctx?.task_text)  params.set("task_text",  ctx.task_text);
+    const qs = params.toString() ? `?${params}` : "";
+    return fetchWithTimeout(`${API_URL}/digest/tasks/${taskId}/execution${qs}`, {
+      headers: authHeaders(),
+      signal,
+      timeoutMs: 30_000,
+    }).then(handleResponse);
+  },
+
+  executeDigestTask: (
+    taskId: string,
+    payload: {
+      action: string;
+      subject?: string;
+      body_html?: string;
+      to?: { email: string; name: string }[];
+      cc?: { email: string; name: string }[];
+      start_iso?: string;
+      duration_minutes?: number;
+      attendees?: { email: string; name: string }[];
+      outcome?: string;
+      notes?: string;
+    }
+  ) =>
+    fetchWithTimeout(`${API_URL}/digest/tasks/${taskId}/execute`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify(payload),
+      timeoutMs: 20_000,
+    }).then(handleResponse),
+
+  skipDigestTask: (taskId: string, reason?: string) =>
+    fetchWithTimeout(`${API_URL}/digest/tasks/${taskId}/skip`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ reason: reason ?? null }),
+    }).then(handleResponse),
 };

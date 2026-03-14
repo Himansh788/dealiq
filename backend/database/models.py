@@ -577,3 +577,72 @@ class ContractDeviation(Base):
     accepted: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     accepted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+# ---------------------------------------------------------------------------
+# vervotech_content  (scraped marketing content for case study recommendations)
+# ---------------------------------------------------------------------------
+
+class DealAICache(Base):
+    """
+    Persistent AI analysis cache — PostgreSQL-first, survives restarts.
+    One active entry per (deal_id, analysis_type, scope_key).
+    """
+    __tablename__ = "deal_ai_cache"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    deal_id: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    analysis_type: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    scope_key: Mapped[str] = mapped_column(String(255), nullable=False, default="__global__")
+
+    # Cached AI output
+    result: Mapped[dict] = mapped_column(_FlexJSON, nullable=False)
+    result_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Change detection
+    input_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+
+    # Versioning (bump when prompt/schema changes)
+    analysis_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+
+    # Metadata
+    model_used: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    tokens_input: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    tokens_output: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    generation_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        Index("uq_deal_analysis", "deal_id", "analysis_type", "scope_key", unique=True),
+        Index("idx_dac_lookup", "deal_id", "analysis_type", "scope_key"),
+        Index("idx_dac_stale", "updated_at"),
+    )
+
+
+class VervotechContent(Base):
+    __tablename__ = "vervotech_content"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    url: Mapped[str] = mapped_column(String(500), unique=True, nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(500), nullable=False)
+    content_type: Mapped[str] = mapped_column(String(50), nullable=False)  # case_study | blog | ebook | documentation | infographic | video | impact_story
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    full_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # AI-tagged arrays — stored as JSON strings on MySQL, JSONB on PG
+    client_types: Mapped[str | None] = mapped_column(Text, nullable=True, default="[]")  # JSON array e.g. ["TMC","OTA"]
+    products: Mapped[str | None] = mapped_column(Text, nullable=True, default="[]")      # JSON array
+    topics: Mapped[str | None] = mapped_column(Text, nullable=True, default="[]")        # JSON array
+
+    has_specific_numbers: Mapped[bool] = mapped_column(Boolean, default=False)
+    customer_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    customer_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+
+    scraped_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime, onupdate=func.now())
+
+    __table_args__ = (
+        Index("ix_vervotech_content_type", "content_type"),
+    )

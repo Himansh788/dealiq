@@ -175,24 +175,78 @@ async def get_forecast(
         "generated_at": result.generated_at,
     }
 
-    # ── AI Intelligence layer — all calls run in parallel ─────────────────────
+    # ── AI Intelligence layer — cached in PostgreSQL, parallel on miss ────────
     ai = {"narrative": None, "rep_coaching": {}, "rescue_priorities": None}
 
     if ai_insights:
         try:
-            # 1. Pipeline narrative + rescue priorities run in parallel
-            narrative_task = generate_pipeline_narrative(forecast_dict)
-            rescue_task = generate_rescue_priorities(
-                result.rescue_opportunities,
-                result.total_pipeline,
-                result.this_month_gap,
+            import hashlib
+            from services.ai_cache import get_or_generate, build_input_hash, get_scope_key
+
+            # Pipeline narrative — scoped to today (changes daily)
+            narrative_scope = get_scope_key("pipeline_narrative")
+            narrative_hash = build_input_hash({
+                "total_pipeline": forecast_dict["total_pipeline"],
+                "crm_forecast": forecast_dict["crm_forecast"],
+                "dealiq_realistic": forecast_dict["dealiq_realistic"],
+                "total_deals": forecast_dict["total_deals_analysed"],
+                "rep_count": len(by_rep_dicts),
+            })
+
+            narrative_task = get_or_generate(
+                deal_id="__pipeline__",
+                analysis_type="pipeline_narrative",
+                input_hash=narrative_hash,
+                scope_key=narrative_scope,
+                generator=lambda: generate_pipeline_narrative(forecast_dict),
+                result_text_fn=lambda r: r.get("headline", ""),
+                model_used="claude-sonnet-4-6",
             )
 
-            # 2. Rep coaching — cap at 5 reps to limit parallel calls
-            top_reps = by_rep_dicts[:5]
-            coaching_tasks = [generate_rep_coaching(rep) for rep in top_reps]
+            # Rescue priorities — scoped to today
+            rescue_hash = build_input_hash({
+                "rescue_count": len(result.rescue_opportunities),
+                "rescue_ids": [d["name"] for d in result.rescue_opportunities[:8]],
+                "this_month_gap": result.this_month_gap,
+            })
 
-            # Fire everything at once with a hard 60s timeout
+            rescue_task = get_or_generate(
+                deal_id="__pipeline__",
+                analysis_type="rescue_priorities",
+                input_hash=rescue_hash,
+                scope_key=narrative_scope,
+                generator=lambda: generate_rescue_priorities(
+                    result.rescue_opportunities,
+                    result.total_pipeline,
+                    result.this_month_gap,
+                ),
+                result_text_fn=lambda r: r.get("strategy", ""),
+                model_used="claude-sonnet-4-6",
+            )
+
+            # Rep coaching — cap at 5 reps
+            top_reps = by_rep_dicts[:5]
+            coaching_tasks = []
+            for rep in top_reps:
+                rep_hash = build_input_hash({
+                    "name": rep["name"],
+                    "deal_count": rep["deal_count"],
+                    "avg_health": round(rep["avg_health_score"]),
+                    "healthy": rep["healthy_count"],
+                    "critical": rep["critical_count"],
+                    "zombie": rep["zombie_count"],
+                })
+                _rep = rep  # capture for lambda
+                coaching_tasks.append(get_or_generate(
+                    deal_id=f"__rep__{rep['name']}",
+                    analysis_type="rep_coaching",
+                    input_hash=rep_hash,
+                    scope_key=narrative_scope,
+                    generator=lambda _r=_rep: generate_rep_coaching(_r),
+                    result_text_fn=lambda r: r.get("summary", ""),
+                    model_used="claude-sonnet-4-6",
+                ))
+
             all_results = await asyncio.wait_for(
                 asyncio.gather(
                     narrative_task,

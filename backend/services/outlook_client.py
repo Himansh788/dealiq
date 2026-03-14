@@ -197,3 +197,139 @@ def match_attendees_to_deals(
         enriched.append({**event, "deal_id": matched_deal_id})
 
     return enriched
+
+
+async def send_email(
+    access_token: str,
+    to: list[dict],
+    cc: list[dict],
+    subject: str,
+    body_html: str,
+    save_to_sent: bool = True,
+) -> dict:
+    """
+    Send an email via Microsoft Graph API.
+    Requires Mail.Send permission scope.
+
+    to / cc: list of {"email": "...", "name": "..."} dicts.
+    Returns {"success": True} or {"success": False, "error": "..."}.
+    """
+    if not access_token:
+        return {"success": False, "error": "no_token"}
+
+    import httpx
+
+    message = {
+        "message": {
+            "subject": subject,
+            "body": {"contentType": "HTML", "content": body_html},
+            "toRecipients": [
+                {"emailAddress": {"address": r["email"], "name": r.get("name", "")}}
+                for r in to if r.get("email")
+            ],
+            "ccRecipients": [
+                {"emailAddress": {"address": r["email"], "name": r.get("name", "")}}
+                for r in cc if r.get("email")
+            ],
+        },
+        "saveToSentItems": save_to_sent,
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.post(
+                f"{GRAPH_API_BASE}/me/sendMail",
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Content-Type": "application/json",
+                },
+                json=message,
+            )
+    except Exception as e:
+        logger.warning("outlook_client.send_email: request failed: %s", e)
+        return {"success": False, "error": str(e)}
+
+    if resp.status_code == 202:
+        return {"success": True}
+    if resp.status_code == 403:
+        return {"success": False, "error": "missing_permission_mail_send"}
+    if resp.status_code == 401:
+        return {"success": False, "error": "token_expired"}
+    logger.warning("outlook_client.send_email: unexpected status=%d body=%s", resp.status_code, resp.text[:300])
+    return {"success": False, "error": f"http_{resp.status_code}"}
+
+
+async def create_calendar_event(
+    access_token: str,
+    subject: str,
+    attendees: list[dict],
+    start_iso: str,
+    duration_minutes: int = 30,
+    body_html: str = "",
+    is_online: bool = True,
+) -> dict:
+    """
+    Create a calendar event via Microsoft Graph API.
+    Requires Calendars.ReadWrite permission scope.
+
+    start_iso: ISO 8601 datetime string (UTC).
+    Returns {"success": True, "event_id": "...", "join_url": "..."} or {"success": False, "error": "..."}.
+    """
+    if not access_token:
+        return {"success": False, "error": "no_token"}
+
+    import httpx
+    from datetime import datetime, timedelta
+
+    try:
+        start_dt = datetime.fromisoformat(start_iso.replace("Z", "+00:00"))
+    except Exception:
+        return {"success": False, "error": "invalid_start_time"}
+
+    end_dt = start_dt + timedelta(minutes=duration_minutes)
+
+    event: dict = {
+        "subject": subject,
+        "body": {"contentType": "HTML", "content": body_html},
+        "start": {"dateTime": start_dt.isoformat(), "timeZone": "UTC"},
+        "end":   {"dateTime": end_dt.isoformat(),   "timeZone": "UTC"},
+        "attendees": [
+            {
+                "emailAddress": {"address": a["email"], "name": a.get("name", "")},
+                "type": "required",
+            }
+            for a in attendees if a.get("email")
+        ],
+        "isOnlineMeeting": is_online,
+    }
+    if is_online:
+        event["onlineMeetingProvider"] = "teamsForBusiness"
+
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.post(
+                f"{GRAPH_API_BASE}/me/events",
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Content-Type": "application/json",
+                },
+                json=event,
+            )
+    except Exception as e:
+        logger.warning("outlook_client.create_calendar_event: request failed: %s", e)
+        return {"success": False, "error": str(e)}
+
+    if resp.status_code == 201:
+        created = resp.json()
+        return {
+            "success": True,
+            "event_id": created.get("id"),
+            "join_url": (created.get("onlineMeeting") or {}).get("joinUrl"),
+            "web_link": created.get("webLink"),
+        }
+    if resp.status_code == 403:
+        return {"success": False, "error": "missing_permission_calendars_readwrite"}
+    if resp.status_code == 401:
+        return {"success": False, "error": "token_expired"}
+    logger.warning("outlook_client.create_calendar_event: unexpected status=%d body=%s", resp.status_code, resp.text[:300])
+    return {"success": False, "error": f"http_{resp.status_code}"}

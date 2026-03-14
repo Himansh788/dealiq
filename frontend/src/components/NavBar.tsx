@@ -2,14 +2,13 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   BarChart3, LogOut, Search,
-  ChevronDown, Settings, ClipboardCheck,
+  ChevronDown, Settings, ClipboardCheck, Bell,
 } from "lucide-react";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuSeparator, DropdownMenuTrigger, DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu";
 import { useSession } from "@/contexts/SessionContext";
-import { AlertsBell } from "@/components/AlertsDigestPanel";
 import CommandPalette from "@/components/CommandPalette";
 import DemoUpgradeModal from "@/components/DemoUpgradeModal";
 
@@ -22,9 +21,7 @@ interface NavDeal {
 }
 
 interface NavBarProps {
-  onOpenDigest: () => void;
   onOpenSignal: () => void;
-  digestCriticalCount?: number;
   deals?: NavDeal[];
   onSelectDeal?: (dealId: string) => void;
   /** Called when user clicks "Check Email Before Sending" nav button */
@@ -32,9 +29,7 @@ interface NavBarProps {
 }
 
 export default function NavBar({
-  onOpenDigest,
   onOpenSignal,
-  digestCriticalCount,
   deals,
   onSelectDeal,
   onOpenMismatch,
@@ -116,8 +111,14 @@ export default function NavBar({
               </kbd>
             </button>
 
-            {/* Alerts bell with badge */}
-            <AlertsBell onClick={onOpenDigest} criticalCount={digestCriticalCount} />
+            {/* Digest bell — navigates to /digest */}
+            <button
+              onClick={() => navigate("/digest")}
+              className="flex h-9 w-9 items-center justify-center rounded-lg border border-border/40 bg-secondary/40 text-muted-foreground transition-colors hover:border-border/70 hover:bg-secondary/60 hover:text-foreground"
+              aria-label="Daily Digest"
+            >
+              <Bell className="h-4 w-4" />
+            </button>
 
             {/* User menu */}
             <div className="ml-1 border-l border-border/40 pl-3">
@@ -197,10 +198,6 @@ export default function NavBar({
         onOpenSignal={() => {
           setCmdOpen(false);
           onOpenSignal();
-        }}
-        onOpenDigest={() => {
-          setCmdOpen(false);
-          onOpenDigest();
         }}
       />
 

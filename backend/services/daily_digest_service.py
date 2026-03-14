@@ -327,6 +327,63 @@ def _rule_contract_review(deal: dict) -> Optional[dict]:
     }
 
 
+def _rule_generic_followup(deal: dict) -> Optional[dict]:
+    """
+    Catch-all fallback rule: fires for any active deal that has had some
+    activity in the last 60 days but was not matched by a stage-specific rule.
+    Generates a contextual follow-up task based on the deal's current state.
+    """
+    days = _days_since_activity(deal)
+    if days is None or days < 3:
+        return None
+
+    stage = (deal.get("stage") or "").strip()
+    contact = _contact(deal)
+    prospect = _prospect(deal)
+
+    if _was_followed_up_recently(deal, within_days=1):
+        return None
+
+    # Pick the most appropriate task type based on stage keywords
+    if any(k in stage for k in ("Contract", "Legal")):
+        task_type = "contract"
+        text = (
+            f"Follow up with {contact} at {prospect} on the contract. "
+            f"No movement in {days} days — check if there are blockers."
+        )
+    elif any(k in stage for k in ("Negotiation",)):
+        task_type = "call"
+        text = (
+            f"Call {contact} at {prospect} to keep negotiation moving. "
+            f"Last activity {days} days ago."
+        )
+    elif any(k in stage for k in ("Proposal", "Quote", "Evaluation")):
+        task_type = "email"
+        text = (
+            f"Send a follow-up email to {contact} at {prospect}. "
+            f"No response to the proposal/evaluation in {days} days."
+        )
+    elif days >= 14:
+        task_type = "call"
+        text = (
+            f"Call {contact} at {prospect} — no contact in {days} days. "
+            f"Check if the deal is still progressing."
+        )
+    else:
+        task_type = "email"
+        text = (
+            f"Check in with {contact} at {prospect}. "
+            f"Last activity {days} days ago — keep the deal warm."
+        )
+
+    return {
+        "task_type": task_type,
+        "task_text": text,
+        "reason": f"No stage-specific action matched; {days} days since last activity.",
+        "urgency": min(days * 2, 40),  # Lower urgency than stage-specific tasks
+    }
+
+
 _RULES = [
     _rule_sales_approved,
     _rule_demo_done,
@@ -336,6 +393,8 @@ _RULES = [
     _rule_contract_sent,
     _rule_contract_review,
 ]
+
+_FALLBACK_RULES = [_rule_generic_followup]
 
 
 # --------------------------------------------------------------------------- #
@@ -458,38 +517,90 @@ def generate_tasks(deals: list[dict], today: str | None = None) -> list[dict]:
     # Sort: urgency desc, then amount desc
     candidates.sort(key=lambda x: (-x["urgency"], -(x["amount"] or 0)))
 
-    # Spread variety: ensure first 5 cover different task types
-    seen_types: set[str] = set()
-    varied: list[dict] = []
-    remainder: list[dict] = []
-    for c in candidates:
-        if c["task_type"] not in seen_types and len(varied) < 5:
-            seen_types.add(c["task_type"])
-            varied.append(c)
-        else:
-            remainder.append(c)
+    # ------------------------------------------------------------------ #
+    # Minimum 5 tasks guarantee
+    # If stage-specific rules didn't produce enough candidates, run the
+    # fallback rule against uncovered deals (highest-value first).
+    # ------------------------------------------------------------------ #
+    if len(candidates) < 5:
+        already_covered_ids = {t["deal_id"] for t in candidates}
+        remaining_deals = sorted(
+            [
+                d for d in deals
+                if (d.get("id") or d.get("zoho_id") or "") not in already_covered_ids
+                and (d.get("stage") or "").strip() not in CLOSED_STAGES
+            ],
+            key=lambda d: -(float(d.get("amount") or 0)),
+        )
+        for deal in remaining_deals:
+            if len(candidates) >= 5:
+                break
+            for rule in _FALLBACK_RULES:
+                result = rule(deal)
+                if result:
+                    deal_id = deal.get("id") or deal.get("zoho_id") or ""
+                    amount = deal.get("amount") or 0
+                    stage = (deal.get("stage") or "").strip()
+                    health_mult = _health_multiplier(deal)
+                    urgency = min(round(result["urgency"] * health_mult), 100)
+                    candidates.append({
+                        "id": str(uuid.uuid4()),
+                        "deal_id": deal_id,
+                        "deal_name": deal.get("name") or deal.get("deal_name") or "Unnamed deal",
+                        "company": deal.get("account_name") or deal.get("company") or "",
+                        "stage": stage,
+                        "amount": float(amount) if amount else None,
+                        "amount_fmt": _fmt_amount(amount) if amount else "",
+                        "task_type": result["task_type"],
+                        "task_type_label": TASK_TYPE_LABELS.get(result["task_type"], result["task_type"]),
+                        "task_text": result["task_text"],
+                        "reason": result.get("reason", ""),
+                        "urgency": urgency,
+                        "health_label": deal.get("health_label") or "",
+                        "is_completed": False,
+                        "completed_at": None,
+                    })
+                    break
 
-    tasks = varied + remainder
-    for i, t in enumerate(tasks):
+    # ------------------------------------------------------------------ #
+    # Select exactly 5 tasks with diversity: max 2 per task_type.
+    # Primary sort: urgency desc. Tiebreak: amount desc (already sorted above).
+    # ------------------------------------------------------------------ #
+    selected: list[dict] = []
+    type_counts: dict[str, int] = {}
+
+    for task in candidates:
+        if len(selected) >= 5:
+            break
+        task_type = task.get("task_type", "email")
+        if type_counts.get(task_type, 0) >= 2:
+            continue
+        selected.append(task)
+        type_counts[task_type] = type_counts.get(task_type, 0) + 1
+
+    # Safety fill: if diversity filter left us short (rare), fill from remaining
+    if len(selected) < 5:
+        selected_ids = {t["id"] for t in selected}
+        for task in candidates:
+            if len(selected) >= 5:
+                break
+            if task["id"] not in selected_ids:
+                selected.append(task)
+
+    # Final sort by urgency desc, then assign clean sort_order 0–4
+    selected.sort(key=lambda t: (-t.get("urgency", 0), -(t.get("amount") or 0)))
+    for i, t in enumerate(selected):
         t["sort_order"] = i
 
-    return tasks
+    return selected
 
 
 def generate_untouched_deals(deals: list[dict], limit: int = 10) -> list[dict]:
     """
-    Return up to `limit` deals that need attention, sorted by urgency.
-
-    Two tiers:
-      Tier 1 (days 14–29): Recently touched but showing warning signs
-                           (at_risk / critical health, or no inbound reply)
-      Tier 2 (30+ days):   Deals that have gone fully silent
-
-    Within each tier, sort by deal amount descending so the highest-value
-    at-risk deals surface first.
+    Return exactly `limit` deals that have had no contact for 30 or more days,
+    sorted by deal amount descending (highest-value silent deals first).
     """
-    tier1: list[dict] = []
-    tier2: list[dict] = []
+    untouched: list[dict] = []
 
     for deal in deals:
         stage = (deal.get("stage") or "").strip()
@@ -506,10 +617,13 @@ def generate_untouched_deals(deals: list[dict], limit: int = 10) -> list[dict]:
             continue
         days = min(days_options)
 
+        if days < 30:
+            continue
+
         amount = deal.get("amount") or 0
         health = deal.get("health_label") or "at_risk"
 
-        entry = {
+        untouched.append({
             "deal_id": deal.get("id") or deal.get("zoho_id") or "",
             "deal_name": deal.get("name") or deal.get("deal_name") or "Unnamed deal",
             "company": deal.get("account_name") or deal.get("company") or "",
@@ -520,19 +634,11 @@ def generate_untouched_deals(deals: list[dict], limit: int = 10) -> list[dict]:
             "days_since_contact": days,
             "health_label": health,
             "suggested_action": _suggest_re_engagement(stage, days, deal),
-        }
+        })
 
-        if days >= 30:
-            tier2.append(entry)
-        elif days >= 14 and health in ("zombie", "critical", "at_risk"):
-            # Recently touched but health is deteriorating — worth flagging
-            tier1.append(entry)
-
-    tier1.sort(key=lambda x: -(x["amount"] or 0))
-    tier2.sort(key=lambda x: -(x["amount"] or 0))
-
-    combined = tier1 + tier2
-    return combined[:limit]
+    # Highest-value silent deals first
+    untouched.sort(key=lambda x: -(x["amount"] or 0))
+    return untouched[:limit]
 
 
 def _suggest_re_engagement(stage: str, days: int, deal: dict) -> str:

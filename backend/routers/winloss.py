@@ -326,8 +326,31 @@ async def analyze_outcome(
         except Exception as e:
             logger.warning("winloss: email enrichment failed deal=%s: %s", body.deal_id, e)
 
+    import hashlib
+    from services.ai_cache import get_or_generate, build_input_hash, build_prior_context
+
+    # Inject prior intelligence from when deal was active
+    prior_ctx = await build_prior_context(body.deal_id, ["health_analysis", "nba"])
+    if prior_ctx:
+        deal["_prior_intelligence_note"] = prior_ctx
+
+    wl_hash = build_input_hash({
+        "outcome": body.outcome,
+        "deal_name": deal_name,
+        "amount": deal.get("amount", 0),
+        "notes": body.notes or "",
+        "email_hash": hashlib.sha256(email_context.encode()).hexdigest()[:16],
+    })
+
     try:
-        analysis = await _call_groq_full(deal, body.outcome, deal_name, email_context)
+        analysis = await get_or_generate(
+            deal_id=body.deal_id,
+            analysis_type="win_loss",
+            input_hash=wl_hash,
+            generator=lambda: _call_groq_full(deal, body.outcome, deal_name, email_context),
+            result_text_fn=lambda r: r.get("primary_reason", ""),
+            model_used="claude-sonnet-4-6",
+        )
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"AI analysis failed: {str(e)}")
 

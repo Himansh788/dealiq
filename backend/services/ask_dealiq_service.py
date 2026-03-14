@@ -127,6 +127,11 @@ def _assemble_deal_context(
     """
     sections: List[str] = []
 
+    # 0. Inject prior intelligence if available (from ai_cache compound intelligence)
+    prior = deal.get("_prior_intelligence")
+    if prior:
+        sections.append(f"=== {prior} ===")
+
     # 1. Deal metadata — always included
     sections.append("=== DEAL METADATA ===\n" + _fmt_deal_meta(deal))
 

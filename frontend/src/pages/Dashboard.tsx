@@ -19,7 +19,6 @@ import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import DealDetailPanel from "@/components/DealDetailPanel";
-import AlertsDigestPanel from "@/components/AlertsDigestPanel";
 import BuyingSignalPanel from "@/components/BuyingSignalPanel";
 import NavBar from "@/components/NavBar";
 import DemoTour from "@/components/DemoTour";
@@ -367,8 +366,6 @@ export default function Dashboard() {
   const [selectedDealId, setSelectedDealId] = useState<string | null>(null);
   const [panelInitialSection, setPanelInitialSection] = useState<string | undefined>(undefined);
   const [panelInitialTab, setPanelInitialTab] = useState<"Overview" | "Battle Card">("Overview");
-  const [digestOpen, setDigestOpen] = useState(false);
-  const [digestCriticalCount, setDigestCriticalCount] = useState<number | undefined>(undefined);
   const [signalPanelOpen, setSignalPanelOpen] = useState(false);
   const [teamSummary, setTeamSummary] = useState<TeamActivitySummary | null>(null);
   const [loadingTeam, setLoadingTeam] = useState(false);
@@ -818,9 +815,7 @@ export default function Dashboard() {
       {/* ── Header ── */}
       <div className="sticky top-0 z-40 bg-background/90 backdrop-blur-[16px] border-b border-border/40">
         <NavBar
-          onOpenDigest={() => setDigestOpen(true)}
           onOpenSignal={() => setSignalPanelOpen(true)}
-          digestCriticalCount={digestCriticalCount}
           deals={allDeals}
           onSelectDeal={(id) => { setPanelInitialSection(undefined); setSelectedDealId(id); }}
           onOpenMismatch={openMismatchForMostAtRisk}
@@ -1711,7 +1706,6 @@ export default function Dashboard() {
           }));
         }}
       />
-      <AlertsDigestPanel open={digestOpen} onClose={() => setDigestOpen(false)} />
       <BuyingSignalPanel open={signalPanelOpen} onClose={() => setSignalPanelOpen(false)} />
 
       {/* ── Guided tour ── */}

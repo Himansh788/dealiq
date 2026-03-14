@@ -1000,10 +1000,12 @@ async def get_deal_health(deal_id: str, authorization: str = Header(...)):
         stage_name=raw.get("stage"),
     )
 
-    # Generate AI analysis (non-blocking — returns {} on failure)
+    # Generate AI analysis — cached in PostgreSQL, only calls LLM on data change
     ai_analysis: dict = {}
     try:
         from services.deal_health_ai import generate_deal_health_analysis
+        from services.ai_cache import get_or_generate, build_input_hash
+
         deal_age_days = None
         if raw.get("created_time"):
             try:
@@ -1028,21 +1030,47 @@ async def get_deal_health(deal_id: str, authorization: str = Header(...)):
             if outbound_from_outlook > enriched_activity_summary.get("emails_outbound", 0):
                 enriched_activity_summary["emails_outbound"] = outbound_from_outlook
 
-        ai_analysis = await asyncio.wait_for(
-            generate_deal_health_analysis(
-                deal_name=raw.get("name", "Unknown"),
-                deal_stage=raw.get("stage", "Unknown"),
-                deal_amount=raw.get("amount"),
-                deal_age_days=deal_age_days,
-                deal_owner=raw.get("owner"),
-                contact_name=raw.get("contact_name"),
-                signals=enriched_signals,
-                health_label=result.health_label,
-                total_score=result.total_score,
-                timeline_analysis=timeline_analysis,
-                activity_summary=enriched_activity_summary,
-            ),
-            timeout=45,
+        # Build input hash from fields that actually affect the AI output
+        cache_input = {
+            "stage": raw.get("stage"),
+            "amount": raw.get("amount"),
+            "health_label": result.health_label,
+            "total_score": result.total_score,
+            "deal_age_days": deal_age_days,
+            "emails_inbound": enriched_activity_summary.get("emails_inbound", 0),
+            "emails_outbound": enriched_activity_summary.get("emails_outbound", 0),
+            "days_since_activity": timeline_analysis.get("days_since_last_human_activity"),
+            "stage_progression_count": len(timeline_analysis.get("stage_progression", [])),
+            "contact_count": enriched_activity_summary.get("total_contacts", 0),
+            "signal_scores": [(s.name, s.score) for s in enriched_signals],
+        }
+        input_hash = build_input_hash(cache_input)
+
+        async def _generate_health_ai():
+            return await asyncio.wait_for(
+                generate_deal_health_analysis(
+                    deal_name=raw.get("name", "Unknown"),
+                    deal_stage=raw.get("stage", "Unknown"),
+                    deal_amount=raw.get("amount"),
+                    deal_age_days=deal_age_days,
+                    deal_owner=raw.get("owner"),
+                    contact_name=raw.get("contact_name"),
+                    signals=enriched_signals,
+                    health_label=result.health_label,
+                    total_score=result.total_score,
+                    timeline_analysis=timeline_analysis,
+                    activity_summary=enriched_activity_summary,
+                ),
+                timeout=45,
+            )
+
+        ai_analysis = await get_or_generate(
+            deal_id=deal_id,
+            analysis_type="health_analysis",
+            input_hash=input_hash,
+            generator=_generate_health_ai,
+            result_text_fn=lambda r: r.get("analysis_summary", ""),
+            model_used="claude-sonnet-4-6",
         )
     except asyncio.TimeoutError:
         logger.warning("deal_health_ai timed out for %s — skipping AI analysis", deal_id)
@@ -1376,6 +1404,9 @@ async def update_deal_field(
             await cache_delete_pattern(f"dealiq:emails:*:{deal_id}")
             await cache_delete_pattern(f"dealiq:timeline:*:{deal_id}")
             await cache_delete_pattern(f"dealiq:activities:*:{deal_id}")
+            # Invalidate PostgreSQL AI cache for this deal
+            from services.ai_cache import invalidate_deal
+            await invalidate_deal(deal_id)
             # Evict in-memory fallback entries for this deal (all users)
             stale = [k for k in _health_cache if k.endswith(f":{deal_id}")]
             for k in stale:

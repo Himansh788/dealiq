@@ -367,3 +367,294 @@ async def send_digest_email_now(authorization: str = Header(...)):
     from services.digest_email import send_digest_email
     ok = await send_digest_email(to_email, digest_data, rep_name=session.get("name") or "")
     return {"ok": ok, "sent_to": to_email if ok else None}
+
+
+# --------------------------------------------------------------------------- #
+# GET /digest/tasks/{task_id}/execution
+# --------------------------------------------------------------------------- #
+
+@router.get("/tasks/{task_id}/execution")
+async def get_task_execution(
+    task_id: str,
+    authorization: str = Header(...),
+    # Optional fallback context — used when task isn't in DB yet
+    deal_name: str | None = None,
+    company: str | None = None,
+    stage: str | None = None,
+    task_type: str | None = None,
+    task_text: str | None = None,
+):
+    """
+    Lazily generate execution payload (AI draft, call script, etc.) for one task.
+    Called when a rep expands a task card on the digest page.
+    Accepts optional query params as fallback context if task isn't in DB.
+    """
+    session = _decode_session(authorization)
+    user_key = _user_key(session)
+    simulated = _is_demo(session)
+
+    # Load task from DB to get full context
+    task_data: dict | None = None
+    try:
+        from database.connection import get_db
+        from database.models import DigestTask
+        from sqlalchemy import select
+        async for db in get_db():
+            if db is None:
+                break
+            row = (await db.execute(
+                select(DigestTask).where(
+                    DigestTask.id == task_id,
+                    DigestTask.user_key == user_key,
+                )
+            )).scalar_one_or_none()
+            if row:
+                task_data = {
+                    "id": row.id,
+                    "deal_id": row.deal_id,
+                    "deal_name": row.deal_name,
+                    "company": row.company or "",
+                    "stage": row.stage or "",
+                    "amount": float(row.amount) if row.amount else None,
+                    "amount_fmt": "",
+                    "task_type": row.task_type,
+                    "task_text": row.task_text,
+                    "reason": row.reason or "",
+                }
+                # Format amount
+                if row.amount:
+                    v = float(row.amount)
+                    if v >= 1_000_000:
+                        task_data["amount_fmt"] = f"${v/1_000_000:.1f}M"
+                    elif v >= 1_000:
+                        task_data["amount_fmt"] = f"${round(v/1_000)}K"
+                    else:
+                        task_data["amount_fmt"] = f"${round(v)}"
+            break
+    except Exception as e:
+        logger.debug("get_task_execution: DB load failed: %s", e)
+
+    # If DB unavailable or task not persisted yet, build a minimal context from
+    # the query params the frontend can supply, then fall back to a generic stub.
+    # Never return 404 — execution content can still be generated without DB data.
+    if not task_data:
+        task_data = {
+            "id": task_id,
+            "deal_id": task_id,
+            "deal_name": deal_name or "Unknown deal",
+            "company": company or "",
+            "stage": stage or "",
+            "amount": None,
+            "amount_fmt": "",
+            "task_type": task_type or "email",
+            "task_text": task_text or "Follow up on this deal",
+            "reason": "",
+        }
+
+    # Check if Outlook is connected for this user
+    outlook_connected = False
+    if not simulated:
+        try:
+            from routers.ms_auth import get_user_token
+            tok = await get_user_token(user_key)
+            outlook_connected = bool(tok and tok.get("access_token"))
+        except Exception:
+            pass
+
+    from services.task_execution_service import generate_execution
+    execution = await generate_execution(task_data, outlook_connected=outlook_connected)
+
+    return {"task_id": task_id, "execution": execution}
+
+
+# --------------------------------------------------------------------------- #
+# POST /digest/tasks/{task_id}/execute
+# --------------------------------------------------------------------------- #
+
+class ExecuteTaskBody(BaseModel):
+    action: str          # "send_email" | "schedule_meeting" | "log_call" | "mark_sent" | "send_resources"
+    # Email / resources
+    subject: str | None = None
+    body_html: str | None = None
+    to: list[dict] | None = None
+    cc: list[dict] | None = None
+    # Meeting
+    start_iso: str | None = None
+    duration_minutes: int | None = None
+    attendees: list[dict] | None = None
+    # Call
+    outcome: str | None = None
+    notes: str | None = None
+
+
+@router.post("/tasks/{task_id}/execute")
+async def execute_task(task_id: str, body: ExecuteTaskBody, authorization: str = Header(...)):
+    """
+    Execute a task action: send email, schedule meeting, log call, etc.
+    Marks the task as complete on success and optionally syncs to Zoho CRM.
+    """
+    session = _decode_session(authorization)
+    user_key = _user_key(session)
+    simulated = _is_demo(session)
+
+    # Demo mode — just mark complete, no actual send
+    if simulated:
+        return {"ok": True, "action": body.action, "simulated": True}
+
+    result: dict = {"ok": False, "action": body.action}
+
+    # Get Outlook token
+    outlook_token: str | None = None
+    try:
+        from routers.ms_auth import get_user_token
+        tok = await get_user_token(user_key)
+        outlook_token = tok.get("access_token") if tok else None
+    except Exception:
+        pass
+
+    # Load task for deal_id and CRM context
+    deal_id: str = ""
+    try:
+        from database.connection import get_db
+        from database.models import DigestTask
+        from sqlalchemy import select
+        async for db in get_db():
+            if db is None:
+                break
+            row = (await db.execute(
+                select(DigestTask).where(
+                    DigestTask.id == task_id,
+                    DigestTask.user_key == user_key,
+                )
+            )).scalar_one_or_none()
+            if row:
+                deal_id = row.deal_id
+            break
+    except Exception as e:
+        logger.debug("execute_task: DB load failed: %s", e)
+
+    # --- Perform the action ---
+
+    if body.action == "send_email" or body.action == "send_resources":
+        if not outlook_token:
+            raise HTTPException(status_code=400, detail="Outlook not connected — cannot send email")
+        from services.outlook_client import send_email
+        send_result = await send_email(
+            access_token=outlook_token,
+            to=body.to or [],
+            cc=body.cc or [],
+            subject=body.subject or "(no subject)",
+            body_html=body.body_html or "",
+        )
+        result.update(send_result)
+        if send_result.get("success"):
+            result["ok"] = True
+            # Log to Zoho CRM
+            if deal_id and session.get("access_token"):
+                try:
+                    from services.zoho_writer import create_meeting_note
+                    await create_meeting_note(
+                        deal_id=deal_id,
+                        token=session["access_token"],
+                        note_content=f"[DealIQ Digest] Email sent: {body.subject}",
+                    )
+                except Exception as e:
+                    logger.debug("execute_task: Zoho note failed: %s", e)
+
+    elif body.action == "schedule_meeting":
+        if not outlook_token:
+            raise HTTPException(status_code=400, detail="Outlook not connected — cannot create calendar event")
+        from services.outlook_client import create_calendar_event
+        cal_result = await create_calendar_event(
+            access_token=outlook_token,
+            subject=body.subject or "Vervotech — next steps",
+            attendees=body.attendees or [],
+            start_iso=body.start_iso or "",
+            duration_minutes=body.duration_minutes or 30,
+            body_html=body.body_html or "",
+        )
+        result.update(cal_result)
+        if cal_result.get("success"):
+            result["ok"] = True
+
+    elif body.action in ("log_call", "mark_sent"):
+        # These are manual confirmations — just mark complete
+        result["ok"] = True
+        if body.notes and deal_id and session.get("access_token") and not simulated:
+            try:
+                from services.zoho_writer import create_meeting_note
+                await create_meeting_note(
+                    deal_id=deal_id,
+                    token=session["access_token"],
+                    note_content=f"[DealIQ Digest] {body.action}: {body.notes}",
+                )
+            except Exception as e:
+                logger.debug("execute_task: Zoho note for %s failed: %s", body.action, e)
+
+    else:
+        result["ok"] = True  # Unknown action — optimistically succeed
+
+    # Mark task complete in DB if action succeeded
+    if result["ok"]:
+        try:
+            from database.connection import get_db
+            from database.models import DigestTask
+            from sqlalchemy import select
+            async for db in get_db():
+                if db is None:
+                    break
+                row = (await db.execute(
+                    select(DigestTask).where(
+                        DigestTask.id == task_id,
+                        DigestTask.user_key == user_key,
+                    )
+                )).scalar_one_or_none()
+                if row:
+                    row.is_completed = True
+                    row.completed_at = datetime.now(timezone.utc)
+                    await db.commit()
+                break
+        except Exception as e:
+            logger.debug("execute_task: DB complete failed: %s", e)
+
+    return result
+
+
+# --------------------------------------------------------------------------- #
+# POST /digest/tasks/{task_id}/skip
+# --------------------------------------------------------------------------- #
+
+class SkipTaskBody(BaseModel):
+    reason: str | None = None
+
+
+@router.post("/tasks/{task_id}/skip")
+async def skip_task(task_id: str, body: SkipTaskBody, authorization: str = Header(...)):
+    """Mark a task as skipped (treated as complete with a skip note)."""
+    session = _decode_session(authorization)
+    user_key = _user_key(session)
+
+    try:
+        from database.connection import get_db
+        from database.models import DigestTask
+        from sqlalchemy import select
+        async for db in get_db():
+            if db is None:
+                return {"ok": True, "persisted": False}
+            row = (await db.execute(
+                select(DigestTask).where(
+                    DigestTask.id == task_id,
+                    DigestTask.user_key == user_key,
+                )
+            )).scalar_one_or_none()
+            if not row:
+                raise HTTPException(status_code=404, detail="Task not found")
+            row.is_completed = True
+            row.completed_at = datetime.now(timezone.utc)
+            await db.commit()
+            return {"ok": True, "persisted": True, "skipped": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.warning("skip_task: DB failed: %s", e)
+        return {"ok": True, "persisted": False}

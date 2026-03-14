@@ -267,7 +267,20 @@ async def analyse_discount(
     authorization: str = Header(...),
 ):
     _decode_session(authorization)
-    raw = await analyse_discount_thread(email_thread)
+    from services.ai_cache import get_or_generate, build_input_hash
+    import hashlib
+    disc_hash = build_input_hash({
+        "deal_id": deal_id or "unknown",
+        "email_hash": hashlib.sha256(email_thread.encode()).hexdigest()[:16],
+    })
+    raw = await get_or_generate(
+        deal_id=deal_id or "unknown",
+        analysis_type="discount",
+        input_hash=disc_hash,
+        generator=lambda: analyse_discount_thread(email_thread),
+        result_text_fn=lambda r: f"Pressure: {r.get('pressure_level', 'unknown')}. {r.get('recommendation', '')}",
+        model_used="claude-sonnet-4-6",
+    )
     mentions = [
         DiscountMention(
             mention_index=m.get("mention_index", i + 1),
@@ -470,13 +483,38 @@ async def run_deal_autopsy(
     email_context = await _fetch_email_context(request.deal_id, session, limit=8)
     activity_context = _build_activity_context(deal_with_health)
 
-    autopsy = await generate_deal_autopsy(
-        deal=deal_with_health,
-        health_signals=signals,
-        kill_reason=request.kill_reason,
-        email_context=email_context,
-        activity_context=activity_context,
-        deal_context=build_deal_context(deal_with_health),
+    from services.ai_cache import get_or_generate, build_input_hash, build_prior_context
+    import hashlib
+
+    # Inject prior intelligence into deal_context
+    prior_context = await build_prior_context(request.deal_id, ["health_analysis", "nba", "deal_insights"])
+    enriched_deal_context = build_deal_context(deal_with_health)
+    if prior_context:
+        enriched_deal_context = f"{prior_context}\n\n{enriched_deal_context}"
+
+    cache_input = {
+        "stage": deal_with_health.get("stage"),
+        "health_label": health.health_label,
+        "health_score": health.total_score,
+        "kill_reason": request.kill_reason or "",
+        "email_hash": hashlib.sha256(email_context.encode()).hexdigest()[:16],
+    }
+    input_hash = build_input_hash(cache_input)
+
+    autopsy = await get_or_generate(
+        deal_id=request.deal_id,
+        analysis_type="deal_autopsy",
+        input_hash=input_hash,
+        generator=lambda: generate_deal_autopsy(
+            deal=deal_with_health,
+            health_signals=signals,
+            kill_reason=request.kill_reason,
+            email_context=email_context,
+            activity_context=activity_context,
+            deal_context=enriched_deal_context,
+        ),
+        result_text_fn=lambda r: r.get("cause_of_death", ""),
+        model_used="claude-sonnet-4-6",
     )
 
     return {
