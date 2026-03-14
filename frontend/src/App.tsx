@@ -24,6 +24,7 @@ import WinLossPage from "./pages/WinLossPage";
 import RegionalAnalytics from "./pages/RegionalAnalytics";
 import ContractIntelligence from "./pages/ContractIntelligence";
 import DigestPage from "./pages/DigestPage";
+import DealsListPage from "./pages/DealsListPage";
 
 const queryClient = new QueryClient();
 
@@ -53,6 +54,7 @@ const App = () => (
               <Route path="/home" element={<AppLayout><Home /></AppLayout>} />
               <Route path="/digest" element={<AppLayout><DigestPage /></AppLayout>} />
               <Route path="/dashboard" element={<AppLayout><Dashboard /></AppLayout>} />
+              <Route path="/deals" element={<AppLayout><DealsListPage /></AppLayout>} />
               <Route path="/forecast" element={<AppLayout><ForecastAnalyticsPage /></AppLayout>} />
               <Route path="/forecast/ai" element={<AppLayout><ForecastPage /></AppLayout>} />
               <Route path="/analytics" element={<AppLayout><ForecastAnalyticsPage /></AppLayout>} />

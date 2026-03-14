@@ -733,6 +733,10 @@ export const api = {
       headers: authHeaders(),
     }).then(handleResponse),
 
+  // ── Dashboard Command Center ────────────────────────────────────────────
+  getDashboardToday: (signal?: AbortSignal) =>
+    fetchWithTimeout(`${API_URL}/dashboard/today`, { headers: authHeaders(), signal, timeoutMs: 90_000 }).then(handleResponse),
+
   // ── Daily Digest ─────────────────────────────────────────────────────────
   getTodayDigest: (signal?: AbortSignal) =>
     fetchWithTimeout(`${API_URL}/digest/today`, { headers: authHeaders(), signal }).then(handleResponse),

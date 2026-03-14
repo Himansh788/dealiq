@@ -3,6 +3,7 @@ import {
   BarChart3,
   Home,
   LayoutDashboard,
+  List,
   Mail,
   Sparkles,
   Trophy,
@@ -10,7 +11,7 @@ import {
   ScrollText,
   Settings,
   LogOut,
-  Clock,
+  Zap,
 } from "lucide-react";
 import {
   Tooltip,
@@ -24,9 +25,8 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 // ── Nav config ────────────────────────────────────────────────────────────────
 
 const TOP_NAV = [
-  { icon: Home, label: "My Day", path: "/home", dot: false },
-  { icon: Clock, label: "Daily Digest", path: "/digest", dot: false },
-  { icon: LayoutDashboard, label: "Deals", path: "/dashboard", dot: false },
+  { icon: Zap, label: "Command Center", path: "/dashboard", dot: false },
+  { icon: List, label: "All Deals", path: "/deals", dot: false },
   { icon: TrendingUp, label: "Forecast & Analytics", path: "/forecast", dot: false },
   { icon: Mail, label: "Email", path: "/emails", dot: true },
   { icon: Sparkles, label: "Ask AI", path: "/ask", dot: false },
@@ -89,7 +89,6 @@ export default function Sidebar() {
 
   const isActive = (path: string) =>
     location.pathname === path ||
-    (path === "/dashboard" && location.pathname === "/deals") ||
     (path === "/forecast" && location.pathname === "/analytics");
 
   return (

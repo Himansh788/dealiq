@@ -27,6 +27,7 @@ from routers.regional_analytics import router as regional_analytics_router
 from routers.contracts import router as contracts_router
 from routers.next_steps import router as next_steps_router
 from routers.digest import router as digest_router
+from routers.dashboard_cmd import router as dashboard_cmd_router
 import uvicorn
 
 app = FastAPI(
@@ -72,6 +73,7 @@ app.include_router(regional_analytics_router, prefix="/analytics", tags=["Region
 app.include_router(contracts_router, prefix="/contracts", tags=["Contract Intelligence"])
 app.include_router(next_steps_router, tags=["Next Steps"])
 app.include_router(digest_router, prefix="/digest", tags=["Daily Digest"])
+app.include_router(dashboard_cmd_router, prefix="/dashboard", tags=["Dashboard Command Center"])
 
 
 _SEED_DOCX = os.path.join(os.path.dirname(__file__), "seeds", "vervotech_standard.docx")
