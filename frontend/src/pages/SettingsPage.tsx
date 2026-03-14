@@ -68,7 +68,7 @@ export default function SettingsPage() {
 
   async function sendTestEmail() {
     try {
-      const result: any = await api.sendDigestEmailNow();
+      const result: any = await api.sendDigestEmailNow(digestPrefs.email_address || undefined);
       if (result.ok) {
         toast({ title: "Digest email sent", description: `Sent to ${result.sent_to}` });
       } else {

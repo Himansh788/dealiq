@@ -10,8 +10,6 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-_RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
-_FROM_EMAIL = os.getenv("DIGEST_FROM_EMAIL", "DealIQ <digest@dealiq.app>")
 _APP_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
 
 TASK_TYPE_ICONS = {
@@ -115,7 +113,10 @@ def _build_html(digest: dict, rep_name: str = "") -> str:
 
 async def send_digest_email(to_email: str, digest: dict, rep_name: str = "") -> bool:
     """Send the daily digest email via Resend. Returns True on success."""
-    if not _RESEND_API_KEY:
+    api_key = os.getenv("RESEND_API_KEY", "")
+    from_email = os.getenv("DIGEST_FROM_EMAIL", "DealIQ <onboarding@resend.dev>")
+
+    if not api_key:
         logger.warning("RESEND_API_KEY not set — skipping digest email to %s", to_email)
         return False
 
@@ -123,7 +124,7 @@ async def send_digest_email(to_email: str, digest: dict, rep_name: str = "") -> 
         import httpx
         today_str = date.today().strftime("%A, %B %-d")
         payload = {
-            "from": _FROM_EMAIL,
+            "from": from_email,
             "to": [to_email],
             "subject": f"Your DealIQ digest — {today_str}",
             "html": _build_html(digest, rep_name),
@@ -132,15 +133,15 @@ async def send_digest_email(to_email: str, digest: dict, rep_name: str = "") -> 
             resp = await client.post(
                 "https://api.resend.com/emails",
                 headers={
-                    "Authorization": f"Bearer {_RESEND_API_KEY}",
+                    "Authorization": f"Bearer {api_key}",
                     "Content-Type": "application/json",
                 },
                 json=payload,
             )
         if resp.status_code in (200, 201):
-            logger.info("Digest email sent to %s", to_email)
+            logger.info("Digest email sent to %s (id=%s)", to_email, resp.json().get("id"))
             return True
-        logger.error("Resend error %s: %s", resp.status_code, resp.text)
+        logger.error("Resend error %s — from=%s to=%s body=%s", resp.status_code, from_email, to_email, resp.text)
         return False
     except Exception as e:
         logger.exception("Failed to send digest email to %s: %s", to_email, e)

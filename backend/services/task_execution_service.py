@@ -21,8 +21,8 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-_SPEED_MODEL = "llama-3.1-8b-instant"
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
+_SPEED_MODEL = "claude-haiku-4-5-20251001"
 
 DEMO_CASE_STUDY_CONTENT = [
     {
@@ -53,21 +53,20 @@ DEMO_CASE_STUDY_CONTENT = [
 # Groq helper
 # --------------------------------------------------------------------------- #
 
-async def _call_groq(prompt: str) -> Optional[str]:
-    if not GROQ_API_KEY:
+async def _call_claude(prompt: str) -> Optional[str]:
+    if not ANTHROPIC_API_KEY:
         return None
     try:
-        from groq import AsyncGroq
-        client = AsyncGroq(api_key=GROQ_API_KEY)
-        resp = await client.chat.completions.create(
+        import anthropic
+        client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
+        resp = await client.messages.create(
             model=_SPEED_MODEL,
-            messages=[{"role": "user", "content": prompt}],
             max_tokens=600,
-            temperature=0.35,
+            messages=[{"role": "user", "content": prompt}],
         )
-        return resp.choices[0].message.content.strip()
+        return resp.content[0].text.strip()
     except Exception as e:
-        logger.warning("task_execution: Groq call failed: %s", e)
+        logger.warning("task_execution: Claude call failed: %s", e)
         return None
 
 
@@ -115,7 +114,7 @@ Rules:
 
 Return ONLY valid JSON: {{"subject": "...", "body_html": "...", "body_plain": "..."}}"""
 
-    raw = await _call_groq(prompt)
+    raw = await _call_claude(prompt)
     data = _parse_json(raw) if raw else None
 
     if data and "subject" in data and "body_html" in data:
@@ -167,7 +166,7 @@ Generate (each component ≤ 50 words, conversational not scripted):
 
 Return ONLY valid JSON with those exact keys."""
 
-    raw = await _call_groq(prompt)
+    raw = await _call_claude(prompt)
     data = _parse_json(raw) if raw else None
 
     if data and "opening" in data:
@@ -215,7 +214,7 @@ Context: {ctx}
 Rules: under 80 words, casual but professional, one emoji max, friendly ask, not pushy.
 Return ONLY the message text."""
 
-    raw = await _call_groq(prompt)
+    raw = await _call_claude(prompt)
     message = raw.strip() if raw else (
         f"Hi {contact}, hope you're doing well! Just checking in on {deal} — "
         "let me know if you have any questions or if there's anything I can help with. 🙌"

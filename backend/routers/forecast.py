@@ -404,17 +404,21 @@ async def get_forecast_board(authorization: str = Header(default="")):
         from services.health_scorer import score_deal_from_zoho
         access_token = session.get("access_token", "")
         raw_deals = []
-        page = 1
-        while True:
-            page_raw = await fetch_deals(access_token, page=page, per_page=200)
-            if not page_raw:
-                break
-            raw_deals.extend([map_zoho_deal(r) for r in page_raw])
-            if len(page_raw) < 200:
-                break
-            page += 1
-            if page > 10:
-                break
+        try:
+            page = 1
+            while True:
+                page_raw = await fetch_deals(access_token, page=page, per_page=200)
+                if not page_raw:
+                    break
+                raw_deals.extend([map_zoho_deal(r) for r in page_raw])
+                if len(page_raw) < 200:
+                    break
+                page += 1
+                if page > 10:
+                    break
+        except Exception as e:
+            logger.warning("forecast board: Zoho fetch failed (%s), falling back to demo data", e)
+            raw_deals = list(SIMULATED_DEALS)
         # Filter to current user's deals only
         user_name = (session.get("display_name") or "").strip().lower()
         if user_name:

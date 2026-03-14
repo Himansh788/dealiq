@@ -334,29 +334,33 @@ async def update_preferences(body: PreferencesUpdate, authorization: str = Heade
 # POST /digest/send-email
 # --------------------------------------------------------------------------- #
 
+class SendEmailBody(BaseModel):
+    email_address: str | None = None
+
+
 @router.post("/send-email")
-async def send_digest_email_now(authorization: str = Header(...)):
+async def send_digest_email_now(authorization: str = Header(...), body: SendEmailBody = SendEmailBody()):
     session = _decode_session(authorization)
     user_key = _user_key(session)
 
-    to_email: str | None = None
-    try:
-        from database.connection import get_db
-        from database.models import UserPreferences
-        from sqlalchemy import select
-        async for db in get_db():
-            if db is None:
+    to_email: str | None = body.email_address or None
+    if not to_email:
+        try:
+            from database.connection import get_db
+            from database.models import UserPreferences
+            from sqlalchemy import select
+            async for db in get_db():
+                if db is None:
+                    break
+                prefs = (await db.execute(
+                    select(UserPreferences).where(UserPreferences.user_key == user_key)
+                )).scalar_one_or_none()
+                if prefs:
+                    to_email = prefs.email_address
                 break
-            prefs = (await db.execute(
-                select(UserPreferences).where(UserPreferences.user_key == user_key)
-            )).scalar_one_or_none()
-            if prefs:
-                to_email = prefs.email_address
-            break
-    except Exception:
-        pass
+        except Exception:
+            pass
 
-    to_email = to_email or session.get("email")
     if not to_email:
         raise HTTPException(
             status_code=400,

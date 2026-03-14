@@ -763,10 +763,12 @@ export const api = {
       body: JSON.stringify(prefs),
     }).then(handleResponse),
 
-  sendDigestEmailNow: () =>
+  sendDigestEmailNow: (emailAddress?: string) =>
     fetchWithTimeout(`${API_URL}/digest/send-email`, {
       method: "POST",
       headers: authHeaders(),
+      body: JSON.stringify({ email_address: emailAddress ?? null }),
+      timeoutMs: 90_000,
     }).then(handleResponse),
 
   getTaskExecution: (
