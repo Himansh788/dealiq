@@ -54,6 +54,39 @@ def _user_key(session: dict) -> str:
     return session.get("user_id") or session.get("email") or "zoho_user"
 
 
+def _filter_my_deals(deals: list[dict], session: dict) -> list[dict]:
+    """
+    Filter deals to only those owned by the logged-in user.
+    Matches on owner_id (Zoho user ID) first, falls back to display_name match.
+    """
+    user_id = session.get("user_id") or ""
+    display_name = (session.get("display_name") or "").strip().lower()
+
+    if not user_id and not display_name:
+        return deals
+
+    filtered = []
+    for d in deals:
+        # Primary: match Zoho owner ID
+        if user_id and d.get("owner_id") == str(user_id):
+            filtered.append(d)
+            continue
+        # Fallback: match owner display name (case-insensitive)
+        if display_name and (d.get("owner") or "").strip().lower() == display_name:
+            filtered.append(d)
+            continue
+
+    if not filtered:
+        logger.warning(
+            "digest: no deals matched user_id=%s display_name=%s — returning all %d deals",
+            user_id, display_name, len(deals),
+        )
+        return deals
+
+    logger.info("digest: filtered %d → %d deals for user %s", len(deals), len(filtered), display_name or user_id)
+    return filtered
+
+
 def _days_since(dt_str: Optional[str]) -> Optional[int]:
     if not dt_str:
         return None
@@ -133,7 +166,7 @@ async def get_today_digest(authorization: str = Header(...)):
     user_key = _user_key(session)
     today = date.today().isoformat()
 
-    # Load + prepare deals
+    # Load + prepare deals — filtered to the logged-in user's owned deals only
     if simulated:
         deals = _prepare_deals([dict(d) for d in SIMULATED_DEALS])
     else:
@@ -143,6 +176,7 @@ async def get_today_digest(authorization: str = Header(...)):
                 _fetch_all_zoho_deals(session["access_token"]),
                 timeout=12.0,
             )
+            raw = _filter_my_deals(raw, session)
             deals = _prepare_deals(raw)
         except asyncio.TimeoutError:
             logger.warning("digest: Zoho fetch timed out — falling back to demo data")

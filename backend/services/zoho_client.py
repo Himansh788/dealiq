@@ -231,6 +231,10 @@ def map_zoho_deal(raw: Dict[str, Any]) -> Dict[str, Any]:
         v = raw.get(field)
         return v.get("name") if isinstance(v, dict) else v
 
+    def _id(field: str) -> Optional[str]:
+        v = raw.get(field)
+        return str(v.get("id")) if isinstance(v, dict) and v.get("id") else None
+
     return {
         # ── Core fields (already mapped) ────────────────────────────────────
         "id": raw.get("id", ""),
@@ -240,6 +244,7 @@ def map_zoho_deal(raw: Dict[str, Any]) -> Dict[str, Any]:
         "closing_date": raw.get("Closing_Date"),
         "account_name": _name("Account_Name"),
         "owner": _name("Owner"),
+        "owner_id": _id("Owner"),
         "last_activity_time": raw.get("Last_Activity_Time"),
         "created_time": raw.get("Created_Time"),
         "probability": raw.get("Probability"),
