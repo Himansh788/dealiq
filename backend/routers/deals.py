@@ -773,9 +773,9 @@ async def _compute_pipeline_data(access_token: str, is_demo: bool) -> dict:
         "First sentence: overall state. Second sentence: top priority action."
     )
     try:
-        groq_client = AsyncGroq(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
+        groq_client = AsyncGroq(api_key=os.environ.get("GROQ_API_KEY", ""))
         resp = await groq_client.chat.completions.create(
-            model="claude-sonnet-4-6",
+            model="llama-3.3-70b-versatile",
             messages=[{"role": "user", "content": prompt}],
             max_tokens=120,
             temperature=0.4,
@@ -1070,7 +1070,7 @@ async def get_deal_health(deal_id: str, authorization: str = Header(...)):
             input_hash=input_hash,
             generator=_generate_health_ai,
             result_text_fn=lambda r: r.get("analysis_summary", ""),
-            model_used="claude-sonnet-4-6",
+            model_used="llama-3.3-70b-versatile",
         )
     except asyncio.TimeoutError:
         logger.warning("deal_health_ai timed out for %s — skipping AI analysis", deal_id)

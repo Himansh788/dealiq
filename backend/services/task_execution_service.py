@@ -21,8 +21,8 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
-_SPEED_MODEL = "claude-haiku-4-5-20251001"
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+_SPEED_MODEL = "llama-3.1-8b-instant"
 
 DEMO_CASE_STUDY_CONTENT = [
     {
@@ -54,19 +54,19 @@ DEMO_CASE_STUDY_CONTENT = [
 # --------------------------------------------------------------------------- #
 
 async def _call_claude(prompt: str) -> Optional[str]:
-    if not ANTHROPIC_API_KEY:
+    if not GROQ_API_KEY:
         return None
     try:
-        import anthropic
-        client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
-        resp = await client.messages.create(
+        from groq import AsyncGroq
+        client = AsyncGroq(api_key=GROQ_API_KEY)
+        resp = await client.chat.completions.create(
             model=_SPEED_MODEL,
             max_tokens=600,
             messages=[{"role": "user", "content": prompt}],
         )
-        return resp.content[0].text.strip()
+        return resp.choices[0].message.content.strip()
     except Exception as e:
-        logger.warning("task_execution: Claude call failed: %s", e)
+        logger.warning("task_execution: Groq call failed: %s", e)
         return None
 
 

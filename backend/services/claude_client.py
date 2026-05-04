@@ -1,7 +1,7 @@
 """
 AI Client — Narrative Mismatch, Discount Analysis, Deal Insights
 ================================================================
-Uses Anthropic (claude-sonnet-4-6) for fast, high-quality B2B sales intelligence.
+Uses Anthropic (llama-3.3-70b-versatile) for fast, high-quality B2B sales intelligence.
 """
 
 from services.ai_client import AsyncAnthropicCompat as AsyncGroq
@@ -16,11 +16,11 @@ _client: AsyncGroq | None = None
 def _get_client() -> AsyncGroq:
     global _client
     if _client is None:
-        _client = AsyncGroq(api_key=os.getenv("ANTHROPIC_API_KEY"))
+        _client = AsyncGroq(api_key=os.getenv("GROQ_API_KEY"))
     return _client
 
 
-MODEL = "claude-sonnet-4-6"
+MODEL = "llama-3.3-70b-versatile"
 
 MISMATCH_SYSTEM = """You are a senior deal intelligence analyst specialising in B2B SaaS sales integrity.
 Your role is to forensically compare what was said on a sales call versus what was written in the follow-up email.

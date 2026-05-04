@@ -17,20 +17,20 @@ _client: AsyncGroq | None = None
 def _get_client() -> AsyncGroq:
     global _client
     if _client is None:
-        api_key = os.getenv("ANTHROPIC_API_KEY")
+        api_key = os.getenv("GROQ_API_KEY")
         if not api_key:
-            raise RuntimeError("ANTHROPIC_API_KEY not set")
+            raise RuntimeError("GROQ_API_KEY not set")
         _client = AsyncGroq(api_key=api_key)
     return _client
 
 
 def is_configured() -> bool:
-    return bool(os.getenv("ANTHROPIC_API_KEY"))
+    return bool(os.getenv("GROQ_API_KEY"))
 
 
 # Model selection — quality tasks use the larger model
-MODEL_QUALITY = "claude-sonnet-4-6"   # deal Q&A, MEDDIC, brief
-MODEL_FAST = "claude-haiku-4-5-20251001"        # cross-deal summaries, follow-up email
+MODEL_QUALITY = "llama-3.3-70b-versatile"   # deal Q&A, MEDDIC, brief
+MODEL_FAST = "llama-3.1-8b-instant"        # cross-deal summaries, follow-up email
 
 
 def _extract_json(text: str) -> Dict[str, Any]:

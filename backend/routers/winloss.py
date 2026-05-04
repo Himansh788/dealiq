@@ -44,9 +44,9 @@ def _is_demo(session: dict) -> bool:
 
 
 def _get_groq_client() -> AsyncGroq:
-    api_key = os.getenv("ANTHROPIC_API_KEY")
+    api_key = os.getenv("GROQ_API_KEY")
     if not api_key:
-        raise RuntimeError("ANTHROPIC_API_KEY not set")
+        raise RuntimeError("GROQ_API_KEY not set")
     return AsyncGroq(api_key=api_key)
 
 
@@ -181,7 +181,7 @@ Return ONLY valid JSON — no markdown, no explanation:
 }}"""
 
     response = await client.chat.completions.create(
-        model="claude-sonnet-4-6",
+        model="llama-3.3-70b-versatile",
         messages=[
             {"role": "system", "content": "You are a B2B sales win/loss analyst. Return ONLY valid JSON — no markdown, no explanation outside the JSON object."},
             {"role": "user", "content": prompt},
@@ -229,7 +229,7 @@ Return ONLY valid JSON — no markdown:
 }}"""
 
     response = await client.chat.completions.create(
-        model="claude-sonnet-4-6",  # same model for quality
+        model="llama-3.3-70b-versatile",  # same model for quality
         messages=[
             {"role": "system", "content": "You are a B2B sales win/loss analyst. Return ONLY valid JSON — no markdown, no explanation outside the JSON object."},
             {"role": "user", "content": prompt},
@@ -349,7 +349,7 @@ async def analyze_outcome(
             input_hash=wl_hash,
             generator=lambda: _call_groq_full(deal, body.outcome, deal_name, email_context),
             result_text_fn=lambda r: r.get("primary_reason", ""),
-            model_used="claude-sonnet-4-6",
+            model_used="llama-3.3-70b-versatile",
         )
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"AI analysis failed: {str(e)}")

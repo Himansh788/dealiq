@@ -17,10 +17,10 @@ _client: AsyncGroq | None = None
 def _get_client() -> AsyncGroq:
     global _client
     if _client is None:
-        _client = AsyncGroq(api_key=os.getenv("ANTHROPIC_API_KEY"))
+        _client = AsyncGroq(api_key=os.getenv("GROQ_API_KEY"))
     return _client
 
-MODEL_QUALITY = "claude-sonnet-4-6"
+MODEL_QUALITY = "llama-3.3-70b-versatile"
 MAX_TEXT_CHARS = 14000   # prospect contract text slice
 MAX_STD_CHARS  = 6000    # standard clauses JSON slice
 AI_TIMEOUT_S   = 70      # hard timeout per AI call — stays under 90s frontend timeout

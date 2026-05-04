@@ -200,7 +200,7 @@ async def get_forecast(
                 scope_key=narrative_scope,
                 generator=lambda: generate_pipeline_narrative(forecast_dict),
                 result_text_fn=lambda r: r.get("headline", ""),
-                model_used="claude-sonnet-4-6",
+                model_used="llama-3.3-70b-versatile",
             )
 
             # Rescue priorities — scoped to today
@@ -221,7 +221,7 @@ async def get_forecast(
                     result.this_month_gap,
                 ),
                 result_text_fn=lambda r: r.get("strategy", ""),
-                model_used="claude-sonnet-4-6",
+                model_used="llama-3.3-70b-versatile",
             )
 
             # Rep coaching — cap at 5 reps
@@ -244,7 +244,7 @@ async def get_forecast(
                     scope_key=narrative_scope,
                     generator=lambda _r=_rep: generate_rep_coaching(_r),
                     result_text_fn=lambda r: r.get("summary", ""),
-                    model_used="claude-sonnet-4-6",
+                    model_used="llama-3.3-70b-versatile",
                 ))
 
             all_results = await asyncio.wait_for(

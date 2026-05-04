@@ -13,7 +13,7 @@ Usage:
         input_hash=build_input_hash({"stage": "Proposal", "amount": 50000}),
         generator=lambda: generate_deal_health_analysis(...),
         result_text_fn=lambda r: r.get("analysis_summary", ""),
-        model_used="claude-sonnet-4-6",
+        model_used="llama-3.3-70b-versatile",
     )
 """
 

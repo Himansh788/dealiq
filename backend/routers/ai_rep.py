@@ -280,7 +280,7 @@ async def get_next_best_action(request: NBARequest, authorization: str = Header(
             contacts_block=contacts_block,
         ),
         result_text_fn=lambda r: r.get("situation_read", ""),
-        model_used="claude-sonnet-4-6",
+        model_used="llama-3.3-70b-versatile",
     )
 
     return {
@@ -470,7 +470,7 @@ async def get_call_brief(request: CallBriefRequest, authorization: str = Header(
             contacts_block=contacts_block,
         ),
         result_text_fn=lambda r: r.get("situation_summary", ""),
-        model_used="claude-sonnet-4-6",
+        model_used="llama-3.3-70b-versatile",
     )
 
     return {

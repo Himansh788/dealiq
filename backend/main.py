@@ -288,25 +288,25 @@ async def debug_db():
 
 @app.get("/debug/ai")
 async def debug_ai():
-    """Verify Claude (Anthropic) is connected and responding."""
+    """Verify Groq is connected and responding."""
     import os
-    from anthropic import AsyncAnthropic
-    api_key = os.getenv("ANTHROPIC_API_KEY")
+    from groq import AsyncGroq
+    api_key = os.getenv("GROQ_API_KEY")
     if not api_key:
-        return {"status": "error", "error": "ANTHROPIC_API_KEY not set in .env"}
+        return {"status": "error", "error": "GROQ_API_KEY not set in .env"}
     try:
-        client = AsyncAnthropic(api_key=api_key)
-        resp = await client.messages.create(
-            model="claude-haiku-4-5-20251001",
+        client = AsyncGroq(api_key=api_key)
+        resp = await client.chat.completions.create(
+            model="llama-3.1-8b-instant",
             max_tokens=50,
-            messages=[{"role": "user", "content": "Reply with exactly: DealIQ is running on Claude."}],
+            messages=[{"role": "user", "content": "Reply with exactly: DealIQ is running on Groq."}],
         )
         return {
             "status": "ok",
-            "model": resp.model,
-            "response": resp.content[0].text,
-            "input_tokens": resp.usage.input_tokens,
-            "output_tokens": resp.usage.output_tokens,
+            "model": "llama-3.1-8b-instant",
+            "response": resp.choices[0].message.content,
+            "input_tokens": resp.usage.prompt_tokens,
+            "output_tokens": resp.usage.completion_tokens,
         }
     except Exception as e:
         return {"status": "error", "error": str(e)}

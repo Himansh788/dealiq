@@ -279,7 +279,7 @@ async def analyse_discount(
         input_hash=disc_hash,
         generator=lambda: analyse_discount_thread(email_thread),
         result_text_fn=lambda r: f"Pressure: {r.get('pressure_level', 'unknown')}. {r.get('recommendation', '')}",
-        model_used="claude-sonnet-4-6",
+        model_used="llama-3.3-70b-versatile",
     )
     mentions = [
         DiscountMention(
@@ -514,7 +514,7 @@ async def run_deal_autopsy(
             deal_context=enriched_deal_context,
         ),
         result_text_fn=lambda r: r.get("cause_of_death", ""),
-        model_used="claude-sonnet-4-6",
+        model_used="llama-3.3-70b-versatile",
     )
 
     return {
@@ -648,7 +648,7 @@ async def check_stage_drift(
     # ── 4. Call Groq for AI-powered detection ────────────────────────────────
     try:
         from services.ai_client import AsyncAnthropicCompat as AsyncGroq
-        client = AsyncGroq(api_key=os.getenv("ANTHROPIC_API_KEY"))
+        client = AsyncGroq(api_key=os.getenv("GROQ_API_KEY"))
 
         prompt = f"""You are a CRM data quality checker for a B2B sales team.
 
@@ -680,7 +680,7 @@ Respond ONLY with valid JSON — no markdown, no explanation:
 }}"""
 
         resp = await client.chat.completions.create(
-            model="claude-haiku-4-5-20251001",
+            model="llama-3.1-8b-instant",
             max_tokens=600,
             temperature=0.1,
             messages=[

@@ -18,11 +18,11 @@ _client: AsyncGroq | None = None
 def _get_client() -> AsyncGroq:
     global _client
     if _client is None:
-        _client = AsyncGroq(api_key=os.getenv("ANTHROPIC_API_KEY"))
+        _client = AsyncGroq(api_key=os.getenv("GROQ_API_KEY"))
     return _client
 
 
-MODEL = "claude-haiku-4-5-20251001"  # Speed-optimised for timeline narrative
+MODEL = "llama-3.1-8b-instant"  # Speed-optimised for timeline narrative
 
 
 def _parse_dt(s: Optional[str]) -> Optional[datetime]:

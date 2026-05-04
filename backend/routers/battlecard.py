@@ -169,7 +169,7 @@ CONTACTS & STAKEHOLDERS:
 
 
 async def _call_groq(deal_context: str) -> dict:
-    client = AsyncGroq(api_key=os.getenv("ANTHROPIC_API_KEY"))
+    client = AsyncGroq(api_key=os.getenv("GROQ_API_KEY"))
 
     system_prompt = """You are a brutally honest sales coach preparing a rep for a live call. You have 90 seconds to brief them.
 
@@ -223,7 +223,7 @@ Rules:
 
     try:
         response = await client.chat.completions.create(
-            model="claude-sonnet-4-6",
+            model="llama-3.3-70b-versatile",
             max_tokens=1500,
             messages=[
                 {"role": "system", "content": system_prompt},
@@ -367,7 +367,7 @@ async def generate_battlecard(
                 input_hash=bc_hash,
                 generator=lambda: _call_groq(context_str),
                 result_text_fn=lambda r: r.get("one_liner", ""),
-                model_used="claude-sonnet-4-6",
+                model_used="llama-3.3-70b-versatile",
             ),
             timeout=55,
         )

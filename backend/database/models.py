@@ -199,7 +199,7 @@ class EmailAnalysis(Base):
     result: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
     health_impact: Mapped[int | None] = mapped_column(Integer, nullable=True)
     analysed_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
-    model_version: Mapped[str | None] = mapped_column(String(50), nullable=True, default="claude-haiku")  # stale if model upgraded
+    model_version: Mapped[str | None] = mapped_column(String(50), nullable=True, default="llama-3.1-8b-instant")  # stale if model upgraded
 
     email: Mapped["Email"] = relationship(back_populates="analyses")
 

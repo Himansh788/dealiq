@@ -333,7 +333,7 @@ async def deal_meddic_analysis(
         input_hash=input_hash,
         generator=lambda: ask_meddic_analysis(deal=deal, emails=emails, transcript=transcript),
         result_text_fn=lambda r: r.get("overall_score", ""),
-        model_used="claude-sonnet-4-6",
+        model_used="llama-3.3-70b-versatile",
     )
 
     return {
@@ -389,7 +389,7 @@ async def deal_brief(
         input_hash=input_hash,
         generator=lambda: generate_deal_brief(deal=deal, emails=emails, transcript=transcript),
         result_text_fn=lambda r: r.get("executive_summary", r.get("summary", "")),
-        model_used="claude-sonnet-4-6",
+        model_used="llama-3.3-70b-versatile",
     )
 
     return {
