@@ -2,8 +2,7 @@ fastapi==0.115.6
 python-multipart==0.0.22
 uvicorn[standard]==0.34.0
 httpx==0.28.1
-anthropic>=0.40.0
-# groq>=0.11.0  # kept for reference; replaced by Anthropic SDK via services/ai_client.py
+groq>=0.11.0
 pydantic==2.10.4
 python-dotenv==1.0.1
 sqlalchemy[asyncio]>=2.0
