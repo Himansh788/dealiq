@@ -31,6 +31,9 @@ router = APIRouter()
 # ── state → user_key map (short-lived, only during OAuth flow) ─────────────
 _pending_states: dict[str, str] = {}
 
+# ── primary-login state set (used by /outlook-auth/login; no user_key yet) ─
+_primary_states: set[str] = set()
+
 # ── L1 in-memory cache (user_key → token dict) ────────────────────────────
 # Populated on first DB read; evicted on disconnect or explicit refresh.
 _token_cache: dict[str, dict] = {}
@@ -329,6 +332,7 @@ async def ms_callback(code: str, state: str):
     if not _client_id():
         raise HTTPException(status_code=501, detail="Microsoft OAuth not configured.")
 
+    me: dict = {}
     async with httpx.AsyncClient() as client:
         resp = await client.post(
             f"{_auth_base()}/token",
@@ -344,7 +348,6 @@ async def ms_callback(code: str, state: str):
         resp.raise_for_status()
         token_data = resp.json()
 
-        # Fetch the MS user email for display + to use as an additional identity signal
         try:
             me_resp = await client.get(
                 "https://graph.microsoft.com/v1.0/me",
@@ -356,18 +359,34 @@ async def ms_callback(code: str, state: str):
         except Exception:
             pass
 
-    user_key = _pending_states.pop(state, "default")
+    is_primary = state in _primary_states
+    if is_primary:
+        _primary_states.discard(state)
+        user_key = token_data.get("ms_email") or "default"
+    else:
+        user_key = _pending_states.pop(state, "default")
+
     tokens = {
         **token_data,
         "expires_at": _expires_at_from_response(token_data).isoformat(),
     }
 
-    # Persist to L1 cache and DB
     _token_cache[user_key] = tokens
     await _save_token_to_db(user_key, tokens)
-    logger.info("ms_auth: token stored for user_key=%s ms_email=%s", user_key, tokens.get("ms_email"))
+    logger.info("ms_auth: token stored user_key=%s ms_email=%s primary=%s", user_key, tokens.get("ms_email"), is_primary)
 
     frontend_url = os.getenv("FRONTEND_URL", "http://localhost:8080")
+    if is_primary:
+        session_payload = {
+            "user_id": me.get("id"),
+            "display_name": me.get("displayName") or token_data.get("ms_email") or "User",
+            "email": token_data.get("ms_email") or "",
+            "access_token": token_data.get("access_token", ""),
+            "refresh_token": token_data.get("refresh_token", ""),
+            "crm_provider": "outlook",
+        }
+        encoded = base64.b64encode(json.dumps(session_payload).encode()).decode()
+        return RedirectResponse(url=f"{frontend_url}/?session={encoded}")
     return RedirectResponse(url=f"{frontend_url}/settings?outlook=connected")
 
 

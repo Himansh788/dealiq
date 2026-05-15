@@ -155,13 +155,13 @@ function CopyButton({ text }: { text: string }) {
 }
 
 export default function HealthBreakdown({ dealId, preloadedData }: { dealId: string; preloadedData?: Record<string, unknown> | null }) {
-  const [data, setData] = useState<HealthData | null>(preloadedData as HealthData | null ?? null);
+  const [data, setData] = useState<HealthData | null>((preloadedData as unknown as HealthData | null) ?? null);
   const [loading, setLoading] = useState(!preloadedData);
 
   useEffect(() => {
     // If parent already fetched health data, use it directly — no second call
     if (preloadedData) {
-      setData(preloadedData as HealthData);
+      setData(preloadedData as unknown as HealthData);
       setLoading(false);
       return;
     }

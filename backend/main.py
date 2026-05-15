@@ -15,6 +15,8 @@ from routers import auth, deals, analysis, ai_rep, forecast, alerts, signals, tr
 from routers.ask import router as ask_router
 from routers.ask_demo import router as ask_demo_router
 from routers.ms_auth import router as ms_auth_router
+from routers.outlook_auth import router as outlook_auth_router
+from routers.zoho_auth import router as zoho_auth_router
 from routers.actions import router as actions_router
 from routers.meeting import router as meeting_router
 from routers.email_intel import router as email_intel_router
@@ -61,6 +63,8 @@ app.include_router(health.router, tags=["Health"])
 app.include_router(ask_router)
 app.include_router(ask_demo_router)
 app.include_router(ms_auth_router, prefix="/ms-auth", tags=["ms-auth"])
+app.include_router(outlook_auth_router, prefix="/outlook-auth", tags=["outlook-auth"])
+app.include_router(zoho_auth_router, prefix="/zoho-auth", tags=["zoho-auth"])
 app.include_router(actions_router, prefix="/actions", tags=["actions"])
 app.include_router(meeting_router, prefix="/meeting", tags=["meeting"])
 app.include_router(email_intel_router, prefix="/email-intel", tags=["email-intel"])

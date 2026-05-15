@@ -252,7 +252,6 @@ export default function TrackersPage() {
 
       {/* ── Header ── */}
       <NavBar
-        onOpenDigest={() => setDigestOpen(true)}
         onOpenSignal={() => setSignalPanelOpen(true)}
       />
 

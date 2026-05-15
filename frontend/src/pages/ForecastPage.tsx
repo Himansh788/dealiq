@@ -276,7 +276,6 @@ export default function ForecastPage() {
   return (
     <div className="min-h-screen bg-background">
       <NavBar
-        onOpenDigest={() => setDigestOpen(true)}
         onOpenSignal={() => setSignalPanelOpen(true)}
       />
 

@@ -158,6 +158,9 @@ export const api = {
       { timeoutMs: 60_000 }
     ).then(handleResponse),
 
+  getOutlookLoginUrl: () =>
+    fetchWithTimeout(`${API_URL}/outlook-auth/login`, { timeoutMs: 60_000 }).then(handleResponse),
+
   getDemoSession: () =>
     fetchWithTimeout(`${API_URL}/auth/demo-session`, { timeoutMs: 60_000 }).then(handleResponse),
 
@@ -592,6 +595,22 @@ export const api = {
 
   disconnectOutlook: () =>
     fetchWithTimeout(`${API_URL}/ms-auth/disconnect`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    }).then(handleResponse),
+
+  // ── Zoho CRM (mid-session connect) ─────────────────────────────────────────
+  getZohoStatus: () =>
+    fetchWithTimeout(`${API_URL}/zoho-auth/status`, { headers: authHeaders() }).then(handleResponse),
+
+  connectZoho: () =>
+    fetchWithTimeout(`${API_URL}/zoho-auth/connect`, {
+      method: "POST",
+      headers: authHeaders(),
+    }).then(handleResponse),
+
+  disconnectZoho: () =>
+    fetchWithTimeout(`${API_URL}/zoho-auth/disconnect`, {
       method: "DELETE",
       headers: authHeaders(),
     }).then(handleResponse),

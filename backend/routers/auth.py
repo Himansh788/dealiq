@@ -28,9 +28,26 @@ def login():
 async def callback(code: str = Query(...), state: str = Query(default="")):
     """
     Handle Zoho OAuth2 callback.
-    Exchanges code for tokens, fetches user info, then redirects to frontend
-    with a base64-encoded session payload in the URL fragment.
+
+    Two flows share this redirect URI:
+      1. Primary login — `state` is unknown to zoho_auth; build a fresh
+         session payload and redirect to /login.
+      2. Mid-session connect (Settings → Integrations) — `state` was issued
+         by /zoho-auth/connect. Persist tokens under the originating user_key
+         and redirect back to /settings without creating a new session.
     """
+    # ── Route mid-session connect first — state set by /zoho-auth/connect ──
+    try:
+        from routers.zoho_auth import consume_secondary_state
+        secondary = await consume_secondary_state(state, code, FRONTEND_URL)
+        if secondary is not None:
+            redirect_url, _user_key = secondary
+            return RedirectResponse(url=redirect_url)
+    except Exception:
+        # Fall through to primary-login path on any unexpected error.
+        pass
+
+    # ── Primary-login path ────────────────────────────────────────────────
     try:
         tokens = await exchange_code_for_tokens(code)
         if "error" in tokens:
@@ -49,6 +66,7 @@ async def callback(code: str = Query(...), state: str = Query(default="")):
             "email": user.get("email"),
             "access_token": access_token,
             "refresh_token": refresh_token,
+            "crm_provider": "zoho",
         }
         encoded = base64.b64encode(json.dumps(session).encode()).decode()
         return RedirectResponse(url=f"{FRONTEND_URL}/?session={encoded}")

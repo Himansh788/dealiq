@@ -14,6 +14,13 @@ interface OutlookStatus {
   email?: string;
 }
 
+interface ZohoStatus {
+  connected: boolean;
+  message?: string;
+  primary?: boolean;
+  zoho_email?: string;
+}
+
 const CRM_META: Record<string, { label: string; badge: string; color: string; bg: string }> = {
   zoho:        { label: "Zoho CRM",   badge: "Z",  color: "text-[#E42527]",           bg: "bg-[#E42527]/12" },
   salesforce:  { label: "Salesforce", badge: "SF", color: "text-[#00A1E0]",           bg: "bg-[#00A1E0]/12" },
@@ -31,6 +38,11 @@ export default function SettingsPage() {
   const [outlookStatus, setOutlookStatus] = useState<OutlookStatus | null>(null);
   const [loadingOutlook, setLoadingOutlook] = useState(true);
   const [connecting, setConnecting] = useState(false);
+
+  // ── Zoho mid-session integration ─────────────────────────────────────────
+  const [zohoStatus, setZohoStatus] = useState<ZohoStatus | null>(null);
+  const [loadingZoho, setLoadingZoho] = useState(true);
+  const [connectingZoho, setConnectingZoho] = useState(false);
 
   // Digest preferences
   const [digestPrefs, setDigestPrefs] = useState({
@@ -85,13 +97,31 @@ export default function SettingsPage() {
       .catch(() => setOutlookStatus({ connected: false, message: "Failed to check status" }))
       .finally(() => setLoadingOutlook(false));
 
+    api.getZohoStatus()
+      .then(setZohoStatus)
+      .catch(() => setZohoStatus({ connected: false, message: "Failed to check status" }))
+      .finally(() => setLoadingZoho(false));
+
     // Handle redirect back from Microsoft OAuth
     const params = new URLSearchParams(window.location.search);
     if (params.get("outlook") === "connected") {
       toast({ title: "Outlook connected", description: "Email and calendar sync is now active." });
       window.history.replaceState({}, "", window.location.pathname);
-      // Re-fetch status after OAuth redirect
       api.getOutlookStatus().then(setOutlookStatus).catch(() => null);
+    }
+
+    // Handle redirect back from Zoho OAuth (mid-session connect)
+    if (params.get("zoho") === "connected") {
+      toast({ title: "Zoho CRM connected", description: "DealIQ is now reading your live pipeline." });
+      window.history.replaceState({}, "", window.location.pathname);
+      api.getZohoStatus().then(setZohoStatus).catch(() => null);
+    } else if (params.get("zoho_error")) {
+      toast({
+        title: "Zoho connection failed",
+        description: decodeURIComponent(params.get("zoho_error") || ""),
+        variant: "destructive",
+      });
+      window.history.replaceState({}, "", window.location.pathname);
     }
   }, []);
 
@@ -124,6 +154,37 @@ export default function SettingsPage() {
     await api.disconnectOutlook().catch(() => null);
     setOutlookStatus({ connected: false, message: "Disconnected" });
     toast({ title: "Outlook disconnected" });
+  }
+
+  async function handleConnectZoho() {
+    setConnectingZoho(true);
+    try {
+      const result: any = await api.connectZoho();
+      if (result.auth_url) {
+        window.location.href = result.auth_url;
+      } else {
+        toast({ title: "Couldn't start Zoho sign-in", description: result.message ?? "Unknown error", variant: "destructive" });
+      }
+    } catch (err: any) {
+      const msg = err?.message || "Zoho OAuth not configured";
+      if (msg.includes("501") || msg.includes("not configured")) {
+        toast({
+          title: "Zoho not configured",
+          description: "Set ZOHO_CLIENT_ID and ZOHO_CLIENT_SECRET in your backend .env file.",
+          variant: "destructive",
+        });
+      } else {
+        toast({ title: "Couldn't connect Zoho", description: msg, variant: "destructive" });
+      }
+    } finally {
+      setConnectingZoho(false);
+    }
+  }
+
+  async function handleDisconnectZoho() {
+    await api.disconnectZoho().catch(() => null);
+    setZohoStatus({ connected: false, message: "Disconnected" });
+    toast({ title: "Zoho disconnected" });
   }
 
   return (
@@ -218,24 +279,83 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          {/* Active CRM connection */}
+          {/* Zoho CRM (mid-session integration) */}
           <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
+            <div className="flex items-start gap-5">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-[#E42527]/12">
+                <span className="font-display text-base font-bold text-[#E42527]">Z</span>
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className="font-display text-base font-semibold text-foreground">Zoho CRM</p>
+                  {loadingZoho ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                  ) : zohoStatus?.connected ? (
+                    <Badge variant="outline" className="text-[10.5px] h-5 px-2 rounded-full text-health-green border-health-green/30 bg-health-green/10 gap-1">
+                      <CheckCircle className="h-2.5 w-2.5" />
+                      Connected{zohoStatus.zoho_email ? ` · ${zohoStatus.zoho_email}` : ""}{zohoStatus.primary ? " · primary" : ""}
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline" className="text-[10.5px] h-5 px-2 rounded-full text-muted-foreground border-border gap-1">
+                      <XCircle className="h-2.5 w-2.5" />
+                      Not connected yet
+                    </Badge>
+                  )}
+                </div>
+                <p className="text-[13px] text-muted-foreground mt-1.5 leading-relaxed">
+                  Connect Zoho CRM so DealIQ can read your live pipeline — deals, stages, owners, contacts.
+                  Read-only access; we never write to your CRM without confirmation.
+                </p>
+              </div>
+              <div className="shrink-0">
+                {!loadingZoho && (
+                  zohoStatus?.connected && !zohoStatus?.primary ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-9 text-xs rounded-full px-4 text-destructive border-destructive/30 hover:bg-destructive/10"
+                      onClick={handleDisconnectZoho}
+                    >
+                      Disconnect
+                    </Button>
+                  ) : zohoStatus?.primary ? (
+                    <Badge variant="outline" className="text-[10.5px] h-5 px-2 rounded-full border-border text-muted-foreground">
+                      Primary login
+                    </Badge>
+                  ) : (
+                    <Button
+                      size="sm"
+                      className="h-9 text-xs rounded-full px-4 bg-primary hover:bg-primary/90 text-white"
+                      onClick={handleConnectZoho}
+                      disabled={connectingZoho}
+                    >
+                      {connectingZoho && <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />}
+                      Connect Zoho
+                    </Button>
+                  )
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Primary session — informational */}
+          <div className="rounded-2xl border border-border bg-card/60 p-6 shadow-sm">
             <div className="flex items-start gap-5">
               <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl ${crmMeta.bg}`}>
                 <span className={`font-display text-base font-bold ${crmMeta.color}`}>{crmMeta.badge}</span>
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <p className="font-display text-base font-semibold text-foreground">{crmMeta.label}</p>
+                  <p className="font-display text-base font-semibold text-foreground">Signed in as {crmMeta.label}</p>
                   <Badge variant="outline" className="text-[10.5px] h-5 px-2 rounded-full text-health-green border-health-green/30 bg-health-green/10 gap-1">
                     <CheckCircle className="h-2.5 w-2.5" />
-                    Connected{session?.email ? ` · ${session.email}` : ""}
+                    {session?.email ?? "Active"}
                   </Badge>
                 </div>
                 <p className="text-[13px] text-muted-foreground mt-1.5 leading-relaxed">
                   {connectedCRM === "demo"
-                    ? "You're using demo data right now. Connect a real CRM and DealIQ will read your live pipeline."
-                    : `Your ${crmMeta.label} pipeline is in sync with DealIQ. To switch to another CRM, sign out and pick a new one.`}
+                    ? "You're using sample data right now. Sign out and pick a real provider to read your live pipeline."
+                    : "This is your primary sign-in. To switch to a different login provider, sign out and pick a new one."}
                 </p>
               </div>
               <div className="shrink-0">
@@ -246,7 +366,7 @@ export default function SettingsPage() {
                   onClick={() => { logout(); window.location.href = "/"; }}
                 >
                   <PlugZap className="h-3 w-3 mr-1.5" />
-                  Switch CRM
+                  Switch sign-in
                 </Button>
               </div>
             </div>

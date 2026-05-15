@@ -114,6 +114,30 @@ def _is_demo(session: dict) -> bool:
     return session.get("access_token") == "DEMO_MODE"
 
 
+async def _zoho_token(session: dict) -> str:
+    """
+    Resolve the Zoho access_token for this session.
+
+    Handles two cases:
+      1. Zoho-primary session → returns (await _zoho_token(session)) directly.
+      2. Outlook/Salesforce/HubSpot-primary session that has connected Zoho
+         through Settings → Integrations → returns the persisted Zoho token
+         (auto-refreshing if it has expired).
+
+    Returns "" when no Zoho integration is wired up — callers should then
+    fall back to demo data (the surrounding try/except already does this).
+    """
+    if _is_demo(session):
+        return ""
+    try:
+        from routers.zoho_auth import resolve_zoho_access_token
+        tok = await resolve_zoho_access_token(session)
+        return tok or ""
+    except Exception as e:
+        logger.warning("deals._zoho_token: resolver failed: %s", e)
+        return session.get("access_token", "") if session.get("crm_provider") == "zoho" else ""
+
+
 # ── Deal Enrichment ────────────────────────────────────────────────────────────
 
 def _enrich_deal(raw: dict, activities: dict = None, contact_roles: list = None) -> dict:
@@ -296,7 +320,7 @@ async def get_filter_options(
             raw_deals = cached
         else:
             try:
-                raw_deals = await _fetch_all_zoho_deals(session["access_token"])
+                raw_deals = await _fetch_all_zoho_deals((await _zoho_token(session)))
             except Exception as e:
                 logger.error("_fetch_all_zoho_deals failed for user=%s: %s", session.get("email"), e)
                 raw_deals = SIMULATED_DEALS
@@ -337,7 +361,7 @@ async def get_stage_distribution(
             raw_deals = cached
         else:
             try:
-                raw_deals = await _fetch_all_zoho_deals(session["access_token"])
+                raw_deals = await _fetch_all_zoho_deals((await _zoho_token(session)))
             except Exception:
                 raw_deals = SIMULATED_DEALS
 
@@ -438,7 +462,7 @@ async def debug_zoho_test(
             "demo_deals_available": True,
         }
 
-    access_token = session.get("access_token", "")
+    access_token = await _zoho_token(session)
     try:
         raw_deals = await fetch_deals(access_token, page=1, per_page=5)
         deals = [map_zoho_deal(r) for r in raw_deals] if raw_deals else []
@@ -484,7 +508,7 @@ async def list_deals(
 
     if search:
         # ── Server-side search path ──────────────────────────────────────────
-        token = session.get("access_token", "")
+        token = await _zoho_token(session)
         logger.info(
             "list_deals search: token_present=%s search=%r page=%d simulated=%s",
             bool(token), search, page, simulated,
@@ -607,7 +631,7 @@ async def list_deals(
             raw_deals = cached
             # Background sync if >30% stale — user gets fresh data silently
             if cache_meta.get("needs_background_sync"):
-                access_token = session["access_token"]
+                access_token = (await _zoho_token(session))
                 async def _bg_sync():
                     try:
                         fresh = await _fetch_all_zoho_deals(access_token)
@@ -619,7 +643,7 @@ async def list_deals(
             # No rows at all — blocking Zoho fetch on first load
             try:
                 raw_deals = await asyncio.wait_for(
-                    _fetch_all_zoho_deals(session["access_token"]),
+                    _fetch_all_zoho_deals((await _zoho_token(session))),
                     timeout=35,  # 35s < 45s client timeout — ensures backend responds before client gives up
                 )
                 asyncio.create_task(_bg_write(upsert_deals, raw_deals, user_email))
@@ -843,7 +867,7 @@ async def get_pipeline_metrics(authorization: str = Header(...)):
     session = _decode_session(authorization)
     is_demo = _is_demo(session)
     cache_key = "demo" if is_demo else f"metrics:{session.get('user_id', 'zoho')}"
-    entry = await _get_pipeline_cached(cache_key, session.get("access_token", ""), is_demo)
+    entry = await _get_pipeline_cached(cache_key, await _zoho_token(session), is_demo)
     return entry["metrics"]
 
 
@@ -856,7 +880,7 @@ async def get_pipeline_summary(authorization: str = Header(...)):
     session = _decode_session(authorization)
     is_demo = _is_demo(session)
     cache_key = "demo" if is_demo else f"metrics:{session.get('user_id', 'zoho')}"
-    entry = await _get_pipeline_cached(cache_key, session.get("access_token", ""), is_demo)
+    entry = await _get_pipeline_cached(cache_key, await _zoho_token(session), is_demo)
     m: PipelineMetrics = entry["metrics"]
     return {"summary": entry["summary"], "avg_score": m.average_health_score, "total": m.total_deals}
 
@@ -901,7 +925,7 @@ async def get_deal_health(deal_id: str, authorization: str = Header(...)):
     else:
         try:
             raw = await asyncio.wait_for(
-                get_fully_enriched_deal(session["access_token"], deal_id),
+                get_fully_enriched_deal((await _zoho_token(session)), deal_id),
                 timeout=15,
             )
         except asyncio.TimeoutError:
@@ -923,7 +947,7 @@ async def get_deal_health(deal_id: str, authorization: str = Header(...)):
             try:
                 from services.zoho_client import get_all_activity_for_deal
                 activity_data = await asyncio.wait_for(
-                    get_all_activity_for_deal(session["access_token"], deal_id),
+                    get_all_activity_for_deal((await _zoho_token(session)), deal_id),
                     timeout=15,
                 )
                 if activity_data:
@@ -948,7 +972,7 @@ async def get_deal_health(deal_id: str, authorization: str = Header(...)):
                 from services.zoho_client import fetch_deal_timeline
                 from services.timeline_analyzer import analyze_timeline
                 raw_tl = await asyncio.wait_for(
-                    fetch_deal_timeline(session["access_token"], deal_id),
+                    fetch_deal_timeline((await _zoho_token(session)), deal_id),
                     timeout=10,
                 )
                 timeline_analysis = analyze_timeline(raw_tl.get("timeline", []))
@@ -963,7 +987,7 @@ async def get_deal_health(deal_id: str, authorization: str = Header(...)):
         try:
             from services.outlook_enrichment import get_enriched_emails
             outlook_emails = await asyncio.wait_for(
-                get_enriched_emails(deal_id, session["access_token"], _safe_user, limit=20),
+                get_enriched_emails(deal_id, (await _zoho_token(session)), _safe_user, limit=20),
                 timeout=8,
             )
             logger.info("health: deal=%s outlook_emails=%d", deal_id, len(outlook_emails))
@@ -1188,10 +1212,10 @@ async def get_deal_timeline(
 
         try:
             raw, notes, activities, raw_timeline_data = await asyncio.gather(
-                fetch_single_deal(session["access_token"], deal_id),
-                fetch_deal_notes(session["access_token"], deal_id),
-                fetch_deal_activities(session["access_token"], deal_id),
-                fetch_deal_timeline(session["access_token"], deal_id),
+                fetch_single_deal((await _zoho_token(session)), deal_id),
+                fetch_deal_notes((await _zoho_token(session)), deal_id),
+                fetch_deal_activities((await _zoho_token(session)), deal_id),
+                fetch_deal_timeline((await _zoho_token(session)), deal_id),
                 return_exceptions=True,
             )
             if isinstance(raw, Exception) or raw is None:
@@ -1306,7 +1330,7 @@ async def force_refresh_deal(
     await invalidate_deal(db, deal_id)
     # Also fetch inline so the caller gets fresh data immediately
     try:
-        raw = await fetch_single_deal(session["access_token"], deal_id)
+        raw = await fetch_single_deal((await _zoho_token(session)), deal_id)
         if raw:
             from services.deal_db import upsert_deals
             await upsert_deals(db, [raw], session.get("email", ""))
@@ -1331,7 +1355,7 @@ async def force_sync_deals(
     if _is_demo(session):
         return {"synced": 0, "message": "Demo mode — no sync needed"}
     try:
-        raw_deals = await _fetch_all_zoho_deals(session["access_token"])
+        raw_deals = await _fetch_all_zoho_deals((await _zoho_token(session)))
         from services.deal_db import upsert_deals
         await upsert_deals(db, raw_deals, session.get("email", ""))
         return {"synced": len(raw_deals), "message": f"Synced {len(raw_deals)} deals"}
@@ -1395,7 +1419,7 @@ async def update_deal_field(
     try:
         from services.zoho_client import update_deal_field as zoho_update_field
         success = await zoho_update_field(
-            deal_id, body.field, body.value, session.get("access_token", "")
+            deal_id, body.field, body.value, await _zoho_token(session)
         )
         if success:
             # Invalidate health caches for this deal (all users — pattern match)

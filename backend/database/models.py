@@ -428,6 +428,29 @@ class MicrosoftToken(Base):
 
 
 # ---------------------------------------------------------------------------
+# zoho_tokens  (persisted Zoho OAuth tokens — mirrors microsoft_tokens)
+# Used when Zoho is connected as a secondary integration (mid-session) on top
+# of a primary Outlook/Salesforce/HubSpot session.
+# ---------------------------------------------------------------------------
+
+class ZohoToken(Base):
+    __tablename__ = "zoho_tokens"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_new_uuid)
+    # Keyed by the primary session's email or user_id (matches MicrosoftToken.user_key)
+    user_key: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
+    access_token: Mapped[str] = mapped_column(Text, nullable=False)
+    refresh_token: Mapped[str | None] = mapped_column(Text, nullable=True)
+    zoho_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    zoho_user_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # UTC datetime when access_token expires (Zoho default = 3600s)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    scopes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime, onupdate=func.now())
+
+
+# ---------------------------------------------------------------------------
 # deal_personas  (contact intelligence — Zoho contacts + Outlook-discovered)
 # ---------------------------------------------------------------------------
 

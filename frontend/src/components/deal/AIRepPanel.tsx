@@ -185,7 +185,7 @@ export default function AIRepPanel({ dealId, dealName, repName }: Props) {
       {/* Progress Steps */}
       {step !== "idle" && (
         <div className="flex items-center gap-1 text-xs text-muted-foreground">
-          <span className={step !== "idle" ? "text-primary font-medium" : ""}>1. Analyse</span>
+          <span className="text-primary font-medium">1. Analyse</span>
           <ChevronRight className="h-3 w-3" />
           <span className={["nba_approved", "loading_email", "email_ready", "email_approved"].includes(step) ? "text-primary font-medium" : ""}>2. Approve Plan</span>
           <ChevronRight className="h-3 w-3" />
