@@ -1,190 +1,188 @@
+@import url('https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;0,6..72,700;1,6..72,400;1,6..72,500;1,6..72,600&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* ── Geist Sans ── */
+/* ── Geist Sans (kept — refined body face) ── */
 @font-face {
   font-family: 'Geist';
   src: url('../node_modules/geist/dist/fonts/geist-sans/Geist-Regular.woff2') format('woff2');
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
+  font-weight: 400; font-style: normal; font-display: swap;
 }
 @font-face {
   font-family: 'Geist';
   src: url('../node_modules/geist/dist/fonts/geist-sans/Geist-Medium.woff2') format('woff2');
-  font-weight: 500;
-  font-style: normal;
-  font-display: swap;
+  font-weight: 500; font-style: normal; font-display: swap;
 }
 @font-face {
   font-family: 'Geist';
   src: url('../node_modules/geist/dist/fonts/geist-sans/Geist-SemiBold.woff2') format('woff2');
-  font-weight: 600;
-  font-style: normal;
-  font-display: swap;
+  font-weight: 600; font-style: normal; font-display: swap;
 }
 @font-face {
   font-family: 'Geist';
   src: url('../node_modules/geist/dist/fonts/geist-sans/Geist-Bold.woff2') format('woff2');
-  font-weight: 700;
-  font-style: normal;
-  font-display: swap;
+  font-weight: 700; font-style: normal; font-display: swap;
 }
 
 /* ── Geist Mono ── */
 @font-face {
   font-family: 'Geist Mono';
   src: url('../node_modules/geist/dist/fonts/geist-mono/GeistMono-Regular.woff2') format('woff2');
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
+  font-weight: 400; font-style: normal; font-display: swap;
 }
 @font-face {
   font-family: 'Geist Mono';
   src: url('../node_modules/geist/dist/fonts/geist-mono/GeistMono-Medium.woff2') format('woff2');
-  font-weight: 500;
-  font-style: normal;
-  font-display: swap;
+  font-weight: 500; font-style: normal; font-display: swap;
 }
 @font-face {
   font-family: 'Geist Mono';
   src: url('../node_modules/geist/dist/fonts/geist-mono/GeistMono-SemiBold.woff2') format('woff2');
-  font-weight: 600;
-  font-style: normal;
-  font-display: swap;
+  font-weight: 600; font-style: normal; font-display: swap;
 }
 @font-face {
   font-family: 'Geist Mono';
   src: url('../node_modules/geist/dist/fonts/geist-mono/GeistMono-Bold.woff2') format('woff2');
-  font-weight: 700;
-  font-style: normal;
-  font-display: swap;
+  font-weight: 700; font-style: normal; font-display: swap;
 }
 
+/* ─────────────────────────────────────────────────────────────────────────
+   DealIQ · Daylight theme
+   Cream paper, warm ink, terracotta accent.
+   Plain-language friendly. Single source of truth for both themes.
+   ───────────────────────────────────────────────────────────────────────── */
 @layer base {
-  /* ── LIGHT THEME (default) ── */
   :root {
     --font-geist-sans: 'Geist', system-ui, sans-serif;
     --font-geist-mono: 'Geist Mono', monospace;
+    --font-display:    'Newsreader', Georgia, serif;
   }
 
   :root,
   :root[data-theme="light"],
   .light {
     /* Surfaces */
-    --background:          213 33% 97%;   /* #F7F9FC — cool off-white */
-    --foreground:          210 75% 10%;   /* #0A1929 — near-black blue */
+    --background:          41 56% 95%;    /* #faf6ee warm cream */
+    --foreground:          26 14% 15%;    /* warm ink */
 
-    --card:                0 0% 100%;     /* #FFFFFF */
-    --card-foreground:     210 75% 10%;
+    --card:                0 0% 100%;
+    --card-foreground:     26 14% 15%;
 
     --popover:             0 0% 100%;
-    --popover-foreground:  210 75% 10%;
+    --popover-foreground:  26 14% 15%;
 
-    /* Brand blue — #020887 */
-    --primary:             237 97% 27%;   /* #020887 deep indigo-blue */
+    /* Brand = terracotta */
+    --primary:             15 56% 52%;    /* #c95f3f */
     --primary-foreground:  0 0% 100%;
 
-    /* Secondary surface */
-    --secondary:           237 62% 95%;   /* #E8E9F7 light indigo tint */
-    --secondary-foreground: 210 75% 10%;
+    /* Secondary = soft paper tint */
+    --secondary:           41 50% 92%;    /* #f4eee0 */
+    --secondary-foreground: 26 14% 32%;
 
-    /* Muted surface */
-    --muted:               213 25% 93%;   /* #F0F4F8 */
-    --muted-foreground:    213 18% 55%;   /* #8896A6 */
+    --muted:               38 18% 88%;
+    --muted-foreground:    30 8% 45%;
 
-    /* Accent — keep violet for AI sections */
-    --accent:              259 62% 60%;
-    --accent-foreground:   0 0% 100%;
+    /* Accent = goldenrod */
+    --accent:              38 65% 53%;    /* #d49e3c */
+    --accent-foreground:   26 14% 15%;
 
-    /* Destructive */
-    --destructive:         3 80% 55%;     /* #EF3C2D */
+    /* Destructive — warm coral */
+    --destructive:         14 70% 50%;
     --destructive-foreground: 0 0% 100%;
 
     /* Borders & inputs */
-    --border:              213 25% 89%;   /* #E2E8F0 */
+    --border:              39 36% 86%;    /* #e9e0cf */
     --input:               0 0% 100%;
-    --ring:                237 97% 27%;   /* #020887 */
+    --ring:                15 56% 52%;
 
-    --radius: 0.625rem;
+    --radius: 0.75rem;
 
-    /* Health severity */
-    --health-green:        158 80% 30%;   /* #0E8A5F */
-    --health-yellow:       38 92% 50%;
-    --health-orange:       20 85% 44%;    /* #CF5214 dark orange — readable on white */
-    --health-red:          3 80% 55%;     /* #EF3C2D */
+    /* Health — friendlier soft palette */
+    --health-green:        128 16% 43%;   /* sage */
+    --health-yellow:       38 65% 53%;    /* goldenrod */
+    --health-orange:       15 56% 52%;    /* terracotta */
+    --health-red:          268 18% 56%;   /* dusty plum (gone quiet) */
 
-    /* Sidebar — white with indigo active */
+    /* Sidebar */
     --sidebar-background:           0 0% 100%;
-    --sidebar-foreground:           210 75% 10%;
-    --sidebar-primary:              237 97% 27%;
+    --sidebar-foreground:           26 14% 15%;
+    --sidebar-primary:              15 56% 52%;
     --sidebar-primary-foreground:   0 0% 100%;
-    --sidebar-accent:               237 62% 95%;   /* #E8E9F7 */
-    --sidebar-accent-foreground:    237 97% 27%;
-    --sidebar-border:               213 25% 89%;
-    --sidebar-ring:                 237 97% 27%;
+    --sidebar-accent:               41 50% 92%;
+    --sidebar-accent-foreground:    15 56% 52%;
+    --sidebar-border:               39 36% 86%;
+    --sidebar-ring:                 15 56% 52%;
   }
 
-  /* ── DARK THEME ── */
+  /* ── DARK THEME — Daylight after dusk ── */
   :root[data-theme="dark"],
   .dark {
-    --background:          220 27% 14%;   /* #0f1923 */
-    --foreground:          210 40% 95%;   /* #EEF2F7 */
+    --background:          26 12% 8%;     /* deep warm charcoal */
+    --foreground:          41 50% 92%;    /* cream */
 
-    --card:                220 25% 18%;   /* #1a2332 */
-    --card-foreground:     210 40% 95%;
+    --card:                26 10% 12%;
+    --card-foreground:     41 50% 92%;
 
-    --popover:             220 25% 18%;
-    --popover-foreground:  210 40% 95%;
+    --popover:             26 10% 12%;
+    --popover-foreground:  41 50% 92%;
 
-    --primary:             210 90% 56%;   /* brighter blue for dark */
-    --primary-foreground:  0 0% 100%;
+    --primary:             15 65% 58%;    /* slightly brighter terracotta */
+    --primary-foreground:  26 10% 8%;
 
-    --secondary:           220 22% 22%;   /* #1e2a3a */
-    --secondary-foreground: 210 40% 80%;
+    --secondary:           26 8% 16%;
+    --secondary-foreground: 41 40% 80%;
 
-    --muted:               220 22% 22%;
-    --muted-foreground:    215 16% 55%;   /* #64748B */
+    --muted:               26 8% 16%;
+    --muted-foreground:    30 8% 60%;
 
-    --accent:              259 62% 60%;
-    --accent-foreground:   0 0% 100%;
+    --accent:              38 65% 58%;    /* brass */
+    --accent-foreground:   26 10% 8%;
 
-    --destructive:         3 80% 55%;
+    --destructive:         14 70% 55%;
     --destructive-foreground: 0 0% 100%;
 
-    --border:              220 20% 27%;   /* #2D3B4E */
-    --input:               220 25% 18%;
-    --ring:                210 90% 56%;
+    --border:              26 8% 22%;
+    --input:               26 10% 12%;
+    --ring:                15 65% 58%;
 
-    --radius: 0.625rem;
+    --radius: 0.75rem;
 
-    --health-green:        158 70% 45%;
-    --health-yellow:       38 92% 50%;
-    --health-orange:       18 86% 61%;
-    --health-red:          3 80% 55%;
+    --health-green:        128 22% 55%;
+    --health-yellow:       38 65% 58%;
+    --health-orange:       15 65% 58%;
+    --health-red:          268 22% 65%;
 
-    --sidebar-background:  220 27% 14%;
-    --sidebar-foreground:  210 40% 95%;
-    --sidebar-primary:     210 90% 56%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent:      220 22% 22%;
-    --sidebar-accent-foreground: 210 90% 56%;
-    --sidebar-border:      220 20% 27%;
-    --sidebar-ring:        210 90% 56%;
+    --sidebar-background:  26 12% 8%;
+    --sidebar-foreground:  41 50% 92%;
+    --sidebar-primary:     15 65% 58%;
+    --sidebar-primary-foreground: 26 10% 8%;
+    --sidebar-accent:      26 8% 16%;
+    --sidebar-accent-foreground: 15 65% 58%;
+    --sidebar-border:      26 8% 22%;
+    --sidebar-ring:        15 65% 58%;
   }
 }
 
 @layer base {
-  * {
-    @apply border-border;
-  }
+  * { @apply border-border; }
 
   body {
     @apply bg-background text-foreground;
     font-family: var(--font-geist-sans);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    background-image:
+      radial-gradient(60% 40% at 90% 0%, hsl(38 65% 53% / 0.08), transparent 60%),
+      radial-gradient(50% 40% at 0% 80%, hsl(15 56% 52% / 0.05), transparent 60%);
+    background-attachment: fixed;
+  }
+
+  .dark body {
+    background-image:
+      radial-gradient(60% 40% at 90% 0%, hsl(15 65% 30% / 0.18), transparent 65%),
+      radial-gradient(50% 40% at 0% 80%, hsl(38 65% 30% / 0.10), transparent 65%);
   }
 
   .font-numeric {
@@ -192,42 +190,63 @@
     font-variant-numeric: tabular-nums;
   }
 
-  /* Refined scrollbar */
-  ::-webkit-scrollbar {
-    width: 5px;
-    height: 5px;
+  /* Editorial serif utility — for hero headlines + accents */
+  .font-display {
+    font-family: var(--font-display);
+    font-weight: 500;
+    letter-spacing: -0.022em;
+    line-height: 1.1;
   }
-  ::-webkit-scrollbar-track {
-    background: transparent;
+  .font-display-italic {
+    font-family: var(--font-display);
+    font-style: italic;
+    font-weight: 400;
+    letter-spacing: -0.01em;
   }
-  ::-webkit-scrollbar-thumb {
-    background: #CBD5E0;
-    border-radius: 100px;
-  }
-  ::-webkit-scrollbar-thumb:hover {
-    background: #8896A6;
+  .serif-accent {
+    font-family: var(--font-display);
+    font-style: italic;
+    font-weight: 400;
+    color: hsl(var(--primary));
+    letter-spacing: -0.01em;
   }
 
-  /* Selection highlight */
+  /* Refined scrollbar — warm */
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+    border-radius: 100px;
+    border: 2px solid hsl(var(--background));
+  }
+  ::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground) / 0.5); }
+
   ::selection {
-    background: rgba(59, 130, 246, 0.3);
-    color: inherit;
+    background: hsl(var(--primary) / 0.22);
+    color: hsl(var(--foreground));
   }
 }
 
 @layer components {
   /* Light Card Surfaces */
   .card, .glass-surface {
-    background: #FFFFFF !important;
-    border: 1px solid #E2E8F0 !important;
+    background: hsl(var(--card)) !important;
+    border: 1px solid hsl(var(--border)) !important;
     border-radius: 16px !important;
     position: relative;
     overflow: hidden;
-    box-shadow: 0 1px 3px rgba(10, 25, 41, 0.06), 0 1px 2px rgba(10, 25, 41, 0.04);
+    box-shadow:
+      0 1px 0 hsl(26 14% 15% / 0.04),
+      0 8px 24px -10px hsl(26 14% 15% / 0.10);
   }
 
-  .card::before, .glass-surface::before {
-    display: none;
+  .card::before, .glass-surface::before { display: none; }
+
+  /* Dark theme card adjusts */
+  .dark .card, .dark .glass-surface {
+    box-shadow:
+      0 1px 0 hsl(0 0% 0% / 0.4),
+      0 8px 24px -10px hsl(0 0% 0% / 0.45);
   }
 }
 
@@ -236,30 +255,25 @@
   .skeleton {
     position: relative;
     overflow: hidden;
-    background-color: #F0F4F8;
+    background-color: hsl(var(--secondary));
   }
 
   .skeleton::after {
     content: "";
     position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
+    inset: 0;
     transform: translateX(-100%);
     background: linear-gradient(
       90deg,
       transparent,
-      rgba(255, 255, 255, 0.6),
+      hsl(var(--background) / 0.6),
       transparent
     );
     animation: shimmer 1.5s infinite;
   }
 
   @keyframes shimmer {
-    100% {
-      transform: translateX(100%);
-    }
+    100% { transform: translateX(100%); }
   }
 
   /* Staggered fade slide in */
@@ -267,44 +281,36 @@
     opacity: 0;
     animation: fadeSlideIn 0.4s ease-out forwards;
   }
-  
+
   @keyframes fadeSlideIn {
-    from {
-      opacity: 0;
-      transform: translateY(10px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
+    from { opacity: 0; transform: translateY(10px); }
+    to   { opacity: 1; transform: translateY(0); }
   }
 
-  /* Rotating Border Setup for NBA Button */
+  /* Rotating border angle property */
   @property --angle {
     syntax: '<angle>';
     initial-value: 0deg;
     inherits: false;
   }
   @keyframes spin-border {
-    to {
-      --angle: 360deg;
-    }
+    to { --angle: 360deg; }
   }
 
-  /* Animated Mesh Gradients */
+  /* Animated mesh gradients */
   @keyframes mesh1 {
-    0% { transform: translate(-20%, -20%) scale(1); }
-    50% { transform: translate(30%, 30%) scale(1.1); }
+    0%   { transform: translate(-20%, -20%) scale(1); }
+    50%  { transform: translate(30%, 30%) scale(1.1); }
     100% { transform: translate(-20%, -20%) scale(1); }
   }
   @keyframes mesh2 {
-    0% { transform: translate(40%, 40%) scale(1.2); }
-    50% { transform: translate(-10%, -10%) scale(0.9); }
+    0%   { transform: translate(40%, 40%) scale(1.2); }
+    50%  { transform: translate(-10%, -10%) scale(0.9); }
     100% { transform: translate(40%, 40%) scale(1.2); }
   }
   @keyframes mesh3 {
-    0% { transform: translate(0, 50%) scale(0.9); }
-    50% { transform: translate(20%, -20%) scale(1.1); }
+    0%   { transform: translate(0, 50%) scale(0.9); }
+    50%  { transform: translate(20%, -20%) scale(1.1); }
     100% { transform: translate(0, 50%) scale(0.9); }
   }
 
@@ -314,81 +320,75 @@
 }
 
 @layer components {
-  /* Global Primary Button Styles Override */
+  /* Primary button — terracotta lift */
   button.bg-primary {
     transition: all 0.2s ease-out;
-    box-shadow: 0 2px 8px rgba(2,8,135,0.2) !important;
+    box-shadow: 0 4px 14px -3px hsl(var(--primary) / 0.35) !important;
   }
   button.bg-primary:hover:not(:disabled) {
     transform: translateY(-1px);
-    box-shadow: 0 6px 24px rgba(2,8,135,0.3) !important;
+    box-shadow: 0 10px 22px -6px hsl(var(--primary) / 0.45) !important;
   }
   button.bg-primary:active:not(:disabled) {
     transform: translateY(0);
   }
 
-  /* Page Transition */
+  /* Page transition */
   .page-transition {
     animation: fadeInPage 250ms ease-out forwards;
   }
-  
+
   @keyframes fadeInPage {
     from { opacity: 0; transform: translateY(5px); }
-    to { opacity: 1; transform: translateY(0); }
+    to   { opacity: 1; transform: translateY(0); }
   }
 }
 
 @layer components {
-  /* ── Toast: dark bg + colored left border by type ── */
+  /* ── Toast: warm cream bg + colored left border ── */
   [data-radix-toast-viewport] [data-state] {
-    --toast-border-color: rgba(2,8,135,0.6);
-    background: #FFFFFF !important;
-    border-color: #E2E8F0 !important;
+    --toast-border-color: hsl(var(--primary));
+    background: hsl(var(--card)) !important;
+    border-color: hsl(var(--border)) !important;
     border-left: 3px solid var(--toast-border-color) !important;
     border-radius: 12px !important;
-    box-shadow: 0 8px 24px rgba(10,25,41,0.12) !important;
+    box-shadow: 0 12px 28px -8px hsl(26 14% 15% / 0.18) !important;
     will-change: transform, opacity;
   }
-  /* destructive variant */
   [data-radix-toast-viewport] [data-state][class*="destructive"] {
-    --toast-border-color: #EF3C2D;
-    background: #FDE8E6 !important;
+    --toast-border-color: hsl(var(--destructive));
+    background: hsl(14 70% 96%) !important;
   }
-  /* success-like (non-destructive default) */
   [data-radix-toast-viewport] [data-state]:not([class*="destructive"]) {
-    --toast-border-color: #020887;
+    --toast-border-color: hsl(var(--primary));
   }
 
-  /* ── Focus visible ring — blue outline ── */
+  /* Focus visible — warm terracotta ring */
   *:focus-visible {
-    outline: 2px solid rgba(2, 8, 135, 0.5);
+    outline: 2px solid hsl(var(--primary) / 0.5);
     outline-offset: 2px;
   }
 
-  /* ── GPU compositing hints — only on custom animated elements ── */
-  .fade-slide-in {
-    will-change: transform, opacity;
-  }
+  .fade-slide-in { will-change: transform, opacity; }
 
-  /* ── Periodic pulse animation for the Check Email FAB ── */
+  /* Periodic pulse — keep but warm-tinted */
   @keyframes pulse-periodic {
-    0%, 80%, 100%  { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.0); }
-    85%            { box-shadow: 0 0 0 8px rgba(245, 158, 11, 0.25); }
-    92%            { box-shadow: 0 0 0 14px rgba(245, 158, 11, 0.08); }
+    0%, 80%, 100%  { box-shadow: 0 0 0 0 hsl(var(--accent) / 0.0); }
+    85%            { box-shadow: 0 0 0 8px hsl(var(--accent) / 0.25); }
+    92%            { box-shadow: 0 0 0 14px hsl(var(--accent) / 0.08); }
   }
   .animate-pulse-periodic {
     animation: pulse-periodic 10s ease-in-out infinite;
     will-change: box-shadow;
   }
 
-  /* ── Tooltip fast fade+scale ── */
   [data-radix-tooltip-content] {
     animation-duration: 150ms !important;
     animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1) !important;
     will-change: transform, opacity;
   }
 
-  /* ── Sidebar active state: 4px brand-blue bar (glow-dot pattern) ── */
+  /* Sidebar active state — terracotta bar */
   .sidebar-active-bar {
     position: absolute;
     left: -10px;
@@ -397,7 +397,7 @@
     width: 4px;
     height: 20px;
     border-radius: 2px;
-    background: #020887;
-    box-shadow: 0 0 8px rgba(2,8,135,0.5);
+    background: hsl(var(--primary));
+    box-shadow: 0 0 8px hsl(var(--primary) / 0.5);
   }
 }

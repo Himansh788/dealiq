@@ -15,16 +15,16 @@ interface OutlookStatus {
 }
 
 const CRM_META: Record<string, { label: string; badge: string; color: string; bg: string }> = {
-  zoho:        { label: "Zoho CRM",   badge: "Z",  color: "text-[#E42527]", bg: "bg-[#E42527]/10" },
-  salesforce:  { label: "Salesforce", badge: "SF", color: "text-[#00A1E0]", bg: "bg-[#00A1E0]/10" },
-  hubspot:     { label: "HubSpot",    badge: "HS", color: "text-[#FF7A59]", bg: "bg-[#FF7A59]/10" },
-  demo:        { label: "Demo Mode",  badge: "D",  color: "text-slate-400",  bg: "bg-slate-500/10" },
+  zoho:        { label: "Zoho CRM",   badge: "Z",  color: "text-[#E42527]",           bg: "bg-[#E42527]/12" },
+  salesforce:  { label: "Salesforce", badge: "SF", color: "text-[#00A1E0]",           bg: "bg-[#00A1E0]/12" },
+  hubspot:     { label: "HubSpot",    badge: "HS", color: "text-[#FF7A59]",           bg: "bg-[#FF7A59]/12" },
+  demo:        { label: "Demo mode",  badge: "D",  color: "text-muted-foreground",    bg: "bg-secondary" },
 };
 
 export default function SettingsPage() {
   const { toast } = useToast();
   const { theme } = useTheme();
-  const { session } = useSession();
+  const { session, logout } = useSession();
 
   const connectedCRM = session?.crm_provider ?? "zoho";
   const crmMeta = CRM_META[connectedCRM] ?? CRM_META["zoho"];
@@ -129,129 +129,147 @@ export default function SettingsPage() {
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
-      <div className="border-b border-border/40 px-6 py-4">
-        <div className="flex items-center gap-3 max-w-5xl mx-auto">
-          <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-secondary/60">
-            <Settings className="h-4 w-4 text-muted-foreground" />
-          </div>
-          <div>
-            <h1 className="text-sm font-semibold text-foreground">Settings</h1>
-            <p className="text-xs text-muted-foreground">Account and integration settings</p>
-          </div>
+      <div className="border-b border-border px-6 py-7">
+        <div className="max-w-5xl mx-auto">
+          <p className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-muted-foreground font-medium mb-2">
+            <Settings className="h-3.5 w-3.5 text-primary" />
+            Settings
+          </p>
+          <h1 className="font-display text-3xl font-medium tracking-tight text-foreground leading-[1.1]">
+            Your <span className="serif-accent">connections</span> & preferences
+          </h1>
+          <p className="text-sm text-muted-foreground mt-1.5 max-w-2xl">
+            Hook DealIQ up to your inbox and CRM, and decide when it should write to you.
+          </p>
         </div>
       </div>
 
-      <div className="max-w-5xl mx-auto px-6 py-6 space-y-4">
+      <div className="max-w-5xl mx-auto px-6 py-8 space-y-10">
 
-        {/* Microsoft Outlook & Calendar */}
-        <div className="rounded-xl border border-border/30 bg-card/60 p-5">
-          <div className="flex items-start gap-4">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-500/15">
-              <Mail className="h-5 w-5 text-blue-400" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <p className="text-sm font-semibold text-foreground">Outlook & Calendar</p>
-                {loadingOutlook ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-                ) : outlookStatus?.connected ? (
-                  <Badge variant="outline" className="text-[10px] h-4 px-1.5 text-health-green border-health-green/30 bg-health-green/10">
-                    <CheckCircle className="h-2.5 w-2.5 mr-1" />
-                    Connected{outlookStatus.email ? ` — ${outlookStatus.email}` : ""}
-                  </Badge>
-                ) : (
-                  <Badge variant="outline" className="text-[10px] h-4 px-1.5 text-muted-foreground border-border/50">
-                    <XCircle className="h-2.5 w-2.5 mr-1" />
-                    Not connected
-                  </Badge>
+        {/* ── INTEGRATIONS ── */}
+        <section className="space-y-4">
+          <h2 className="font-display text-xl font-semibold tracking-tight text-foreground flex items-center gap-2">
+            <PlugZap className="h-4 w-4 text-primary" />
+            Integrations
+          </h2>
+
+          {/* Microsoft Outlook & Calendar */}
+          <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
+            <div className="flex items-start gap-5">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-[#0078D4]/12">
+                <Mail className="h-5 w-5 text-[#0078D4]" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className="font-display text-base font-semibold text-foreground">Outlook & Calendar</p>
+                  {loadingOutlook ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                  ) : outlookStatus?.connected ? (
+                    <Badge variant="outline" className="text-[10.5px] h-5 px-2 rounded-full text-health-green border-health-green/30 bg-health-green/10 gap-1">
+                      <CheckCircle className="h-2.5 w-2.5" />
+                      Connected{outlookStatus.email ? ` · ${outlookStatus.email}` : ""}
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline" className="text-[10.5px] h-5 px-2 rounded-full text-muted-foreground border-border gap-1">
+                      <XCircle className="h-2.5 w-2.5" />
+                      Not connected yet
+                    </Badge>
+                  )}
+                </div>
+                <p className="text-[13px] text-muted-foreground mt-1.5 leading-relaxed">
+                  Connect your Microsoft account so DealIQ can read live email threads and upcoming meetings
+                  for deal context. We never send email on your behalf.
+                </p>
+                <div className="flex items-center gap-4 mt-3 flex-wrap">
+                  <span className="inline-flex items-center gap-1.5 text-[11.5px] text-muted-foreground">
+                    <Calendar className="h-3 w-3" />
+                    Outlook Calendar (read-only)
+                  </span>
+                  <span className="inline-flex items-center gap-1.5 text-[11.5px] text-muted-foreground">
+                    <Mail className="h-3 w-3" />
+                    Outlook Mail (read-only)
+                  </span>
+                </div>
+              </div>
+              <div className="shrink-0">
+                {!loadingOutlook && (
+                  outlookStatus?.connected ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-9 text-xs rounded-full px-4 text-destructive border-destructive/30 hover:bg-destructive/10"
+                      onClick={handleDisconnectOutlook}
+                    >
+                      Disconnect
+                    </Button>
+                  ) : (
+                    <Button
+                      size="sm"
+                      className="h-9 text-xs rounded-full px-4 bg-primary hover:bg-primary/90 text-white"
+                      onClick={handleConnectOutlook}
+                      disabled={connecting}
+                    >
+                      {connecting && <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />}
+                      Connect Outlook
+                    </Button>
+                  )
                 )}
               </div>
-              <p className="text-xs text-muted-foreground mt-1">
-                Connect your Microsoft account to sync email threads and upcoming meetings. DealIQ reads Outlook mail and calendar events — it never sends email on your behalf.
-              </p>
-              <div className="flex items-center gap-3 mt-3 flex-wrap">
-                <div className="flex items-center gap-1 text-[11px] text-muted-foreground/60">
-                  <Calendar className="h-3 w-3" />
-                  Outlook Calendar (read-only)
-                </div>
-                <div className="flex items-center gap-1 text-[11px] text-muted-foreground/60">
-                  <Mail className="h-3 w-3" />
-                  Outlook Mail (read-only)
-                </div>
-              </div>
-            </div>
-            <div className="shrink-0">
-              {!loadingOutlook && (
-                outlookStatus?.connected ? (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-8 text-xs text-destructive border-destructive/30 hover:bg-destructive/10"
-                    onClick={handleDisconnectOutlook}
-                  >
-                    Disconnect
-                  </Button>
-                ) : (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-8 text-xs hover:border-primary/40 hover:text-primary"
-                    onClick={handleConnectOutlook}
-                    disabled={connecting}
-                  >
-                    {connecting && <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />}
-                    Connect Outlook
-                  </Button>
-                )
-              )}
             </div>
           </div>
-        </div>
 
-        {/* Active CRM connection */}
-        <div className="rounded-xl border border-border/30 bg-card/60 p-5">
-          <div className="flex items-center gap-4">
-            <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${crmMeta.bg}`}>
-              <span className={`text-sm font-black ${crmMeta.color}`}>{crmMeta.badge}</span>
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <p className="text-sm font-semibold text-foreground">{crmMeta.label}</p>
-                <Badge variant="outline" className="text-[10px] h-4 px-1.5 text-health-green border-health-green/30 bg-health-green/10">
-                  <CheckCircle className="h-2.5 w-2.5 mr-1" />
-                  Connected{session?.email ? ` — ${session.email}` : ""}
-                </Badge>
+          {/* Active CRM connection */}
+          <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
+            <div className="flex items-start gap-5">
+              <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl ${crmMeta.bg}`}>
+                <span className={`font-display text-base font-bold ${crmMeta.color}`}>{crmMeta.badge}</span>
               </div>
-              <p className="text-xs text-muted-foreground mt-1">
-                {connectedCRM === "demo"
-                  ? "Running in demo mode with sample data. Connect a real CRM to use live pipeline data."
-                  : `Your ${crmMeta.label} pipeline is syncing with DealIQ. Re-authenticate from the login page to switch CRMs.`}
-              </p>
-            </div>
-            <div className="shrink-0">
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-8 text-xs hover:border-primary/40 hover:text-primary"
-                onClick={() => window.location.href = "/login"}
-              >
-                <PlugZap className="h-3 w-3 mr-1.5" />
-                Switch CRM
-              </Button>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className="font-display text-base font-semibold text-foreground">{crmMeta.label}</p>
+                  <Badge variant="outline" className="text-[10.5px] h-5 px-2 rounded-full text-health-green border-health-green/30 bg-health-green/10 gap-1">
+                    <CheckCircle className="h-2.5 w-2.5" />
+                    Connected{session?.email ? ` · ${session.email}` : ""}
+                  </Badge>
+                </div>
+                <p className="text-[13px] text-muted-foreground mt-1.5 leading-relaxed">
+                  {connectedCRM === "demo"
+                    ? "You're using demo data right now. Connect a real CRM and DealIQ will read your live pipeline."
+                    : `Your ${crmMeta.label} pipeline is in sync with DealIQ. To switch to another CRM, sign out and pick a new one.`}
+                </p>
+              </div>
+              <div className="shrink-0">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-9 text-xs rounded-full px-4 border-border hover:border-foreground/30"
+                  onClick={() => { logout(); window.location.href = "/"; }}
+                >
+                  <PlugZap className="h-3 w-3 mr-1.5" />
+                  Switch CRM
+                </Button>
+              </div>
             </div>
           </div>
-        </div>
+        </section>
+
+        {/* ── PREFERENCES ── */}
+        <section className="space-y-4">
+          <h2 className="font-display text-xl font-semibold tracking-tight text-foreground flex items-center gap-2">
+            <Palette className="h-4 w-4 text-primary" />
+            Preferences
+          </h2>
 
         {/* Appearance */}
-        <div className="rounded-xl border border-border/30 bg-card/60 p-5">
-          <div className="flex items-start gap-4">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10">
-              <Palette className="h-5 w-5 text-primary" />
+        <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
+          <div className="flex items-start gap-5">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-secondary">
+              <Palette className="h-5 w-5 text-foreground/70" />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-foreground">Appearance</p>
-              <p className="text-xs text-muted-foreground mt-1">
-                {theme === 'dark' ? 'Dark mode' : 'Light mode'} — switch to {theme === 'dark' ? 'reduce eye strain in bright environments' : 'reduce eye strain in dark environments'}
+              <p className="font-display text-base font-semibold text-foreground">Appearance</p>
+              <p className="text-[13px] text-muted-foreground mt-1.5">
+                {theme === 'dark' ? "You're using dark mode — easier on the eyes after dusk." : "You're using light mode — bright and friendly."}
               </p>
             </div>
             <div className="shrink-0">
@@ -261,16 +279,16 @@ export default function SettingsPage() {
         </div>
 
         {/* Daily Digest */}
-        <div className="rounded-xl border border-border/30 bg-card/60 p-5">
-          <div className="flex items-start gap-4">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10">
+        <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
+          <div className="flex items-start gap-5">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10">
               <Clock className="h-5 w-5 text-primary" />
             </div>
-            <div className="flex-1 min-w-0 space-y-4">
+            <div className="flex-1 min-w-0 space-y-5">
               <div>
-                <p className="text-sm font-semibold text-foreground">Daily Digest</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Configure when and where you receive your personalised daily briefing.
+                <p className="font-display text-base font-semibold text-foreground">Morning briefing</p>
+                <p className="text-[13px] text-muted-foreground mt-1.5">
+                  Pick when DealIQ should send you a short daily summary of what needs attention.
                 </p>
               </div>
 
@@ -336,7 +354,7 @@ export default function SettingsPage() {
               <div className="flex items-center gap-3 pt-1">
                 <Button
                   size="sm"
-                  className="h-8 text-xs bg-primary hover:bg-primary/90"
+                  className="h-9 text-xs rounded-full px-4 bg-primary hover:bg-primary/90 text-white"
                   onClick={saveDigestPrefs}
                   disabled={digestPrefsSaving}
                 >
@@ -346,7 +364,7 @@ export default function SettingsPage() {
                 <Button
                   size="sm"
                   variant="outline"
-                  className="h-8 text-xs hover:border-primary/40 hover:text-primary"
+                  className="h-9 text-xs rounded-full px-4 border-border hover:border-foreground/30"
                   onClick={sendTestEmail}
                 >
                   <Send className="mr-1.5 h-3 w-3" />
@@ -356,28 +374,30 @@ export default function SettingsPage() {
             </div>
           </div>
         </div>
+        </section>
 
-        {/* ── Coming Soon Placeholders ── */}
-        <div className="pt-4 space-y-4">
-          <p className="text-xs font-semibold text-foreground px-1">Coming Soon</p>
+        {/* ── COMING SOON ── */}
+        <section className="space-y-4">
+          <h2 className="font-display text-xl font-semibold tracking-tight text-foreground">
+            <span className="serif-accent">Coming soon</span>
+          </h2>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {/* Slack */}
-            <div className="rounded-xl border border-border/20 bg-card/20 p-5 opacity-60 grayscale transition-all hover:grayscale-0 hover:opacity-100">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-purple-500/10 mb-3">
-                <svg className="h-5 w-5 text-purple-400" viewBox="0 0 24 24" fill="currentColor">
-                  {/* Simple hash for demo */}
+            <div className="rounded-2xl border border-dashed border-border bg-card/40 p-5 opacity-70 transition-all hover:opacity-100 hover:border-border">
+              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#4A154B]/10 mb-3">
+                <svg className="h-5 w-5 text-[#4A154B]" viewBox="0 0 24 24" fill="currentColor">
                   <path d="M19.1 8.9H15V4.7h-2.1v4.2H8.7V4.7H6.6v4.2H2.5v2.1h4.1v4H2.5v2.1h4.1v4.2h2.1v-4.2h4.2v4.2h2.1v-4.2h4.1v-2.1h-4.1v-4h4.1V8.9zm-6.2 6.1H8.7v-4h4.2v4z" />
                 </svg>
               </div>
-              <p className="text-sm font-semibold text-foreground mb-1">Slack</p>
-              <p className="text-[11px] text-muted-foreground mb-3">Deal alerts and deal rooms in Slack</p>
-              <Badge variant="outline" className="text-[9px] border-border/30">Q3 2026</Badge>
+              <p className="font-display text-[15px] font-semibold text-foreground mb-1">Slack</p>
+              <p className="text-[12px] text-muted-foreground mb-3 leading-relaxed">Deal alerts and per-deal rooms — straight in Slack.</p>
+              <Badge variant="outline" className="text-[10px] rounded-full border-border">Q3 2026</Badge>
             </div>
           </div>
-        </div>
+        </section>
 
-        <p className="text-[11px] text-muted-foreground/40 text-center pt-4">
-          More settings — notification preferences, API keys, team management — coming soon.
+        <p className="text-[11.5px] text-muted-foreground/70 text-center pt-2 italic font-display">
+          More to come — notifications, API keys, team — drop us a note if you'd like something added.
         </p>
 
       </div>

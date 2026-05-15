@@ -16,6 +16,7 @@ export default {
     extend: {
       fontFamily: {
         sans: ['var(--font-geist-sans)', 'system-ui', 'sans-serif'],
+        display: ['Newsreader', 'Georgia', 'serif'],
         mono: ['var(--font-geist-mono)', 'monospace'],
       },
       colors: {
@@ -69,19 +70,19 @@ export default {
           red: "hsl(var(--health-red))",
         },
         brand: {
-          "50":  "#E8E9F7",
-          "100": "#D1D3EF",
-          "200": "#A3A7DF",
-          "300": "#757BCF",
-          "400": "#474FBF",
-          "500": "#020887",
-          "600": "#010665",
-          "700": "#010452",
+          "50":  "#fbf3ec",
+          "100": "#f6e2d3",
+          "200": "#eec1a4",
+          "300": "#e29c75",
+          "400": "#d57852",
+          "500": "#c95f3f",
+          "600": "#b54f30",
+          "700": "#8e3d24",
         },
         surface: {
-          app:  "#F7F9FC",
-          card: "#FFFFFF",
-          alt:  "#F0F4F8",
+          app:  "#faf6ee",
+          card: "#ffffff",
+          alt:  "#f4eee0",
         },
       },
       borderRadius: {

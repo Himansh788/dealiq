@@ -791,14 +791,27 @@ export default function Dashboard() {
       {loading ? <FocusBarSkeleton /> : data && <FocusBar focus={data.focus} simulated={data.simulated} />}
 
       {/* Header */}
-      <div className="px-6 pt-5 pb-2 max-w-[1400px] mx-auto">
-        <div className="flex items-center justify-between">
+      <div className="px-6 pt-8 pb-4 max-w-[1400px] mx-auto">
+        <div className="flex items-end justify-between gap-4 flex-wrap">
           <div>
-            <h1 className="text-lg font-bold text-foreground">{todayLabel}</h1>
-            <p className="text-xs text-muted-foreground mt-0.5">Your prioritized actions for today</p>
+            <p className="inline-flex items-center gap-2 text-[11px] uppercase tracking-[0.18em] text-muted-foreground font-medium mb-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-[hsl(var(--health-green))] ring-4 ring-[hsl(var(--health-green))]/15 animate-pulse" />
+              {todayLabel}
+            </p>
+            <h1 className="font-display text-3xl md:text-4xl font-medium tracking-tight text-foreground leading-[1.1]">
+              Here's your <span className="serif-accent">day.</span>
+            </h1>
+            <p className="text-sm text-muted-foreground mt-1.5 max-w-xl">
+              {data
+                ? data.actions.length > 0
+                  ? `${data.actions.length} thing${data.actions.length === 1 ? "" : "s"} to check on. Knock them out one by one.`
+                  : "You're all caught up. Pipeline is in good shape today."
+                : "Reading your pipeline for what could use a check-in…"
+              }
+            </p>
           </div>
           {error && (
-            <button onClick={load} className="flex items-center gap-1.5 text-xs text-destructive hover:text-destructive/80">
+            <button onClick={load} className="flex items-center gap-1.5 text-xs text-destructive hover:text-destructive/80 rounded-full border border-destructive/30 px-3 py-1.5">
               <RefreshCw className="h-3.5 w-3.5" /> Retry
             </button>
           )}
@@ -821,12 +834,12 @@ export default function Dashboard() {
           <div className="flex-1 min-w-0 space-y-6">
             {/* Active actions */}
             <section>
-              <h2 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-2">
+              <h2 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-[0.18em] mb-3 flex items-center gap-2">
                 <Zap className="h-3.5 w-3.5 text-primary" />
-                Action Queue
+                What to do today
                 {!loading && data && (
-                  <span className="text-muted-foreground/40 font-normal normal-case">
-                    · {data.actions.length} remaining
+                  <span className="text-muted-foreground/50 font-normal normal-case tracking-normal">
+                    · {data.actions.length} left
                   </span>
                 )}
               </h2>
@@ -836,10 +849,12 @@ export default function Dashboard() {
                 ) : data?.actions.length ? (
                   data.actions.map(t => <ActionCard key={t.id} task={t} onToggle={handleToggle} />)
                 ) : (
-                  <div className="rounded-xl border border-border/20 bg-card/30 p-8 text-center">
-                    <CheckCircle2 className="h-8 w-8 text-emerald-400 mx-auto mb-2" />
-                    <p className="text-sm font-medium text-foreground">All actions completed!</p>
-                    <p className="text-xs text-muted-foreground mt-1">Your pipeline is in great shape today.</p>
+                  <div className="rounded-2xl border border-border bg-card/40 p-10 text-center">
+                    <div className="inline-flex w-12 h-12 rounded-2xl bg-[hsl(var(--health-green))]/12 items-center justify-center mb-3">
+                      <CheckCircle2 className="h-6 w-6 text-[hsl(var(--health-green))]" />
+                    </div>
+                    <p className="font-display text-lg font-semibold text-foreground">All caught up.</p>
+                    <p className="text-sm text-muted-foreground mt-1">Your pipeline's in good shape today.</p>
                   </div>
                 )}
               </div>
@@ -848,8 +863,8 @@ export default function Dashboard() {
             {/* Completed today */}
             {data && data.completed_today.length > 0 && (
               <section>
-                <h2 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-                  Completed Today
+                <h2 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-[0.18em] mb-3">
+                  Done today
                 </h2>
                 <div className="space-y-1.5">
                   {data.completed_today.map(t => {

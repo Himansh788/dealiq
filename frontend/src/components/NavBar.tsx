@@ -69,12 +69,13 @@ export default function NavBar({
           {/* Brand — clickable → dashboard */}
           <button
             onClick={() => navigate("/dashboard")}
-            className="flex cursor-pointer items-center gap-3 transition-opacity hover:opacity-80"
+            className="flex cursor-pointer items-center gap-2.5 transition-opacity hover:opacity-85"
           >
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-primary via-primary/80 to-accent shadow-lg shadow-primary/20">
-              <BarChart3 className="h-5 w-5 text-white" />
+            <div className="relative flex h-9 w-9 items-center justify-center rounded-xl bg-foreground">
+              <span className="font-display text-background text-base font-semibold -tracking-wider">d</span>
+              <span className="absolute bottom-1 right-1 h-1.5 w-1.5 rounded-full bg-primary ring-2 ring-foreground" />
             </div>
-            <span className="text-xl font-bold tracking-tight text-foreground">DealIQ</span>
+            <span className="font-display text-xl font-semibold tracking-tight text-foreground">DealIQ</span>
             {isDemo && (
               <button
                 onClick={(e) => { e.stopPropagation(); setUpgradeOpen(true); }}
